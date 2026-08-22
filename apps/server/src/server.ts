@@ -423,6 +423,9 @@ export const makeRoutesLayer = Layer.mergeAll(
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
 ).pipe(
+  // Both transports share the same bootstrap service so thread creation,
+  // worktree setup, setup scripts, and rollback remain consistent.
+  Layer.provide(TurnStartBootstrap.layer),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer),
   Layer.provide(commandReadinessLayer),
