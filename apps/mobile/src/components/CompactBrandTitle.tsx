@@ -6,7 +6,7 @@ import type {
 import { Platform, View } from "react-native";
 
 import { AppText as Text } from "./AppText";
-import { T3Wordmark } from "./T3Wordmark";
+import { Z3Wordmark } from "./Z3Wordmark";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
 import { resolveMobileStageLabel } from "../lib/mobileBranding";
 import { useThemeColor } from "../lib/useThemeColor";
@@ -42,7 +42,7 @@ export function CompactBrandTitle(
   return (
     <View
       aria-level={1}
-      accessibilityLabel="T3 Code, Threads"
+      accessibilityLabel="Z3, Threads"
       accessible
       role="heading"
       style={{
@@ -52,7 +52,7 @@ export function CompactBrandTitle(
         marginLeft: titleOffset,
       }}
     >
-      <T3Wordmark color={iconColor} height={15} />
+      <Z3Wordmark color={iconColor} height={15} />
       <Text
         style={{
           color: mutedColor,

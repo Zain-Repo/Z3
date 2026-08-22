@@ -167,6 +167,7 @@ import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
+import { useWorkspace } from "../workspace";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
@@ -1142,6 +1143,8 @@ function chatActionErrorMessage(error: unknown): string {
 }
 
 function ChatViewContent(props: ChatViewProps) {
+  const { activeWorkspace } = useWorkspace();
+  const isChatWorkspace = activeWorkspace.id === "chat";
   const {
     environmentId,
     threadId,
@@ -2501,7 +2504,7 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  const showComposerContextStrip = isGitRepo && activeProject !== null;
+  const showComposerContextStrip = !isChatWorkspace && isGitRepo && activeProject !== null;
   const initialDiffPanelGitScope =
     gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
   const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
@@ -5742,7 +5745,9 @@ function ChatViewContent(props: ChatViewProps) {
         <header
           data-chat-header
           className={cn(
-            "bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            "bg-background transition-[background-color,padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            activeWorkspace.topbarClassName,
+            isChatWorkspace && "hidden",
             isElectron
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
@@ -5880,10 +5885,16 @@ function ChatViewContent(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        <DraftHeroHeadline
-                          activeProjectRef={activeProjectRef}
-                          activeProjectTitle={activeProject?.title ?? null}
-                        />
+                        {isChatWorkspace ? (
+                          <h1 className="text-center text-2xl font-medium tracking-tight text-foreground/90 sm:text-[28px]">
+                            What should we work on?
+                          </h1>
+                        ) : (
+                          <DraftHeroHeadline
+                            activeProjectRef={activeProjectRef}
+                            activeProjectTitle={activeProject?.title ?? null}
+                          />
+                        )}
                       </div>
                       <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                     </div>
@@ -5910,6 +5921,7 @@ function ChatViewContent(props: ChatViewProps) {
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
+                            variant={isChatWorkspace ? "chat" : "code"}
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
                             environmentId={environmentId}

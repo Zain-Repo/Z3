@@ -160,6 +160,8 @@ export interface ProviderSettingsFormAnnotation {
   readonly placeholder?: string | undefined;
   readonly hidden?: boolean | undefined;
   readonly clearWhenEmpty?: "omit" | "persist" | undefined;
+  /** Store this field in the provider instance's protected environment. */
+  readonly environmentVariable?: string | undefined;
 }
 
 export interface ProviderSettingsFormSchemaAnnotation {
@@ -371,7 +373,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Server URL",
-        description: "Leave blank to let T3 Code spawn the server when needed.",
+        description: "Leave blank to let Z3 spawn the server when needed.",
         providerSettingsForm: {
           placeholder: "http://127.0.0.1:4096",
           clearWhenEmpty: "omit",
@@ -400,6 +402,56 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
   },
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
+
+export const OpenRouterSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    apiEndpoint: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("https://openrouter.ai/api/v1")),
+      Schema.annotateKey({
+        title: "API endpoint",
+        description: "OpenRouter-compatible API base URL.",
+        providerSettingsForm: {
+          placeholder: "https://openrouter.ai/api/v1",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    apiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "API key",
+        description: "Stored securely and used for OpenRouter model discovery and chat requests.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "sk-or-v1-...",
+          clearWhenEmpty: "omit",
+          environmentVariable: "OPENROUTER_API_KEY",
+        },
+      }),
+    ),
+    defaultModel: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("openai/gpt-4o-mini")),
+      Schema.annotateKey({
+        title: "Default model",
+        description: "OpenRouter model ID used when a thread has no model selection.",
+        providerSettingsForm: {
+          placeholder: "openai/gpt-4o-mini",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  { order: ["apiKey", "apiEndpoint", "defaultModel"] },
+);
+export type OpenRouterSettings = typeof OpenRouterSettings.Type;
 
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -520,6 +572,7 @@ export const ServerSettings = Schema.Struct({
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    openrouter: OpenRouterSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
   // are `ProviderInstanceConfig` envelopes. The driver-specific config blob
@@ -623,6 +676,13 @@ const OpenCodeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const OpenRouterSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  apiEndpoint: Schema.optionalKey(TrimmedString),
+  defaultModel: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
@@ -663,6 +723,7 @@ export const ServerSettingsPatch = Schema.Struct({
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
+      openrouter: Schema.optionalKey(OpenRouterSettingsPatch),
     }),
   ),
   // Whole-map replacement for the new instance config. Patching individual

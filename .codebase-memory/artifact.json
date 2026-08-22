@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "1caf86059946ebaab0a9c935e161efd5d0bf2231",
+    "indexed_at": "2026-08-22T18:02:42Z",
+    "project": "Z3",
+    "nodes": 127500,
+    "edges": 592301,
+    "original_size": 235143168,
+    "compressed_size": 40235646,
+    "compression_level": 9
+}

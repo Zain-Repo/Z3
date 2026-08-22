@@ -771,6 +771,8 @@ export function ProviderInstanceCard({
                 idPrefix={`provider-instance-${instanceId}`}
                 variant="card"
                 onChange={updateConfig}
+                environment={instance.environment}
+                onEnvironmentChange={updateEnvironment}
               />
             ) : null}
 

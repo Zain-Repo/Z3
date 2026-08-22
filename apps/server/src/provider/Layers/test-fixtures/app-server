@@ -1,0 +1,97 @@
+import * as NodeFS from "node:fs";
+import * as NodeProcess from "node:process";
+
+const requestLogPath = NodeProcess.env.CODEX_SESSION_RUNTIME_REQUEST_LOG;
+const threadId = "provider-thread-1";
+let nextTurnId = 1;
+
+const recordRequest = (method) => {
+  if (requestLogPath) {
+    NodeFS.appendFileSync(requestLogPath, `${method}\n`);
+  }
+};
+
+const writeMessage = (message) => {
+  NodeProcess.stdout.write(`${JSON.stringify(message)}\n`);
+};
+
+const respond = (id, result) => {
+  writeMessage({ id, result });
+};
+
+const handleMessage = (message) => {
+  if (typeof message.method !== "string") {
+    return;
+  }
+
+  recordRequest(message.method);
+
+  switch (message.method) {
+    case "initialize":
+      respond(message.id, {
+        userAgent: "codex-session-runtime-test-peer",
+        codexHome: NodeProcess.cwd(),
+        platformFamily: "unix",
+        platformOs: "linux",
+      });
+      return;
+    case "config/mcpServer/reload":
+      respond(message.id, {});
+      return;
+    case "thread/start":
+      respond(message.id, {
+        cwd: NodeProcess.cwd(),
+        model: "gpt-5.3-codex",
+        modelProvider: "openai",
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        sandbox: { type: "dangerFullAccess" },
+        thread: {
+          cliVersion: "test",
+          createdAt: 0,
+          cwd: NodeProcess.cwd(),
+          ephemeral: false,
+          id: threadId,
+          modelProvider: "openai",
+          preview: "",
+          sessionId: "session-1",
+          source: "appServer",
+          status: { type: "idle" },
+          turns: [],
+          updatedAt: 0,
+        },
+      });
+      return;
+    case "turn/start":
+      respond(message.id, {
+        turn: {
+          id: `turn-${nextTurnId++}`,
+          items: [],
+          status: "inProgress",
+        },
+      });
+      return;
+    default:
+      if (message.id !== undefined) {
+        writeMessage({
+          id: message.id,
+          error: { code: -32601, message: `Unhandled request: ${message.method}` },
+        });
+      }
+  }
+};
+
+let remainder = "";
+NodeProcess.stdin.setEncoding("utf8");
+NodeProcess.stdin.on("data", (chunk) => {
+  remainder += chunk;
+  const lines = remainder.split("\n");
+  remainder = lines.pop() ?? "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0) {
+      handleMessage(JSON.parse(trimmed));
+    }
+  }
+});

@@ -239,7 +239,7 @@ describe("DesktopBackendConfiguration", () => {
         yield* fileSystem.writeFileString(entryPath, "");
 
         const nodePath = "/home/test user's/.nvm/versions/node/v22.0.0/bin/node";
-        const linuxEntryPath = "/tmp/t3 code's launch/entry file.mjs";
+        const linuxEntryPath = "/tmp/Z3's launch/entry file.mjs";
         const resolvedPath = "/home/test user/bin:/opt/test's tools/bin:/usr/bin:/bin";
         const devServerUrl = "http://127.0.0.1:5733/dev%20assets/?label=hello%20world";
         const config = yield* Effect.gen(function* () {

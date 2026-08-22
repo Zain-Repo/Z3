@@ -15,8 +15,10 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useSidebarV2Enabled } from "../hooks/useSettings";
+import { useWorkspace } from "../workspace";
 import ThreadSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
+import ChatWorkspaceSidebar from "./ChatWorkspaceSidebar";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   resolveInitialThreadSidebarWidth,
@@ -118,13 +120,15 @@ function SidebarControl() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const { activeWorkspace } = useWorkspace();
   const sidebarV2Enabled = useSidebarV2Enabled();
   // Settings routes render the settings nav, which lives in the v1 component
   // and is identical for both sidebars — so v1 stays mounted there.
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const useSidebarV2 = sidebarV2Enabled && !isOnSettings;
-  const useSidebarV2Theme = useSidebarV2 || isOnSettings;
+  const useChatSidebar = activeWorkspace.id === "chat" && !isOnSettings;
+  const useSidebarV2Theme = useSidebarV2 || useChatSidebar || isOnSettings;
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -188,8 +192,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="offcanvas"
         data-app-sidebar=""
+        data-workspace={activeWorkspace.id}
         data-sidebar-version={useSidebarV2Theme ? "v2" : "v1"}
-        className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+        className={cn(
+          "border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[background-color] duration-150 ease-out motion-reduce:transition-none",
+          activeWorkspace.sidebarClassName,
+        )}
         resizable={{
           maxWidth: sidebarMaximumWidth,
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
@@ -200,7 +208,13 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           onResize: setSidebarWidth,
         }}
       >
-        {useSidebarV2 ? <ThreadSidebarV2 /> : <ThreadSidebar />}
+        {useChatSidebar ? (
+          <ChatWorkspaceSidebar />
+        ) : useSidebarV2 ? (
+          <ThreadSidebarV2 />
+        ) : (
+          <ThreadSidebar />
+        )}
         <SidebarRail />
       </Sidebar>
       {children}

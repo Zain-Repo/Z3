@@ -107,6 +107,7 @@ import { buildExpandedImagePreview, type ExpandedImagePreview } from "./Expanded
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
+import { PlusIcon } from "lucide-react";
 
 function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children: ReactNode }) {
   const [position, setPosition] = useState<{
@@ -507,6 +508,7 @@ export interface ChatComposerHandle {
 // --------------------------------------------------------------------------
 
 export interface ChatComposerProps {
+  variant?: "code" | "chat";
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   routeKind: "server" | "draft";
@@ -623,6 +625,7 @@ export interface ChatComposerProps {
 
 export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps) {
   const {
+    variant = "code",
     composerDraftTarget,
     environmentId,
     routeKind,
@@ -692,6 +695,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setThreadError,
     onExpandImage,
   } = props;
+  const isSimpleChat = variant === "chat";
   const isSendDisabled = sendDisabledReason !== null;
 
   // ------------------------------------------------------------------
@@ -903,12 +907,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
   const composerProviderControls = useMemo(
     () => ({
-      showInteractionModeToggle: getProviderInteractionModeToggle(
-        providerStatuses,
-        selectedProvider,
-      ),
+      showInteractionModeToggle:
+        !isSimpleChat && getProviderInteractionModeToggle(providerStatuses, selectedProvider),
     }),
-    [providerStatuses, selectedProvider],
+    [isSimpleChat, providerStatuses, selectedProvider],
   );
   const selectedModelSelection = useMemo<ModelSelection>(
     () => createModelSelection(selectedInstanceId, selectedModel, selectedModelOptionsForDispatch),
@@ -986,6 +988,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const composerSurfaceRef = useRef<HTMLDivElement>(null);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
@@ -1157,7 +1160,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isComposerCollapsedMobile && !isComposerApprovalState && pendingUserInputs.length === 0;
 
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
-  const showPlanSidebarToggle = Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
+  const showPlanSidebarToggle =
+    !isSimpleChat && Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
   const composerFooterActionLayoutKey = useMemo(() => {
     if (activePendingProgress) {
       return `pending:${activePendingProgress.questionIndex}:${activePendingProgress.isLastQuestion}:${activePendingIsResponding}`;
@@ -1211,28 +1215,32 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, promptRef, scheduleComposerFocus, setComposerDraftPrompt],
   );
 
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-  });
-  const providerTraitsPicker = renderProviderTraitsPicker({
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-  });
+  const providerTraitsMenuContent = isSimpleChat
+    ? null
+    : renderProviderTraitsMenuContent({
+        provider: selectedProvider,
+        instanceId: selectedInstanceId,
+        ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+        ...(routeKind === "draft" && draftId ? { draftId } : {}),
+        model: selectedModel,
+        models: selectedProviderModels,
+        modelOptions: composerModelOptions?.[selectedInstanceId],
+        prompt,
+        onPromptChange: setPromptFromTraits,
+      });
+  const providerTraitsPicker = isSimpleChat
+    ? null
+    : renderProviderTraitsPicker({
+        provider: selectedProvider,
+        instanceId: selectedInstanceId,
+        ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+        ...(routeKind === "draft" && draftId ? { draftId } : {}),
+        model: selectedModel,
+        models: selectedProviderModels,
+        modelOptions: composerModelOptions?.[selectedInstanceId],
+        prompt,
+        onPromptChange: setPromptFromTraits,
+      });
   const pendingPrimaryAction = useMemo(
     () =>
       activePendingProgress
@@ -2688,6 +2696,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
           className={cn(
             "rounded-[20px] transition-[background-color] duration-200",
+            isSimpleChat && "flex flex-nowrap items-center max-sm:flex-wrap",
             isDragOverComposer ? "bg-accent/45 ring-1 ring-primary/70" : null,
             projectSelectionRequired ? "opacity-75" : null,
             composerProviderState.composerSurfaceClassName,
@@ -2868,7 +2877,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ref={setComposerMenuAnchor}
             className={cn(
               "relative px-3 pb-2 sm:px-4",
-              hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+              isSimpleChat
+                ? "min-w-0 flex-1 px-3 py-1 sm:px-3"
+                : hasComposerHeader
+                  ? "pt-2.5 sm:pt-3"
+                  : "pt-3.5 sm:pt-4",
               isComposerCollapsedMobile && "hidden",
             )}
           >
@@ -3049,7 +3062,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     : []
                 }
                 skills={selectedProviderStatus?.skills ?? []}
-                {...(showMobilePendingAnswerActions ? { className: "max-sm:pb-11" } : {})}
+                className={cn(
+                  showMobilePendingAnswerActions && "max-sm:pb-11",
+                  isSimpleChat && "min-h-10 max-h-40 text-[15px]",
+                )}
                 onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
                 onChange={onPromptChange}
                 onCommandKeyDown={onComposerCommandKey}
@@ -3067,7 +3083,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             ? "Enable a provider in Settings to send a message"
                             : phase === "disconnected"
                               ? "Ask for follow-up changes or attach images"
-                              : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                              : isSimpleChat
+                                ? "Ask ChatGPT"
+                                : "Ask anything, @tag files/folders, $use skills, or / for commands"
                 }
                 disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
               />
@@ -3117,12 +3135,46 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
               className={cn(
                 "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
+                isSimpleChat && "w-auto shrink-0 flex-none gap-1 px-2 py-1",
                 pendingUserInputs.length > 0 && "pt-2",
                 isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 showMobilePendingAnswerActions && "hidden sm:flex",
               )}
             >
-              <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div
+                className={cn(
+                  "-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                  isSimpleChat && "m-0 flex-none gap-0 p-0",
+                )}
+              >
+                {isSimpleChat ? (
+                  <>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="sr-only"
+                      tabIndex={-1}
+                      onChange={(event) => {
+                        const files = Array.from(event.currentTarget.files ?? []);
+                        event.currentTarget.value = "";
+                        void addComposerImages(files);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-8 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                      aria-label="Add an image"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={isConnecting || projectSelectionRequired}
+                    >
+                      <PlusIcon className="size-5" strokeWidth={1.8} />
+                    </Button>
+                  </>
+                ) : null}
                 {noProviderAvailable ? (
                   <Button
                     type="button"
@@ -3162,7 +3214,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   />
                 )}
 
-                {isComposerFooterCompact ? (
+                {isSimpleChat ? null : isComposerFooterCompact ? (
                   <CompactComposerControlsMenu
                     activePlan={showPlanSidebarToggle}
                     interactionMode={interactionMode}

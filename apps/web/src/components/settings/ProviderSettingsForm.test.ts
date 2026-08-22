@@ -4,6 +4,7 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 import { DRIVER_OPTION_BY_VALUE } from "./providerDriverMeta";
 import {
   deriveProviderSettingsFields,
+  nextProviderEnvironmentWithFieldValue,
   nextProviderConfigWithFieldValue,
   readProviderConfigBoolean,
   readProviderConfigString,
@@ -35,6 +36,57 @@ describe("ProviderSettingsForm helpers", () => {
       description: "Stored in plain text on disk.",
       control: "password",
     });
+  });
+
+  it("renders the OpenRouter API key as a protected environment field", () => {
+    const openrouter = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("openrouter")];
+    expect(openrouter).toBeDefined();
+
+    const apiKey = deriveProviderSettingsFields(openrouter!).find((field) => field.key === "apiKey");
+    expect(apiKey).toMatchObject({
+      control: "password",
+      environmentVariable: "OPENROUTER_API_KEY",
+    });
+
+    expect(
+      nextProviderEnvironmentWithFieldValue(
+        [],
+        apiKey!,
+        "sk-or-v1-test",
+      ),
+    ).toEqual([
+      {
+        name: "OPENROUTER_API_KEY",
+        value: "sk-or-v1-test",
+        sensitive: true,
+        valueRedacted: false,
+      },
+    ]);
+  });
+
+  it("removes a cleared protected environment field", () => {
+    const field = {
+      key: "apiKey",
+      control: "password" as const,
+      label: "API key",
+      clearWhenEmpty: "omit" as const,
+      environmentVariable: "OPENROUTER_API_KEY",
+    };
+
+    expect(
+      nextProviderEnvironmentWithFieldValue(
+        [
+          {
+            name: "OPENROUTER_API_KEY",
+            value: "",
+            sensitive: true,
+            valueRedacted: true,
+          },
+        ],
+        field,
+        "",
+      ),
+    ).toEqual([]);
   });
 
   it("preserves unknown config keys while omitting empty configurable fields", () => {

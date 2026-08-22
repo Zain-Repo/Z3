@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
   type ProviderInstanceConfig,
+  type ProviderInstanceEnvironmentVariable,
 } from "@t3tools/contracts";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
@@ -131,6 +132,9 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
   // Driver-specific config drafts keyed by driver so toggling between drivers
   // during the same dialog session does not lose in-progress input.
   const [configByDriver, setConfigByDriver] = useState<Record<string, Record<string, unknown>>>({});
+  const [environmentByDriver, setEnvironmentByDriver] = useState<
+    Record<string, ReadonlyArray<ProviderInstanceEnvironmentVariable>>
+  >({});
   // Errors are suppressed until the user has tried to submit once. After that
   // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
@@ -152,6 +156,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
   const wizardStepSummaries = [driverOption.label, previewLabel, null] as const;
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const environmentDraft = environmentByDriver[driver] ?? [];
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
     setConfigByDriver((existing) => {
       const next = { ...existing };
@@ -159,6 +164,20 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
         delete next[driver];
       } else {
         next[driver] = config;
+      }
+      return next;
+    });
+  };
+
+  const setEnvironmentDraft = (
+    environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>,
+  ) => {
+    setEnvironmentByDriver((existing) => {
+      const next = { ...existing };
+      if (environment.length === 0) {
+        delete next[driver];
+      } else {
+        next[driver] = environment;
       }
       return next;
     });
@@ -185,6 +204,8 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
 
     const config = configByDriver[driver] ?? {};
     const hasConfig = Object.keys(config).length > 0;
+    const environment = environmentByDriver[driver] ?? [];
+    const hasEnvironment = environment.length > 0;
     const normalizedAccentColor = normalizeProviderAccentColor(accentColor);
 
     const nextInstance: ProviderInstanceConfig = {
@@ -192,6 +213,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
       enabled: true,
       ...(label.trim().length > 0 ? { displayName: label.trim() } : {}),
       ...(normalizedAccentColor ? { accentColor: normalizedAccentColor } : {}),
+      ...(hasEnvironment ? { environment } : {}),
       ...(hasConfig ? { config } : {}),
     };
     // `ProviderInstanceId.make` revalidates the slug; we've already checked
@@ -394,6 +416,8 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                     idPrefix={`add-provider-${driver}`}
                     variant="dialog"
                     onChange={setConfigDraft}
+                    environment={environmentDraft}
+                    onEnvironmentChange={setEnvironmentDraft}
                   />
                 </div>
               ) : wizardStep === 2 ? (

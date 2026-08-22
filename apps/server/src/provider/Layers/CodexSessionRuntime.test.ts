@@ -2,8 +2,13 @@ import * as NodeAssert from "node:assert/strict";
 
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
@@ -18,6 +23,7 @@ import {
   buildTurnStartParams,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
+  makeCodexSessionRuntime,
   openCodexThread,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
@@ -37,6 +43,56 @@ describe("CodexSessionRuntimeIdentifierGenerationError", () => {
       "Failed to generate Codex App Server identifier for provider-event.",
     );
   });
+});
+
+describe("CodexSessionRuntime MCP setup", () => {
+  it.effect("refreshes MCP once at session startup instead of before every turn", () =>
+    Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      yield* Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const runtimeCwd = yield* fileSystem.makeTempDirectory({ prefix: "z3-codex-runtime-" });
+        const logPath = path.join(runtimeCwd, "requests.log");
+        yield* fileSystem.writeFileString(logPath, "");
+        yield* fileSystem.copyFile(
+          path.join(path.dirname(import.meta.filename), "test-fixtures", "app-server"),
+          path.join(runtimeCwd, "app-server"),
+        );
+        const runtime = yield* makeCodexSessionRuntime({
+          threadId: ThreadId.make("thread-1"),
+          binaryPath: process.execPath,
+          environment: {
+            ...process.env,
+            CODEX_SESSION_RUNTIME_REQUEST_LOG: logPath,
+          },
+          cwd: runtimeCwd,
+          runtimeMode: "full-access",
+          appServerArgs: ["-c", 'mcp_servers.t3-code.url="http://127.0.0.1/mcp"'],
+        });
+
+        yield* runtime.start();
+        yield* runtime.sendTurn({ input: "first turn" });
+        yield* runtime.sendTurn({ input: "second turn" });
+        yield* runtime.close;
+
+        const requestLog = (yield* fileSystem.readFileString(logPath)).trim().split("\n");
+        yield* fileSystem.remove(runtimeCwd, { recursive: true, force: true });
+        NodeAssert.deepStrictEqual(
+          requestLog,
+          [
+            "initialize",
+            "initialized",
+            "config/mcpServer/reload",
+            "thread/start",
+            "turn/start",
+            "turn/start",
+          ],
+        );
+      }).pipe(Scope.provide(scope));
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });
 
 function makeThreadOpenResponse(
@@ -254,7 +310,7 @@ describe("buildCodexDeveloperInstructions", () => {
     });
 
     NodeAssert.ok(instructions.startsWith(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS));
-    NodeAssert.match(instructions, /T3 Code/);
+    NodeAssert.match(instructions, /Z3/);
     NodeAssert.match(instructions, /Codex harness/);
     NodeAssert.match(instructions, /as gpt-5\.3-codex with high reasoning effort/);
   });

@@ -1,13 +1,13 @@
 # Provider architecture
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+> For maintainers. Using Z3? See [docs/user](../user/).
 
-A provider is the agent runtime that does the actual work. T3 Code supports several, and the
+A provider is the agent runtime that does the actual work. Z3 supports several, and the
 orchestration layer does not know which one is behind a thread.
 
 ## Built-in drivers
 
-[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with five entries:
+[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with six entries:
 
 | Driver kind   | Driver source                           |
 | ------------- | --------------------------------------- |
@@ -16,6 +16,7 @@ orchestration layer does not know which one is behind a thread.
 | `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
+| `openrouter`  | [`Drivers/OpenRouterDriver.ts`][openrouter] |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
 adapter in a child scope. Adapter implementations live beside them in
@@ -36,8 +37,10 @@ Two registries separate configuration from live processes:
 [`ProviderService`][service] sits on top. It combines the adapter registry with the provider session
 directory to route session and turn operations for a thread, so callers name a thread, not an agent.
 
-Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
-orchestration, contract, or client change is required for the common case.
+Adding a CLI or ACP driver means writing the driver plus adapter and adding it to
+`BUILT_IN_DRIVERS`. OpenRouter is the first direct HTTP driver: its adapter translates the
+OpenAI-compatible chat endpoint into canonical runtime events, while its snapshot probes `/models`.
+Direct drivers also need a contract settings schema and client catalog entry.
 
 ## How provider work is requested
 
@@ -81,6 +84,7 @@ when a request opens (approval) or user input is requested, via
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
+[openrouter]: ../../apps/server/src/provider/Drivers/OpenRouterDriver.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts

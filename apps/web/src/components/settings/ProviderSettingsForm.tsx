@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type {
+  ProviderInstanceEnvironmentVariable,
   ProviderSettingsFormAnnotation,
   ProviderSettingsFormControl,
   ProviderSettingsFormSchemaAnnotation,
@@ -23,6 +24,7 @@ export interface ProviderSettingsFieldModel {
   readonly description?: string | undefined;
   readonly placeholder?: string | undefined;
   readonly clearWhenEmpty: "omit" | "persist";
+  readonly environmentVariable?: string | undefined;
   readonly defaultBooleanValue?: boolean | undefined;
 }
 
@@ -103,12 +105,51 @@ export function deriveProviderSettingsFields(
             ? { placeholder: formAnnotation.placeholder }
             : {}),
           clearWhenEmpty: formAnnotation.clearWhenEmpty ?? "omit",
+          ...(formAnnotation.environmentVariable !== undefined
+            ? { environmentVariable: formAnnotation.environmentVariable }
+            : {}),
           ...(formAnnotation.control === "switch"
             ? { defaultBooleanValue: readFieldBooleanDefault(fieldSchema) }
             : {}),
         } satisfies ProviderSettingsFieldModel,
       ];
     });
+}
+
+function readProviderEnvironmentVariable(
+  environment: ReadonlyArray<ProviderInstanceEnvironmentVariable> | undefined,
+  name: string,
+): ProviderInstanceEnvironmentVariable | undefined {
+  return environment?.find((variable) => variable.name === name);
+}
+
+export function nextProviderEnvironmentWithFieldValue(
+  environment: ReadonlyArray<ProviderInstanceEnvironmentVariable> | undefined,
+  field: ProviderSettingsFieldModel,
+  value: string | boolean,
+): ReadonlyArray<ProviderInstanceEnvironmentVariable> {
+  if (field.environmentVariable === undefined || typeof value !== "string") {
+    return environment ?? [];
+  }
+
+  const current = environment ?? [];
+  const trimmed = value.trim();
+  if (field.clearWhenEmpty === "omit" && trimmed.length === 0) {
+    return current.filter((variable) => variable.name !== field.environmentVariable);
+  }
+
+  const nextVariable: ProviderInstanceEnvironmentVariable = {
+    name: field.environmentVariable,
+    value,
+    sensitive: true,
+    valueRedacted: false,
+  };
+  const existingIndex = current.findIndex(
+    (variable) => variable.name === field.environmentVariable,
+  );
+  if (existingIndex < 0) return [...current, nextVariable];
+
+  return current.with(existingIndex, nextVariable);
 }
 
 export function readProviderConfigString(config: unknown, key: string): string {
@@ -160,6 +201,10 @@ interface ProviderSettingsFormProps {
   readonly idPrefix: string;
   readonly variant: "card" | "dialog";
   readonly onChange: (nextConfig: Record<string, unknown> | undefined) => void;
+  readonly environment?: ReadonlyArray<ProviderInstanceEnvironmentVariable> | undefined;
+  readonly onEnvironmentChange?:
+    | ((nextEnvironment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void)
+    | undefined;
 }
 
 function FieldFrame(props: {
@@ -178,6 +223,28 @@ interface ProviderSettingsFieldRowProps {
   readonly idPrefix: string;
   readonly variant: ProviderSettingsFormProps["variant"];
   readonly onChange: ProviderSettingsFormProps["onChange"];
+  readonly environment: ReadonlyArray<ProviderInstanceEnvironmentVariable> | undefined;
+  readonly onEnvironmentChange: ProviderSettingsFormProps["onEnvironmentChange"];
+}
+
+function readProviderFieldString(
+  value: unknown,
+  environment: ReadonlyArray<ProviderInstanceEnvironmentVariable> | undefined,
+  field: ProviderSettingsFieldModel,
+): string {
+  if (field.environmentVariable !== undefined) {
+    return readProviderEnvironmentVariable(environment, field.environmentVariable)?.value ?? "";
+  }
+  return readProviderConfigString(value, field.key);
+}
+
+function hasRedactedProviderFieldValue(
+  environment: ReadonlyArray<ProviderInstanceEnvironmentVariable> | undefined,
+  field: ProviderSettingsFieldModel,
+): boolean {
+  return field.environmentVariable !== undefined
+    ? readProviderEnvironmentVariable(environment, field.environmentVariable)?.valueRedacted === true
+    : false;
 }
 
 function ProviderSettingsFieldRow({
@@ -186,6 +253,8 @@ function ProviderSettingsFieldRow({
   idPrefix,
   variant,
   onChange,
+  environment,
+  onEnvironmentChange,
 }: ProviderSettingsFieldRowProps) {
   const inputId = `${idPrefix}-${field.key}`;
   const descriptionClassName =
@@ -196,6 +265,17 @@ function ProviderSettingsFieldRow({
   const description = field.description ? (
     <span className={descriptionClassName}>{field.description}</span>
   ) : null;
+  const fieldValue = readProviderFieldString(value, environment, field);
+  const fieldPlaceholder = hasRedactedProviderFieldValue(environment, field)
+    ? "Saved key is set. Enter a new key to replace it."
+    : field.placeholder;
+  const updateFieldValue = (nextValue: string | boolean) => {
+    if (field.environmentVariable !== undefined) {
+      onEnvironmentChange?.(nextProviderEnvironmentWithFieldValue(environment, field, nextValue));
+      return;
+    }
+    onChange(nextProviderConfigWithFieldValue(value, field, nextValue));
+  };
 
   if (field.control === "switch") {
     return (
@@ -208,7 +288,7 @@ function ProviderSettingsFieldRow({
           <Switch
             checked={readProviderConfigBoolean(value, field.key, field.defaultBooleanValue)}
             onCheckedChange={(checked) =>
-              onChange(nextProviderConfigWithFieldValue(value, field, Boolean(checked)))
+              updateFieldValue(Boolean(checked))
             }
             aria-label={field.label}
           />
@@ -225,11 +305,11 @@ function ProviderSettingsFieldRow({
           <Textarea
             id={inputId}
             className={cn(variant === "card" && "mt-1.5")}
-            value={readProviderConfigString(value, field.key)}
+            value={fieldValue}
             onChange={(event) =>
-              onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
+              updateFieldValue(event.target.value)
             }
-            placeholder={field.placeholder}
+            placeholder={fieldPlaceholder}
             spellCheck={false}
           />
           {description}
@@ -249,9 +329,9 @@ function ProviderSettingsFieldRow({
             className="mt-1.5"
             type={type}
             autoComplete={field.control === "password" ? "off" : undefined}
-            value={readProviderConfigString(value, field.key)}
-            onCommit={(next) => onChange(nextProviderConfigWithFieldValue(value, field, next))}
-            placeholder={field.placeholder}
+            value={fieldValue}
+            onCommit={updateFieldValue}
+            placeholder={fieldPlaceholder}
             spellCheck={false}
           />
         ) : (
@@ -260,11 +340,11 @@ function ProviderSettingsFieldRow({
             className="bg-background"
             type={type}
             autoComplete={field.control === "password" ? "off" : undefined}
-            value={readProviderConfigString(value, field.key)}
+            value={fieldValue}
             onChange={(event) =>
-              onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
+              updateFieldValue(event.target.value)
             }
-            placeholder={field.placeholder}
+            placeholder={fieldPlaceholder}
             spellCheck={false}
           />
         )}
@@ -280,6 +360,8 @@ export function ProviderSettingsForm({
   idPrefix,
   variant,
   onChange,
+  environment,
+  onEnvironmentChange,
 }: ProviderSettingsFormProps) {
   const fields = useMemo(() => deriveProviderSettingsFields(definition), [definition]);
 
@@ -297,6 +379,8 @@ export function ProviderSettingsForm({
           idPrefix={idPrefix}
           variant={variant}
           onChange={onChange}
+          environment={environment}
+          onEnvironmentChange={onEnvironmentChange}
         />
       ))}
     </>

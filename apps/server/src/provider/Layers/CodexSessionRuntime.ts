@@ -1216,6 +1216,15 @@ export const makeCodexSessionRuntime = (
       yield* emitSessionEvent("session/connecting", "Starting Codex App Server session.");
       yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
+      if (hasConfiguredMcpServer(options.appServerArgs)) {
+        yield* client.request("config/mcpServer/reload", undefined).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Failed to refresh Codex MCP tool catalog during session startup.", {
+              cause,
+            }),
+          ),
+        );
+      }
 
       const requestedModel = normalizeCodexModelSlug(options.model);
 
@@ -1280,15 +1289,6 @@ export const makeCodexSessionRuntime = (
       sendTurn: (input) =>
         Effect.gen(function* () {
           const providerThreadId = yield* readProviderThreadId;
-          if (hasConfiguredMcpServer(options.appServerArgs)) {
-            yield* client.request("config/mcpServer/reload", undefined).pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("Failed to refresh Codex MCP tool catalog before turn.", {
-                  cause,
-                }),
-              ),
-            );
-          }
           const normalizedModel = normalizeCodexModelSlug(
             input.model ?? (yield* Ref.get(sessionRef)).model,
           );

@@ -35,6 +35,7 @@ import {
 } from "../logicalProject";
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
+import { WorkspaceProvider } from "../workspace";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
@@ -116,11 +117,13 @@ function RootRouteView() {
   }
 
   const appShell = (
-    <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
-    </CommandPalette>
+    <WorkspaceProvider>
+      <CommandPalette>
+        <AppSidebarLayout>
+          <Outlet />
+        </AppSidebarLayout>
+      </CommandPalette>
+    </WorkspaceProvider>
   );
 
   return (
