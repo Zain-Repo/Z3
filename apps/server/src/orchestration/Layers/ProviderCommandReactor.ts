@@ -26,6 +26,7 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { ensureChatWorkspace } from "../../chat/ChatWorkspace.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -47,6 +48,19 @@ import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
+
+const isChatThread = (thread: { readonly scope?: "project" | "chat" | undefined }): boolean =>
+  thread.scope === "chat";
+
+const isProjectThread = <
+  T extends {
+    readonly scope?: "project" | "chat" | undefined;
+    readonly projectId: ProjectId | null;
+  },
+>(
+  thread: T,
+): thread is T & { readonly projectId: ProjectId } =>
+  thread.scope !== "chat" && thread.projectId !== null;
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -546,11 +560,25 @@ const make = Effect.gen(function* () {
         });
       }
     }
-    const project = yield* resolveProject(thread.projectId);
-    const effectiveCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: project ? [project] : [],
-    });
+    let effectiveCwd: string | undefined;
+    if (isChatThread(thread)) {
+      effectiveCwd = yield* ensureChatWorkspace(thread.id);
+    } else {
+      if (!isProjectThread(thread)) {
+        return yield* new ProviderAdapterRequestError({
+          provider: providerErrorLabelFromInstanceHint({
+            instanceId: String(thread.modelSelection.instanceId),
+          }),
+          method: "thread.turn.start",
+          detail: `Project-scoped thread '${threadId}' has no project id.`,
+        });
+      }
+      const project = yield* resolveProject(thread.projectId);
+      effectiveCwd = resolveThreadWorkspaceCwd({
+        thread,
+        projects: project ? [project] : [],
+      });
+    }
 
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
@@ -855,12 +883,19 @@ const make = Effect.gen(function* () {
     if (thread.title !== previousTitle) {
       return { _tag: "Superseded" } as const;
     }
-    const project = yield* resolveProject(thread.projectId);
-    const cwd =
-      resolveThreadWorkspaceCwd({
-        thread,
-        projects: project ? [project] : [],
-      }) ?? process.cwd();
+    let cwd: string;
+    if (isChatThread(thread)) {
+      cwd = yield* ensureChatWorkspace(thread.id);
+    } else if (!isProjectThread(thread)) {
+      cwd = process.cwd();
+    } else {
+      const project = yield* resolveProject(thread.projectId);
+      cwd =
+        resolveThreadWorkspaceCwd({
+          thread,
+          projects: project ? [project] : [],
+        }) ?? process.cwd();
+    }
     const { textGenerationModelSelection: modelSelection } =
       yield* serverSettingsService.getSettings;
     const generated = yield* textGeneration.generateThreadTitle({
@@ -1032,24 +1067,33 @@ const make = Effect.gen(function* () {
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
-      const project = yield* resolveProject(thread.projectId);
-      const generationCwd =
-        resolveThreadWorkspaceCwd({
-          thread,
-          projects: project ? [project] : [],
-        }) ?? process.cwd();
+      let generationCwd: string;
+      if (isChatThread(thread)) {
+        generationCwd = yield* ensureChatWorkspace(thread.id);
+      } else if (!isProjectThread(thread)) {
+        generationCwd = process.cwd();
+      } else {
+        const project = yield* resolveProject(thread.projectId);
+        generationCwd =
+          resolveThreadWorkspaceCwd({
+            thread,
+            projects: project ? [project] : [],
+          }) ?? process.cwd();
+      }
       const generationInput = {
         messageText: message.text,
         ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
         ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
       };
 
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        ...generationInput,
-      }).pipe(Effect.forkScoped);
+      if (!isChatThread(thread)) {
+        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+          threadId: event.payload.threadId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          ...generationInput,
+        }).pipe(Effect.forkScoped);
+      }
 
       if (canReplaceThreadTitle(thread.title, event.payload.titleSeed)) {
         yield* maybeGenerateThreadTitleForFirstTurn({

@@ -492,6 +492,18 @@ export const OpenAI: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+export const OpenRouterIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 657 512" fill="none">
+    <image
+      href="/openrouter.png"
+      width="657"
+      height="512"
+      preserveAspectRatio="none"
+      className="dark:invert"
+    />
+  </svg>
+);
+
 export const ClaudeAI: Icon = ({ className, ...props }) => (
   <svg
     {...props}

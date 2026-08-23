@@ -7,7 +7,7 @@ import {
   type ScopedProjectRef,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { isProjectThread, type EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import * as Option from "effect/Option";
 
 import { useProject, useThreadShell } from "../state/entities";
@@ -105,7 +105,7 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
   );
   const selectedProjectRef = useMemo<ScopedProjectRef | null>(
     () =>
-      selectedThread === null
+      selectedThread === null || !isProjectThread(selectedThread)
         ? null
         : {
             environmentId: selectedThread.environmentId,

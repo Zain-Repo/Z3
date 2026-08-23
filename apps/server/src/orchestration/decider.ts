@@ -29,6 +29,10 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 // QUEUED_TURN_START_GRACE_MS in client-runtime threadSettled.ts.
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
+const threadScope = (thread: {
+  readonly scope?: "project" | "chat" | undefined;
+}): "project" | "chat" => thread.scope ?? "project";
+
 /**
  * Blocked-on-you work derived from the thread's retained activities: an
  * approval or user-input request with no later resolution for the same
@@ -345,11 +349,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.create": {
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
+      const scope = command.scope ?? "project";
+      if (scope === "project") {
+        if (command.projectId === null) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Project-scoped threads require a project id.",
+          });
+        }
+        yield* requireProject({
+          readModel,
+          command,
+          projectId: command.projectId,
+        });
+      } else if (
+        command.projectId !== null ||
+        command.branch !== null ||
+        command.worktreePath !== null
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Chat-scoped threads cannot reference a project, branch, or worktree.",
+        });
+      }
       yield* requireThreadAbsent({
         readModel,
         command,
@@ -365,10 +387,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.created",
         payload: {
           threadId: command.threadId,
+          scope,
           projectId: command.projectId,
           title: command.title,
           modelSelection: command.modelSelection,
-          runtimeMode: command.runtimeMode,
+          runtimeMode: scope === "chat" ? "approval-required" : command.runtimeMode,
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
@@ -642,6 +665,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         thread.branch !== command.expectedBranch
           ? thread.branch
           : command.branch;
+      if (
+        threadScope(thread) === "chat" &&
+        (branch !== undefined || command.worktreePath !== undefined)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Chat-scoped threads cannot update branch or worktree metadata.",
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -703,7 +735,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.runtime-mode.set": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
@@ -719,7 +751,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.runtime-mode-set",
         payload: {
           threadId: command.threadId,
-          runtimeMode: command.runtimeMode,
+          runtimeMode: threadScope(thread) === "chat" ? "approval-required" : command.runtimeMode,
           updatedAt: occurredAt,
         },
       };

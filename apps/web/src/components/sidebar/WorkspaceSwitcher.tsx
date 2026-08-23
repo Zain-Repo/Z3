@@ -1,5 +1,6 @@
 import { ChevronDownIcon } from "lucide-react";
 import { memo } from "react";
+import { useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -16,6 +17,7 @@ import { isWorkspaceId, useWorkspace } from "../../workspace";
 
 export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
   const { activeWorkspace, setWorkspace, workspaces } = useWorkspace();
+  const navigate = useNavigate();
   const ActiveIcon = activeWorkspace.icon;
 
   return (
@@ -39,6 +41,9 @@ export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
             onValueChange={(value) => {
               if (isWorkspaceId(value)) {
                 setWorkspace(value);
+                if (value === "chat" || activeWorkspace.id === "chat") {
+                  void navigate({ to: "/" });
+                }
               }
             }}
           >

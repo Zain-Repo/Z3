@@ -78,6 +78,7 @@ For multi-account setups, see [Codex](./providers-codex.md) and [Claude](./provi
 
 ## Next Steps
 
+- [Z3Chat](./chat.md): use the desktop-only projectless chat workspace
 - [Permission modes](./permission-modes.md): how much Z3 asks before acting
 - [Remote access](./remote-access.md): connect from a phone, tablet, or another desktop
 - [Keeping Z3 in sync](./updating.md): client and server version skew

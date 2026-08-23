@@ -8,6 +8,7 @@ import {
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   OrchestrationThreadSearchSource,
+  OrchestrationThreadScope,
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadDetailSnapshot,
@@ -115,7 +116,8 @@ const ProjectionThreadSearchRequest = Schema.Struct({
 });
 const ProjectionThreadSearchRow = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
+  scope: OrchestrationThreadScope,
+  projectId: Schema.NullOr(ProjectId),
   source: OrchestrationThreadSearchSource,
   matchText: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
@@ -369,6 +371,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          scope,
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -403,6 +406,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          scope,
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -428,7 +432,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
-        ORDER BY project_id ASC, created_at ASC, thread_id ASC
+        ORDER BY scope ASC, project_id ASC, created_at ASC, thread_id ASC
       `,
   });
 
@@ -439,6 +443,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          scope,
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -464,7 +469,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NOT NULL
-        ORDER BY project_id ASC, archived_at DESC, thread_id DESC
+        ORDER BY scope ASC, project_id ASC, archived_at DESC, thread_id DESC
       `,
   });
 
@@ -730,6 +735,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WITH ranked AS (
           SELECT
             threads.thread_id AS thread_id,
+            threads.scope AS scope,
             threads.project_id AS project_id,
             CASE messages.role
               WHEN 'user' THEN 'user'
@@ -755,11 +761,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           FROM projection_thread_messages AS messages
           INNER JOIN projection_threads AS threads
             ON threads.thread_id = messages.thread_id
-          INNER JOIN projection_projects AS projects
+          LEFT JOIN projection_projects AS projects
             ON projects.project_id = threads.project_id
           WHERE threads.deleted_at IS NULL
             AND threads.archived_at IS NULL
-            AND projects.deleted_at IS NULL
+            AND (threads.scope = 'chat' OR projects.deleted_at IS NULL)
             AND messages.is_streaming = 0
             AND (
               messages.role = 'user'
@@ -776,6 +782,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         )
         SELECT
           thread_id AS "threadId",
+          scope,
           project_id AS "projectId",
           source,
           match_text AS "matchText",
@@ -875,6 +882,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          scope,
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -1313,6 +1321,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
               const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => ({
                 id: row.threadId,
+                scope: row.scope,
                 projectId: row.projectId,
                 title: row.title,
                 modelSelection: row.modelSelection,
@@ -1516,6 +1525,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 }
                 threads.push({
                   id: row.threadId,
+                  scope: row.scope,
                   projectId: row.projectId,
                   title: row.title,
                   modelSelection: row.modelSelection,
@@ -1650,6 +1660,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 row.deletedAt === null
                   ? Result.succeed({
                       id: row.threadId,
+                      scope: row.scope,
                       projectId: row.projectId,
                       title: row.title,
                       modelSelection: row.modelSelection,
@@ -1789,6 +1800,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               threads: threadRows.map(
                 (row): OrchestrationThreadShell => ({
                   id: row.threadId,
+                  scope: row.scope,
                   projectId: row.projectId,
                   title: row.title,
                   modelSelection: row.modelSelection,
@@ -1881,6 +1893,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     return {
       matches: rows.map((row) => ({
         threadId: row.threadId,
+        scope: row.scope,
         projectId: row.projectId,
         source: row.source,
         snippet: buildSearchSnippet(row.matchText, input.query),
@@ -2060,6 +2073,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
       return Option.some({
         id: threadRow.value.threadId,
+        scope: threadRow.value.scope,
         projectId: threadRow.value.projectId,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
@@ -2159,6 +2173,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
       const thread = {
         id: threadRow.value.threadId,
+        scope: threadRow.value.scope,
         projectId: threadRow.value.projectId,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,

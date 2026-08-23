@@ -95,6 +95,7 @@ import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
+import { isProjectThread } from "@t3tools/client-runtime/state/models";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -1176,7 +1177,7 @@ const SidebarV2SearchResultRow = memo(function SidebarV2SearchResultRow(props: {
 export default function SidebarV2() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
-  const threads = useThreadShells();
+  const threads = useThreadShells().filter(isProjectThread);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -1959,9 +1960,12 @@ export default function SidebarV2() {
       const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
       return nextThread
         ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
-        : shell
-          ? () =>
-              void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shell.projectId))
+        : shell !== undefined && shell.projectId !== null
+          ? (() => {
+              const projectId = shell.projectId;
+              return () =>
+                void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, projectId));
+            })()
           : () => void router.navigate({ to: "/" });
     },
     [navigateToThread, router],
@@ -2367,10 +2371,12 @@ export default function SidebarV2() {
         }
         switch (clicked.value) {
           case "new-thread-on-branch": {
+            if (thread.projectId === null) return;
+            const projectId = thread.projectId;
             // Explicit branch carry-over: reuse the thread's worktree when it
             // has one, otherwise its branch on the local checkout.
             const result = await settlePromise(() =>
-              handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId), {
+              handleNewThreadRef.current(scopeProjectRef(thread.environmentId, projectId), {
                 branch: thread.branch,
                 worktreePath: thread.worktreePath,
                 envMode: thread.worktreePath ? "worktree" : "local",
@@ -2789,12 +2795,17 @@ export default function SidebarV2() {
                         key={threadKey}
                         thread={thread}
                         projectCwd={
-                          projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
+                          thread.projectId === null
+                            ? null
+                            : (projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
+                              null)
                         }
                         projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
+                          thread.projectId === null
+                            ? null
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null)
                         }
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                         providerEntryByInstanceId={providerEntryByInstanceId}
@@ -2885,12 +2896,17 @@ export default function SidebarV2() {
                         currentEnvironmentId={primaryEnvironmentId}
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                         projectCwd={
-                          projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
+                          thread.projectId === null
+                            ? null
+                            : (projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
+                              null)
                         }
                         projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
+                          thread.projectId === null
+                            ? null
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null)
                         }
                         providerEntryByInstanceId={providerEntryByInstanceId}
                         onThreadClick={handleThreadClick}

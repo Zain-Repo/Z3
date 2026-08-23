@@ -100,6 +100,20 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       } satisfies OrchestrationCommand;
     }
 
+    if (canonicalCommand.type === "thread.create") {
+      const scope = canonicalCommand.scope ?? "project";
+      if (scope === "chat" && serverConfig.mode !== "desktop") {
+        return yield* new OrchestrationDispatchCommandError({
+          message: "Chat-scoped threads are available only from a desktop server.",
+        });
+      }
+      return {
+        ...canonicalCommand,
+        scope,
+        runtimeMode: scope === "chat" ? "approval-required" : canonicalCommand.runtimeMode,
+      } satisfies OrchestrationCommand;
+    }
+
     if (canonicalCommand.type !== "thread.turn.start") {
       return canonicalCommand as OrchestrationCommand;
     }

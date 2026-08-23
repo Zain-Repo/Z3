@@ -1017,6 +1017,23 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const requireProjectScopedThreadForWorkspaceOperation = (threadId: ThreadId) =>
+        projectionSnapshotQuery.getThreadShellById(threadId).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.void,
+              onSome: (thread) =>
+                thread.scope === "chat" || thread.projectId === null
+                  ? Effect.fail(
+                      new OrchestrationDispatchCommandError({
+                        message: "Workspace operations are unavailable for chat threads.",
+                      }),
+                    )
+                  : Effect.void,
+            }),
+          ),
+        );
+
       return WsRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
@@ -1087,7 +1104,8 @@ const makeWsRpcLayer = (
         [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getTurnDiff,
-            checkpointDiffQuery.getTurnDiff(input).pipe(
+            requireProjectScopedThreadForWorkspaceOperation(input.threadId).pipe(
+              Effect.andThen(checkpointDiffQuery.getTurnDiff(input)),
               Effect.mapError(
                 (cause) =>
                   new OrchestrationGetTurnDiffError({
@@ -1101,7 +1119,8 @@ const makeWsRpcLayer = (
         [ORCHESTRATION_WS_METHODS.getFullThreadDiff]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getFullThreadDiff,
-            checkpointDiffQuery.getFullThreadDiff(input).pipe(
+            requireProjectScopedThreadForWorkspaceOperation(input.threadId).pipe(
+              Effect.andThen(checkpointDiffQuery.getFullThreadDiff(input)),
               Effect.mapError(
                 (cause) =>
                   new OrchestrationGetFullThreadDiffError({
@@ -1718,6 +1737,11 @@ const makeWsRpcLayer = (
                   ),
                 );
               if (Option.isNone(thread)) {
+                return yield* new AssetWorkspaceContextNotFoundError({
+                  resource: input.resource,
+                });
+              }
+              if (thread.value.scope === "chat" || thread.value.projectId === null) {
                 return yield* new AssetWorkspaceContextNotFoundError({
                   resource: input.resource,
                 });

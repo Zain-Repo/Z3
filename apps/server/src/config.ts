@@ -32,6 +32,7 @@ export interface ServerDerivedPaths {
   readonly settingsPath: string;
   readonly providerStatusCacheDir: string;
   readonly worktreesDir: string;
+  readonly chatWorkspacesDir: string;
   readonly attachmentsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
@@ -118,6 +119,7 @@ export const deriveServerPaths = Effect.fn(function* (
     settingsPath: join(stateDir, "settings.json"),
     providerStatusCacheDir,
     worktreesDir: join(baseDir, "worktrees"),
+    chatWorkspacesDir: join(stateDir, "chat-workspaces"),
     attachmentsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
@@ -144,6 +146,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.chatWorkspacesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
       fs.makeDirectory(derivedPaths.providerStatusCacheDir, { recursive: true }),

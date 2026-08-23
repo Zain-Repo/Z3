@@ -1,5 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -9,6 +9,21 @@ import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { isElectron } from "../env";
+import { useWorkspace } from "../workspace";
+import { useAtomCommand } from "../state/use-atom-command";
+import { threadEnvironment } from "../state/threads";
+import { useActiveEnvironmentId, useServerConfigs } from "../state/entities";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { newThreadId } from "../lib/utils";
+import {
+  buildChatThreadCreateInput,
+  readChatEnvironmentSelection,
+  resolveChatEnvironmentId,
+  resolveChatModelSelection,
+} from "../lib/chatThreadCreation";
+import { toastManager } from "../components/ui/toast";
+import { isProjectThread } from "@t3tools/client-runtime/state/models";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -23,12 +38,115 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
   const { environments } = useEnvironments();
+  const { activeWorkspace } = useWorkspace();
 
   if (authGateState.status === "hosted-static" && environments.length === 0) {
     return <HostedStaticOnboardingState />;
   }
 
+  if (isElectron && activeWorkspace.id === "chat") {
+    return <ChatWorkspaceLanding />;
+  }
+
   return <IndexDraftLanding />;
+}
+
+function ChatWorkspaceLanding() {
+  const navigate = useNavigate();
+  const threads = useThreadShells();
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environments } = useEnvironments();
+  const chatEnvironmentId = resolveChatEnvironmentId(
+    readChatEnvironmentSelection(),
+    activeEnvironmentId,
+    primaryEnvironmentId,
+    environments.map((environment) => environment.environmentId),
+  );
+  const serverConfigs = useServerConfigs();
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
+  const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+  const startingRef = useRef(false);
+  const [failed, setFailed] = useState(false);
+  const [retryRequest, setRetryRequest] = useState(0);
+  const activeChat = useMemo(
+    () =>
+      threads
+        .filter((thread) => thread.scope === "chat" && thread.projectId === null)
+        .filter(
+          (thread) => chatEnvironmentId === null || thread.environmentId === chatEnvironmentId,
+        )
+        .filter((thread) => thread.archivedAt === null)
+        .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null,
+    [chatEnvironmentId, threads],
+  );
+
+  useEffect(() => {
+    if (!bootstrapped || chatEnvironmentId === null || startingRef.current) {
+      return;
+    }
+    startingRef.current = true;
+    const threadId = activeChat?.id ?? newThreadId();
+    void (async () => {
+      if (activeChat === null) {
+        const selection = resolveChatModelSelection(
+          serverConfigs.get(chatEnvironmentId)?.providers,
+        );
+        if (!selection) {
+          startingRef.current = false;
+          setFailed(true);
+          toastManager.add({
+            type: "error",
+            title: "No chat provider is available",
+            description: "Enable a provider for this environment, then try again.",
+          });
+          return;
+        }
+        const result = await createThread({
+          environmentId: chatEnvironmentId,
+          input: buildChatThreadCreateInput({ threadId, selection }),
+        });
+        if (result._tag === "Failure") {
+          startingRef.current = false;
+          setFailed(true);
+          toastManager.add({
+            type: "error",
+            title: "Could not start chat",
+            description: "The environment rejected the new chat. Try again.",
+          });
+          return;
+        }
+      }
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: chatEnvironmentId, threadId },
+        replace: true,
+      });
+    })().catch(() => {
+      startingRef.current = false;
+      setFailed(true);
+    });
+  }, [
+    activeChat,
+    bootstrapped,
+    chatEnvironmentId,
+    createThread,
+    navigate,
+    retryRequest,
+    serverConfigs,
+  ]);
+
+  if (failed) {
+    return (
+      <DraftStartError
+        onRetry={() => {
+          setFailed(false);
+          setRetryRequest((request) => request + 1);
+        }}
+      />
+    );
+  }
+  return null;
 }
 
 /**
@@ -47,7 +165,11 @@ function IndexDraftLanding() {
   const mostRecentProject = useMemo(
     () =>
       bootstrapped
-        ? (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null)
+        ? (sortScopedProjectsForSidebar(
+            projects,
+            threads.filter(isProjectThread),
+            "updated_at",
+          )[0] ?? null)
         : null,
     [bootstrapped, projects, threads],
   );

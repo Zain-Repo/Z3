@@ -1713,7 +1713,7 @@ const make = Effect.gen(function* () {
         });
       }
 
-      if (event.type === "turn.diff.updated") {
+      if (event.type === "turn.diff.updated" && thread.scope !== "chat") {
         const turnId = toTurnId(event.turnId);
         const checkpointContext = turnId
           ? yield* projectionSnapshotQuery

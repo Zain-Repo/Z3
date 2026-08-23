@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { removeChatWorkspace } from "../../chat/ChatWorkspace.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -56,12 +57,20 @@ const make = Effect.gen(function* () {
       threadId,
     });
 
+  const removeThreadChatWorkspace = (threadId: ThreadDeletedEvent["payload"]["threadId"]) =>
+    logCleanupCauseUnlessInterrupted({
+      effect: removeChatWorkspace(threadId),
+      message: "thread deletion cleanup skipped chat workspace removal",
+      threadId,
+    });
+
   const processThreadDeleted = Effect.fn("processThreadDeleted")(function* (
     event: ThreadDeletedEvent,
   ) {
     const { threadId } = event.payload;
     yield* stopProviderSession(threadId);
     yield* closeThreadTerminals(threadId);
+    yield* removeThreadChatWorkspace(threadId);
   });
 
   const processThreadDeletedSafely = (event: ThreadDeletedEvent) =>

@@ -75,6 +75,11 @@ export function createEnvironmentThreadShellAtoms(input: {
     return Atom.make((get) => {
       const grouped = new Map<ProjectId, ScopedThreadRef[]>();
       for (const thread of get(environmentThreadsAtom(environmentId))) {
+        // Chat threads are intentionally projectless. Keep them out of the
+        // project index so Z3Code grouping never presents them as projects.
+        if (thread.scope === "chat" || thread.projectId === null) {
+          continue;
+        }
         const refs = grouped.get(thread.projectId);
         const ref = { environmentId, threadId: thread.id };
         if (refs === undefined) {

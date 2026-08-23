@@ -283,6 +283,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(snapshot.threads, [
         {
           id: ThreadId.make("thread-1"),
+          scope: "project",
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           modelSelection: {
@@ -398,6 +399,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(shellSnapshot.threads, [
         {
           id: ThreadId.make("thread-1"),
+          scope: "project",
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           modelSelection: {
@@ -1813,6 +1815,85 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepStrictEqual(
         (yield* snapshotQuery.searchThreads({ query: "user needle" })).matches,
         [],
+      );
+    }),
+  );
+
+  it.effect("includes projectless chats in shell snapshots and search", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_projects`;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          scope,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          created_at,
+          updated_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          deleted_at
+        ) VALUES (
+          'thread-chat',
+          'chat',
+          NULL,
+          'Projectless chat',
+          '{"instanceId":"codex","model":"gpt-5.4"}',
+          'approval-required',
+          'default',
+          '2026-05-02T00:00:00.000Z',
+          '2026-05-02T00:00:01.000Z',
+          0,
+          0,
+          0,
+          NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id,
+          thread_id,
+          turn_id,
+          role,
+          text,
+          is_streaming,
+          created_at,
+          updated_at
+        ) VALUES (
+          'message-chat',
+          'thread-chat',
+          NULL,
+          'user',
+          'chat search needle',
+          0,
+          '2026-05-02T00:00:02.000Z',
+          '2026-05-02T00:00:02.000Z'
+        )
+      `;
+
+      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      assert.deepStrictEqual(shellSnapshot.projects, []);
+      assert.deepStrictEqual(
+        shellSnapshot.threads.map((thread) => [thread.id, thread.scope, thread.projectId]),
+        [[ThreadId.make("thread-chat"), "chat", null]],
+      );
+
+      const result = yield* snapshotQuery.searchThreads({ query: "search needle" });
+      assert.deepStrictEqual(
+        result.matches.map((match) => [match.threadId, match.scope, match.projectId]),
+        [[ThreadId.make("thread-chat"), "chat", null]],
       );
     }),
   );

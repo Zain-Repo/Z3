@@ -3,7 +3,11 @@ import * as Arr from "effect/Array";
 import type { RepositoryIdentity } from "@t3tools/contracts";
 
 import { scopedProjectKey } from "./scopedEntities";
-import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import {
+  isProjectThread,
+  type EnvironmentProject,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 
 const DateDescending = Order.flip(Order.Date);
 
@@ -65,6 +69,9 @@ export function groupProjectsByRepository(input: {
   const threadsByProjectKey = new Map<string, EnvironmentThreadShell[]>();
 
   for (const thread of input.threads) {
+    if (!isProjectThread(thread)) {
+      continue;
+    }
     const key = scopedProjectKey(thread.environmentId, thread.projectId);
     const existing = threadsByProjectKey.get(key);
     if (existing) {

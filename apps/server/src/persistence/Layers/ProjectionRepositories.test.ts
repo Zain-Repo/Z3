@@ -77,6 +77,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       yield* threads.upsert({
         threadId: ThreadId.make("thread-null-options"),
+        scope: "project",
         projectId: ProjectId.make("project-null-options"),
         title: "Null options thread",
         modelSelection: {
@@ -139,6 +140,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       yield* threads.upsert({
         threadId: ThreadId.make("thread-settled"),
+        scope: "project",
         projectId: ProjectId.make("project-1"),
         title: "Settled thread",
         modelSelection: {
@@ -193,6 +195,46 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       assert.strictEqual(updated?.settledAt, null);
       assert.strictEqual(updated?.snoozedUntil, null);
       assert.strictEqual(updated?.snoozedAt, null);
+    }),
+  );
+
+  it.effect("persists projectless chat threads", () =>
+    Effect.gen(function* () {
+      const threads = yield* ProjectionThreadRepository;
+
+      yield* threads.upsert({
+        threadId: ThreadId.make("thread-chat"),
+        scope: "chat",
+        projectId: null,
+        title: "Projectless chat",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        latestTurnId: null,
+        createdAt: "2026-03-24T00:00:00.000Z",
+        updatedAt: "2026-03-24T00:00:00.000Z",
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        snoozedUntil: null,
+        snoozedAt: null,
+        latestUserMessageAt: null,
+        pendingApprovalCount: 0,
+        pendingUserInputCount: 0,
+        hasActionableProposedPlan: 0,
+        deletedAt: null,
+      });
+
+      const persisted = yield* threads.getById({
+        threadId: ThreadId.make("thread-chat"),
+      });
+      assert.deepStrictEqual(Option.getOrNull(persisted)?.scope, "chat");
+      assert.strictEqual(Option.getOrNull(persisted)?.projectId, null);
     }),
   );
 });

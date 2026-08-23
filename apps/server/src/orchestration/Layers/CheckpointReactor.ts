@@ -75,6 +75,15 @@ function checkpointStatusFromRuntime(status: string | undefined): "ready" | "mis
   }
 }
 
+function isProjectThread<
+  T extends {
+    readonly scope?: "project" | "chat" | undefined;
+    readonly projectId: ProjectId | null;
+  },
+>(thread: T): thread is T & { readonly projectId: ProjectId } {
+  return thread.scope !== "chat" && thread.projectId !== null;
+}
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const randomUUID = crypto.randomUUIDv4;
@@ -360,7 +369,7 @@ const make = Effect.gen(function* () {
       }
 
       const thread = yield* resolveThreadDetail(event.threadId);
-      if (!thread) {
+      if (!thread || !isProjectThread(thread)) {
         return;
       }
 
@@ -442,6 +451,9 @@ const make = Effect.gen(function* () {
       });
       return;
     }
+    if (!isProjectThread(thread)) {
+      return;
+    }
 
     // If a real checkpoint already exists for this turn, skip.
     if (
@@ -487,7 +499,7 @@ const make = Effect.gen(function* () {
       }
 
       const thread = yield* resolveThreadDetail(event.threadId);
-      if (!thread) {
+      if (!thread || !isProjectThread(thread)) {
         return;
       }
 
@@ -532,6 +544,10 @@ const make = Effect.gen(function* () {
   const refreshLocalGitStatusFromTurnCompletion = Effect.fn(
     "refreshLocalGitStatusFromTurnCompletion",
   )(function* (event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>) {
+    const thread = yield* resolveThreadDetail(event.threadId);
+    if (!thread || !isProjectThread(thread)) {
+      return;
+    }
     const sessionRuntime = yield* resolveSessionRuntimeForThread(event.threadId);
     if (Option.isNone(sessionRuntime)) {
       return;
@@ -646,7 +662,7 @@ const make = Effect.gen(function* () {
 
     const threadId = event.payload.threadId;
     const thread = yield* resolveThreadDetail(threadId);
-    if (!thread) {
+    if (!thread || !isProjectThread(thread)) {
       return;
     }
 
@@ -700,6 +716,9 @@ const make = Effect.gen(function* () {
         detail: "Thread was not found in read model.",
         createdAt: now,
       }).pipe(Effect.catch(() => Effect.void));
+      return;
+    }
+    if (!isProjectThread(thread)) {
       return;
     }
 

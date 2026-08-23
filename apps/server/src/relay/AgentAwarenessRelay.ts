@@ -247,6 +247,13 @@ export function resolveAgentAwarenessRelayPublishSnapshot(input: {
       reason: "thread-not-found",
     };
   }
+  if (input.thread.value.scope === "chat" || input.thread.value.projectId === null) {
+    return {
+      projectId: null,
+      state: null,
+      reason: "project-not-found",
+    };
+  }
   if (Option.isNone(input.project)) {
     return {
       projectId: input.thread.value.projectId,
@@ -275,6 +282,9 @@ export function resolveAgentAwarenessRelayActiveThreadIds(input: {
   const projectById = new Map(input.projects.map((project) => [project.id, project]));
   return input.threads
     .filter((thread) => {
+      if (thread.scope === "chat" || thread.projectId === null) {
+        return false;
+      }
       const project = projectById.get(thread.projectId);
       if (!project) {
         return false;
@@ -405,9 +415,14 @@ export const make = Effect.gen(function* () {
       });
 
     const thread = yield* snapshotQuery.getThreadShellById(threadId);
-    const project = Option.isSome(thread)
-      ? yield* snapshotQuery.getProjectShellById(thread.value.projectId)
-      : Option.none<OrchestrationProjectShell>();
+    if (Option.isSome(thread) && thread.value.scope === "chat") {
+      yield* Effect.logDebug("agent activity publish skipped for chat-scoped thread", { threadId });
+      return;
+    }
+    const project =
+      Option.isSome(thread) && thread.value.projectId !== null
+        ? yield* snapshotQuery.getProjectShellById(thread.value.projectId)
+        : Option.none<OrchestrationProjectShell>();
     const snapshot = resolveAgentAwarenessRelayPublishSnapshot({
       environmentId,
       threadId,

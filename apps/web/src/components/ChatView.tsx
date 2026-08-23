@@ -630,7 +630,9 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const serverThread = useThread(threadRef, { waitForShell: draftThread !== null });
   const projectRef = serverThread
-    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
+    ? serverThread.projectId === null
+      ? null
+      : scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
@@ -999,7 +1001,9 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const serverThread = useThread(threadRef, { waitForShell: draftThread !== null });
   const projectRef = serverThread
-    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
+    ? serverThread.projectId === null
+      ? null
+      : scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
@@ -1456,10 +1460,17 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
+  const isChatThread = activeThread?.scope === "chat";
+  const isChatSurface = isChatWorkspace || isChatThread;
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
-  const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+  // Chat threads never run with implicit full access. Keep the mode fixed to
+  // approval-required while leaving the existing code-workspace controls
+  // unchanged.
+  const runtimeMode = isChatThread
+    ? "approval-required"
+    : (composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE);
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
@@ -1619,9 +1630,10 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, [activeThreadKey, existingOpenTerminalThreadKeys, terminalUiState.terminalOpen]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProjectRef = activeThread
-    ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
-    : null;
+  const activeProjectRef =
+    activeThread && activeThread.projectId !== null
+      ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
+      : null;
   const activeProject = useProject(activeProjectRef);
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
@@ -2504,7 +2516,7 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  const showComposerContextStrip = !isChatWorkspace && isGitRepo && activeProject !== null;
+  const showComposerContextStrip = !isChatSurface && isGitRepo && activeProject !== null;
   const initialDiffPanelGitScope =
     gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
   const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
@@ -3055,6 +3067,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
+      if (isChatThread) return;
       if (mode === runtimeMode) return;
       setComposerDraftRuntimeMode(composerDraftTarget, mode);
       if (isLocalDraftThread) {
@@ -3063,6 +3076,7 @@ function ChatViewContent(props: ChatViewProps) {
       scheduleComposerFocus();
     },
     [
+      isChatThread,
       isLocalDraftThread,
       runtimeMode,
       scheduleComposerFocus,
@@ -4648,7 +4662,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
       return;
     }
-    if (!activeProject) {
+    if (!activeProject && !isChatThread) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
@@ -4802,7 +4816,7 @@ function ChatViewContent(props: ChatViewProps) {
     const title = truncate(titleSeed);
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
-      ctxSelectedModel || activeProject.defaultModelSelection?.model || DEFAULT_MODEL,
+      ctxSelectedModel || activeProject?.defaultModelSelection?.model || DEFAULT_MODEL,
       ctxSelectedModelSelection.options,
     );
 
@@ -4847,7 +4861,7 @@ function ChatViewContent(props: ChatViewProps) {
       const bootstrap =
         isLocalDraftThread || baseBranchForWorktree
           ? {
-              ...(isLocalDraftThread
+              ...(isLocalDraftThread && activeProject
                 ? {
                     createThread: {
                       projectId: activeProject.id,
@@ -4861,7 +4875,7 @@ function ChatViewContent(props: ChatViewProps) {
                     },
                   }
                 : {}),
-              ...(baseBranchForWorktree
+              ...(baseBranchForWorktree && activeProject
                 ? {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
@@ -5747,7 +5761,7 @@ function ChatViewContent(props: ChatViewProps) {
           className={cn(
             "bg-background transition-[background-color,padding-left] duration-200 ease-linear motion-reduce:transition-none",
             activeWorkspace.topbarClassName,
-            isChatWorkspace && "hidden",
+            isChatSurface && "hidden",
             isElectron
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
@@ -5885,7 +5899,7 @@ function ChatViewContent(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        {isChatWorkspace ? (
+                        {isChatSurface ? (
                           <h1 className="text-center text-2xl font-medium tracking-tight text-foreground/90 sm:text-[28px]">
                             What should we work on?
                           </h1>
@@ -5921,7 +5935,7 @@ function ChatViewContent(props: ChatViewProps) {
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
-                            variant={isChatWorkspace ? "chat" : "code"}
+                            variant={isChatSurface ? "chat" : "code"}
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
                             environmentId={environmentId}

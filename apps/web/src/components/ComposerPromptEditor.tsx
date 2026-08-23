@@ -883,6 +883,7 @@ interface ComposerPromptEditorProps {
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
   placeholder: string;
+  compact?: boolean;
   className?: string;
   onRemoveTerminalContext: (contextId: string) => void;
   onChange: (
@@ -1532,6 +1533,7 @@ function ComposerPromptEditorInner({
   skills,
   disabled,
   placeholder,
+  compact = false,
   className,
   onRemoveTerminalContext,
   onChange,
@@ -1753,6 +1755,7 @@ function ComposerPromptEditorInner({
             <ContentEditable
               className={cn(
                 "block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:text-[14px]",
+                compact && "flex min-h-10 items-center leading-normal",
                 className,
               )}
               data-testid="composer-editor"
@@ -1763,7 +1766,12 @@ function ComposerPromptEditorInner({
           }
           placeholder={
             terminalContexts.length > 0 ? null : (
-              <div className="pointer-events-none absolute inset-0 text-[16px] leading-relaxed text-muted-foreground/35 sm:text-[14px]">
+              <div
+                className={cn(
+                  "pointer-events-none absolute inset-0 text-[16px] leading-relaxed text-muted-foreground/35 sm:text-[14px]",
+                  compact && "flex items-center leading-normal",
+                )}
+              >
                 {placeholder}
               </div>
             )
@@ -1792,6 +1800,7 @@ export function ComposerPromptEditor({
   skills,
   disabled,
   placeholder,
+  compact = false,
   className,
   onRemoveTerminalContext,
   onChange,
@@ -1830,6 +1839,7 @@ export function ComposerPromptEditor({
         skills={skills}
         disabled={disabled}
         placeholder={placeholder}
+        compact={compact}
         onRemoveTerminalContext={onRemoveTerminalContext}
         onChange={onChange}
         onPaste={onPaste}

@@ -1,4 +1,4 @@
-import { useColorScheme } from "react-native";
+import { Image, useColorScheme } from "react-native";
 import { Path, Svg } from "react-native-svg";
 
 type ProviderIconProps = {
@@ -9,6 +9,20 @@ type ProviderIconProps = {
 export function ProviderIcon(props: ProviderIconProps) {
   const isDarkMode = useColorScheme() === "dark";
   const size = props.size ?? 16;
+
+  if (props.provider === "openrouter") {
+    return (
+      <Image
+        source={require("../../assets/openrouter.png")}
+        style={{
+          width: size,
+          height: size,
+          tintColor: isDarkMode ? "#e5e5e5" : "#171717",
+        }}
+        resizeMode="contain"
+      />
+    );
+  }
 
   if (props.provider === "claudeAgent") {
     return (

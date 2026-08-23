@@ -218,7 +218,10 @@ describe("ProviderRuntimeIngestion", () => {
     }
   });
 
-  async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
+  async function createHarness(options?: {
+    readonly serverSettings?: Partial<ServerSettings>;
+    readonly threadScope?: "project" | "chat";
+  }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
@@ -252,26 +255,30 @@ describe("ProviderRuntimeIngestion", () => {
     const drain = () => Effect.runPromise(ingestion.drain);
 
     const createdAt = "2026-01-01T00:00:00.000Z";
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("cmd-provider-project-create"),
-        projectId: asProjectId("project-1"),
-        title: "Provider Project",
-        workspaceRoot,
-        defaultModelSelection: {
-          instanceId: ProviderInstanceId.make("codex"),
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
+    if (options?.threadScope !== "chat") {
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("cmd-provider-project-create"),
+          projectId: asProjectId("project-1"),
+          title: "Provider Project",
+          workspaceRoot,
+          defaultModelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          createdAt,
+        }),
+      );
+    }
     await Effect.runPromise(
       engine.dispatch({
         type: "thread.create",
         commandId: CommandId.make("cmd-thread-create"),
         threadId: ThreadId.make("thread-1"),
-        projectId: asProjectId("project-1"),
+        ...(options?.threadScope === "chat"
+          ? { scope: "chat" as const, projectId: null }
+          : { projectId: asProjectId("project-1") }),
         title: "Thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -2673,7 +2680,9 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-warning"),
-      payload: {},
+      payload: {
+        unifiedDiff: "diff --git a/chat.txt b/chat.txt\n+hello\n",
+      },
     });
 
     harness.emit({
@@ -2890,6 +2899,26 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.status).toBe("missing");
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+  });
+
+  it("does not create placeholder checkpoints for chat threads", async () => {
+    const harness = await createHarness({ threadScope: "chat" });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-chat-turn-diff-updated"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-chat"),
+      itemId: asItemId("item-chat-assistant"),
+      payload: {},
+    });
+    await harness.drain();
+
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.checkpoints).toEqual([]);
   });
 
   it("projects context window updates into normalized thread activities", async () => {

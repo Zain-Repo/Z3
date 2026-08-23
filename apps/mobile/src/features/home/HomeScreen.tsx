@@ -4,6 +4,7 @@ import {
   type LegendListRenderItemProps,
 } from "@legendapp/list/react-native";
 import {
+  isProjectThread,
   type EnvironmentProject,
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
@@ -340,15 +341,14 @@ export function HomeScreen(props: HomeScreenProps) {
           ),
     [props.projects, selectedProjectRefKeys],
   );
-  const scopedThreads = useMemo(
-    () =>
-      selectedProjectRefKeys === null
-        ? props.threads
-        : props.threads.filter((thread) =>
-            selectedProjectRefKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
-          ),
-    [props.threads, selectedProjectRefKeys],
-  );
+  const scopedThreads = useMemo(() => {
+    const projectThreads = props.threads.filter(isProjectThread);
+    return selectedProjectRefKeys === null
+      ? projectThreads
+      : projectThreads.filter((thread) =>
+          selectedProjectRefKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+        );
+  }, [props.threads, selectedProjectRefKeys]);
   const scopedPendingTasks = useMemo(
     () =>
       selectedProjectRefKeys === null
@@ -589,7 +589,9 @@ export function HomeScreen(props: HomeScreenProps) {
     // Settled threads are live shells; archived threads keep their original
     // "hidden from lists" meaning.
     return buildThreadListV2Items({
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
+      threads: props.threads.filter(
+        (thread) => thread.archivedAt === null && isProjectThread(thread),
+      ),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
       searchQuery: props.searchQuery,
@@ -713,6 +715,9 @@ export function HomeScreen(props: HomeScreenProps) {
         );
       }
       const thread = item.item.thread;
+      if (!isProjectThread(thread)) {
+        return null;
+      }
       return (
         <ThreadListV2Row
           thread={thread}
@@ -868,6 +873,9 @@ export function HomeScreen(props: HomeScreenProps) {
           );
         case "thread": {
           const thread = item.thread;
+          if (!isProjectThread(thread)) {
+            return null;
+          }
           return (
             <ThreadListRow
               variant="compact"
@@ -932,7 +940,8 @@ export function HomeScreen(props: HomeScreenProps) {
   // full-page "No threads yet". Settled threads are unarchived live shells,
   // so the v1 check already covers v2.
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
+    props.threads.some((thread) => thread.archivedAt === null && isProjectThread(thread)) ||
+    props.pendingTasks.length > 0;
   const hasResults = projectGroups.length > 0;
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null

@@ -1,14 +1,28 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { MessageSquareIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
-import { cn } from "../lib/utils";
+import { cn, newThreadId } from "../lib/utils";
+import {
+  buildChatThreadCreateInput,
+  readChatEnvironmentSelection,
+  resolveChatEnvironmentId,
+  resolveChatModelSelection,
+  writeChatEnvironmentSelection,
+} from "../lib/chatThreadCreation";
 import { resolveThreadRouteTarget } from "../threadRoutes";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useAtomCommand } from "../state/use-atom-command";
+import { threadEnvironment } from "../state/threads";
+import {
+  setActiveEnvironmentId,
+  useActiveEnvironmentId,
+  useServerConfigs,
+  useThreadShells,
+} from "../state/entities";
+import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { sortThreadsForSidebarV2 } from "./Sidebar.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Button } from "./ui/button";
@@ -21,14 +35,44 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./ui/sidebar";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
+import { toastManager } from "./ui/toast";
 
 const CHAT_THREAD_LIMIT = 40;
 
 export default function ChatWorkspaceSidebar() {
-  const projects = useProjects();
   const threads = useThreadShells();
   const router = useRouter();
-  const handleNewThread = useNewThreadHandler();
+  const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environments } = useEnvironments();
+  const serverConfigs = useServerConfigs();
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return readChatEnvironmentSelection();
+  });
+  const availableEnvironmentId = resolveChatEnvironmentId(
+    selectedEnvironmentId,
+    activeEnvironmentId,
+    primaryEnvironmentId,
+    environments.map((environment) => environment.environmentId),
+  );
+
+  useEffect(() => {
+    if (availableEnvironmentId === null) {
+      return;
+    }
+    setActiveEnvironmentId(availableEnvironmentId);
+    writeChatEnvironmentSelection(availableEnvironmentId);
+    if (selectedEnvironmentId !== availableEnvironmentId) {
+      setSelectedEnvironmentId(availableEnvironmentId);
+    }
+  }, [availableEnvironmentId, selectedEnvironmentId]);
+
+  const selectedEnvironment = environments.find(
+    (environment) => environment.environmentId === availableEnvironmentId,
+  );
   const { isMobile, setOpenMobile } = useSidebar();
   const routeTarget = useParams({
     strict: false,
@@ -39,17 +83,48 @@ export default function ChatWorkspaceSidebar() {
   const recentThreads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return sortThreadsForSidebarV2(threads)
+      .filter((thread) => thread.scope === "chat" && thread.projectId === null)
+      .filter(
+        (thread) =>
+          availableEnvironmentId === null || thread.environmentId === availableEnvironmentId,
+      )
       .filter((thread) => thread.archivedAt === null)
       .filter((thread) => query.length === 0 || thread.title.toLowerCase().includes(query))
       .slice(0, CHAT_THREAD_LIMIT);
-  }, [searchQuery, threads]);
+  }, [availableEnvironmentId, searchQuery, threads]);
 
-  const handleNewChat = useCallback(() => {
-    const project = projects[0];
-    if (!project) return;
+  const handleNewChat = useCallback(async () => {
+    if (!isElectron || !availableEnvironmentId) return;
     if (isMobile) setOpenMobile(false);
-    void handleNewThread(scopeProjectRef(project.environmentId, project.id));
-  }, [handleNewThread, isMobile, projects, setOpenMobile]);
+    const threadId = newThreadId();
+    const selection = resolveChatModelSelection(
+      serverConfigs.get(availableEnvironmentId)?.providers,
+    );
+    if (!selection) {
+      toastManager.add({
+        type: "error",
+        title: "No chat provider is available",
+        description: "Enable a provider for this environment, then try again.",
+      });
+      return;
+    }
+    const result = await createThread({
+      environmentId: availableEnvironmentId,
+      input: buildChatThreadCreateInput({ threadId, selection }),
+    });
+    if (result._tag === "Failure") {
+      toastManager.add({
+        type: "error",
+        title: "Could not start chat",
+        description: "The environment rejected the new chat. Try again.",
+      });
+      return;
+    }
+    await router.navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: availableEnvironmentId, threadId },
+    });
+  }, [availableEnvironmentId, createThread, isMobile, router, serverConfigs, setOpenMobile]);
 
   const navigateToThread = useCallback(
     (environmentId: EnvironmentId, threadId: ThreadId) => {
@@ -73,13 +148,47 @@ export default function ChatWorkspaceSidebar() {
         className="gap-0"
         fixedHeader={
           <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
+            {environments.length > 0 ? (
+              <Select
+                value={availableEnvironmentId ?? undefined}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  const nextEnvironmentId = environments.find(
+                    (environment) => environment.environmentId === value,
+                  )?.environmentId;
+                  if (!nextEnvironmentId) return;
+                  setSelectedEnvironmentId(value);
+                  writeChatEnvironmentSelection(nextEnvironmentId);
+                  setActiveEnvironmentId(nextEnvironmentId);
+                  if (
+                    routeTarget?.kind === "server" &&
+                    routeTarget.threadRef.environmentId !== nextEnvironmentId
+                  ) {
+                    void router.navigate({ to: "/" });
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9 w-full justify-between bg-sidebar-control-surface shadow-none">
+                  <SelectValue placeholder="Choose environment">
+                    {selectedEnvironment?.label ?? "Choose environment"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="start" className="min-w-[var(--anchor-width)]">
+                  {environments.map((environment) => (
+                    <SelectItem key={environment.environmentId} value={environment.environmentId}>
+                      {environment.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            ) : null}
             <Button
               type="button"
               variant="outline"
               className="h-9 w-full justify-start gap-2 bg-sidebar-control-surface font-medium shadow-none"
               onClick={handleNewChat}
-              disabled={projects.length === 0}
-              title={projects.length === 0 ? "Add a project before starting a chat" : "New chat"}
+              disabled={availableEnvironmentId === null}
+              title={availableEnvironmentId === null ? "Connect an environment first" : "New chat"}
             >
               <SquarePenIcon className="size-4" />
               New chat

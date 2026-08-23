@@ -1,7 +1,8 @@
 import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
+import {
+  isProjectThread,
+  type EnvironmentProject,
+  type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import {
   threadSearchMatchKey,
@@ -322,15 +323,14 @@ function ThreadNavigationSidebarPane(
           ),
     [projects, selectedProjectRefs],
   );
-  const scopedThreads = useMemo(
-    () =>
-      selectedProjectRefs === null
-        ? threads
-        : threads.filter((thread) =>
-            selectedProjectRefs.has(scopedProjectKey(thread.environmentId, thread.projectId)),
-          ),
-    [selectedProjectRefs, threads],
-  );
+  const scopedThreads = useMemo(() => {
+    const projectThreads = threads.filter(isProjectThread);
+    return selectedProjectRefs === null
+      ? projectThreads
+      : projectThreads.filter((thread) =>
+          selectedProjectRefs.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+        );
+  }, [selectedProjectRefs, threads]);
   const scopedPendingTasks = useMemo(
     () =>
       selectedProjectRefs === null
@@ -493,7 +493,7 @@ function ThreadNavigationSidebarPane(
         nextSnoozeWakeAt: null,
       };
     return buildThreadListV2Items({
-      threads: threads.filter((thread) => thread.archivedAt === null),
+      threads: threads.filter((thread) => thread.archivedAt === null && isProjectThread(thread)),
       environmentId: options.selectedEnvironmentId,
       projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
       searchQuery: props.searchQuery,
@@ -873,6 +873,9 @@ function ThreadNavigationSidebarPane(
         }
         case "v2-thread": {
           const thread = item.item.thread;
+          if (!isProjectThread(thread)) {
+            return null;
+          }
           const scopeKey = scopedProjectKey(thread.environmentId, thread.projectId);
           return (
             <ThreadListV2Row
@@ -992,6 +995,9 @@ function ThreadNavigationSidebarPane(
           );
         case "thread": {
           const thread = item.thread;
+          if (!isProjectThread(thread)) {
+            return null;
+          }
           return (
             <ThreadListRow
               variant="sidebar"

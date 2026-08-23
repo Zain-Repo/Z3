@@ -4,7 +4,7 @@ import type { DraftThreadEnvMode } from "../composerDraftStore";
 
 interface ThreadContextLike {
   environmentId: EnvironmentId;
-  projectId: ProjectId;
+  projectId: ProjectId | null;
 }
 
 interface NewThreadHandler {
@@ -37,13 +37,17 @@ export function resolveThreadActionProjectRef(
   context: ChatThreadActionContext,
 ): ScopedProjectRef | null {
   if (context.activeThread) {
-    return scopeProjectRef(context.activeThread.environmentId, context.activeThread.projectId);
+    return context.activeThread.projectId === null
+      ? null
+      : scopeProjectRef(context.activeThread.environmentId, context.activeThread.projectId);
   }
   if (context.activeDraftThread) {
-    return scopeProjectRef(
-      context.activeDraftThread.environmentId,
-      context.activeDraftThread.projectId,
-    );
+    return context.activeDraftThread.projectId === null
+      ? null
+      : scopeProjectRef(
+          context.activeDraftThread.environmentId,
+          context.activeDraftThread.projectId,
+        );
   }
   return context.defaultProjectRef;
 }

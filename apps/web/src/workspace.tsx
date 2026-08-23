@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import * as Schema from "effect/Schema";
 
 import { useLocalStorage } from "./hooks/useLocalStorage";
+import { isElectron } from "./env";
 
 export type WorkspaceId = "code" | "chat" | "image";
 
@@ -52,6 +53,9 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
     disabled: true,
   },
 ];
+const BROWSER_WORKSPACE_DEFINITIONS = WORKSPACE_DEFINITIONS.filter(
+  (workspace) => workspace.id === "code",
+);
 
 export const WORKSPACE_ID_SCHEMA = Schema.Literals(["code", "chat", "image"]);
 export const WORKSPACE_STORAGE_KEY = "t3code:active-workspace";
@@ -82,10 +86,12 @@ export function WorkspaceProvider({ children }: { readonly children: ReactNode }
     DEFAULT_WORKSPACE_ID,
     WORKSPACE_ID_SCHEMA,
   );
+  const availableWorkspaces = isElectron ? WORKSPACE_DEFINITIONS : BROWSER_WORKSPACE_DEFINITIONS;
   const persistedWorkspace = getWorkspaceDefinition(workspaceId);
   const activeWorkspace = persistedWorkspace.disabled
     ? getWorkspaceDefinition(DEFAULT_WORKSPACE_ID)
-    : persistedWorkspace;
+    : (availableWorkspaces.find((workspace) => workspace.id === persistedWorkspace.id) ??
+      getWorkspaceDefinition(DEFAULT_WORKSPACE_ID));
   const setWorkspace = useCallback(
     (nextWorkspaceId: WorkspaceId) => {
       if (!getWorkspaceDefinition(nextWorkspaceId).disabled) {
@@ -98,9 +104,9 @@ export function WorkspaceProvider({ children }: { readonly children: ReactNode }
     () => ({
       activeWorkspace,
       setWorkspace,
-      workspaces: WORKSPACE_DEFINITIONS,
+      workspaces: availableWorkspaces,
     }),
-    [activeWorkspace, setWorkspace],
+    [activeWorkspace, availableWorkspaces, setWorkspace],
   );
 
   return <WorkspaceContext.Provider value={contextValue}>{children}</WorkspaceContext.Provider>;

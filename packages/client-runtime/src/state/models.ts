@@ -5,6 +5,7 @@ import type {
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
+  ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -20,6 +21,14 @@ export type EnvironmentMessage = OrchestrationMessage;
 
 export interface EnvironmentThread extends OrchestrationThread {
   readonly environmentId: EnvironmentId;
+}
+
+export function isProjectThread<
+  T extends { readonly scope?: string | undefined; readonly projectId: ProjectId | null },
+>(thread: T): thread is T & { readonly projectId: ProjectId } {
+  // Older servers did not send a scope. A non-chat thread with a project id
+  // remains a project thread in that compatibility case.
+  return thread.scope !== "chat" && thread.projectId !== null;
 }
 
 export function scopeProject(

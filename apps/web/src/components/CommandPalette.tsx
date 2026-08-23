@@ -67,6 +67,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
+import { isProjectThread } from "@t3tools/client-runtime/state/models";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
@@ -554,7 +555,7 @@ function OpenCommandPaletteDialog(props: {
     useHandleNewThread();
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
-  const threads = useThreadShells();
+  const threads = useThreadShells().filter(isProjectThread);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providers = useAtomValue(primaryServerProvidersAtom);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
@@ -572,7 +573,7 @@ function OpenCommandPaletteDialog(props: {
     () =>
       new Map(
         threadSearch.matches.flatMap((match) =>
-          match.source === "user" || match.source === "assistant"
+          isProjectThread(match) && (match.source === "user" || match.source === "assistant")
             ? [[threadSearchMatchKey(match), match] as const]
             : [],
         ),

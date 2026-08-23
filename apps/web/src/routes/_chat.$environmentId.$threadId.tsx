@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import ChatView from "../components/ChatView";
+import { isElectron } from "../env";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadRoutes";
@@ -56,6 +57,7 @@ function ChatThreadRouteView() {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
+  const isHiddenBrowserChatThread = !isElectron && serverThreadShell?.scope === "chat";
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
@@ -74,7 +76,14 @@ function ChatThreadRouteView() {
     finalizePromotedDraftThreadByRef(threadRef);
   }, [draftThread, serverThreadStarted, threadRef]);
 
-  if (!threadRef) {
+  useEffect(() => {
+    if (!isHiddenBrowserChatThread) {
+      return;
+    }
+    void navigate({ to: "/", replace: true });
+  }, [isHiddenBrowserChatThread, navigate]);
+
+  if (!threadRef || isHiddenBrowserChatThread) {
     return null;
   }
 

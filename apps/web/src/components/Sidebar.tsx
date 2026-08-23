@@ -113,6 +113,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
+import { isProjectThread } from "@t3tools/client-runtime/state/models";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
@@ -401,7 +402,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   // so git status (and thus PR detection) queries the correct path.
   const threadProject = useProject(
     useMemo(
-      () => scopeProjectRef(thread.environmentId, thread.projectId),
+      () =>
+        thread.projectId === null ? null : scopeProjectRef(thread.environmentId, thread.projectId),
       [thread.environmentId, thread.projectId],
     ),
   );
@@ -1224,6 +1226,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.memberProjects.map((member) => [member.physicalProjectKey, 0] as const),
     );
     for (const thread of projectThreads) {
+      if (thread.projectId === null) continue;
       const member = memberProjectByScopedKey.get(
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
       );
@@ -2106,14 +2109,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const threadKey = scopedThreadKey(threadRef);
       const thread = sidebarThreadByKeyRef.current.get(threadKey) ?? null;
       if (!thread) return;
-      const threadProject = memberProjectByScopedKey.get(
-        scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
-      );
+      const threadProjectRef =
+        thread.projectId === null ? null : scopeProjectRef(thread.environmentId, thread.projectId);
+      const threadProject = threadProjectRef
+        ? memberProjectByScopedKey.get(scopedProjectKey(threadProjectRef))
+        : undefined;
       const threadWorkspacePath =
         thread.worktreePath ?? threadProject?.workspaceRoot ?? project.workspaceRoot ?? null;
       const clicked = await api.contextMenu.show(
         [
-          ...(thread.branch
+          ...(thread.branch && threadProjectRef
             ? [{ id: "new-thread-on-branch", label: `New thread on ${thread.branch}` }]
             : []),
           { id: "rename", label: "Rename thread" },
@@ -2126,10 +2131,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
 
       if (clicked === "new-thread-on-branch") {
+        if (!threadProjectRef) return;
         // Explicit branch carry-over: reuse the thread's worktree when it
         // has one, otherwise its branch on the local checkout.
         const result = await settlePromise(() =>
-          handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId), {
+          handleNewThread(threadProjectRef, {
             branch: thread.branch,
             worktreePath: thread.worktreePath,
             envMode: thread.worktreePath ? "worktree" : "local",
@@ -2988,7 +2994,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function Sidebar() {
   const projects = useProjects();
-  const sidebarThreads = useThreadShells();
+  const sidebarThreads = useThreadShells().filter(isProjectThread);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -3125,7 +3131,7 @@ export default function Sidebar() {
       return null;
     }
     const activeThread = sidebarThreadByKey.get(routeThreadKey);
-    if (!activeThread) return null;
+    if (!activeThread || activeThread.projectId === null) return null;
     const physicalKey =
       projectPhysicalKeyByScopedRef.get(
         scopedProjectKey(scopeProjectRef(activeThread.environmentId, activeThread.projectId)),
@@ -3138,6 +3144,7 @@ export default function Sidebar() {
   const threadsByProjectKey = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of sidebarThreads) {
+      if (thread.projectId === null) continue;
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -3260,7 +3267,8 @@ export default function Sidebar() {
   }, []);
 
   const visibleThreads = useMemo(
-    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
+    () =>
+      sidebarThreads.filter((thread) => thread.archivedAt === null && thread.projectId !== null),
     [sidebarThreads],
   );
   const sortedProjects = useMemo(() => {
