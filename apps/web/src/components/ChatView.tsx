@@ -309,6 +309,12 @@ import {
   serverUpdateGuidance,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
+import {
+  buildChatProjectContext,
+  projectForChatThread,
+  type ChatProject,
+  useChatProjectsStore,
+} from "../lib/chatProjects";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -316,6 +322,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const EMPTY_CHAT_PROJECTS: readonly ChatProject[] = [];
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
   const transitionGroupRef = useRef<HTMLDivElement | null>(null);
   const composerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -1479,6 +1486,20 @@ function ChatViewContent(props: ChatViewProps) {
   const activeThread = activeServerThread ?? localDraftThread;
   const isChatThread = routeKind === "chat-draft" || activeThread?.scope === "chat";
   const isChatSurface = isChatWorkspace || isChatThread;
+  const chatProjects = useChatProjectsStore(
+    (state) => state.projectsByEnvironment[environmentId] ?? EMPTY_CHAT_PROJECTS,
+  );
+  const selectedChatProjectId = useChatProjectsStore(
+    (state) => state.activeProjectIdByEnvironment[environmentId] ?? null,
+  );
+  const addThreadToChatProject = useChatProjectsStore((state) => state.addThreadToProject);
+  const chatProject = useMemo(() => {
+    if (!isChatThread) return null;
+    if (routeKind === "chat-draft") {
+      return chatProjects.find((project) => project.id === selectedChatProjectId) ?? null;
+    }
+    return projectForChatThread(chatProjects, threadId);
+  }, [chatProjects, isChatThread, routeKind, selectedChatProjectId, threadId]);
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
@@ -4768,6 +4789,10 @@ function ChatViewContent(props: ChatViewProps) {
       messageTextWithPreviewAnnotations,
       composerReviewCommentsSnapshot,
     );
+    const messageTextWithProjectContext =
+      isChatThread && chatProject
+        ? `${buildChatProjectContext(chatProject)}\n\n<user-request>\n${messageTextForSend}\n</user-request>`
+        : messageTextForSend;
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
@@ -4775,7 +4800,7 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text: messageTextWithProjectContext || IMAGE_ONLY_BOOTSTRAP_PROMPT,
     });
     const turnAttachmentsPromise = Promise.all(
       composerImagesSnapshot.map(async (image) => ({
@@ -4957,6 +4982,9 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        if (isLocalDraftThread && isChatThread && chatProject) {
+          addThreadToChatProject(environmentId, chatProject.id, threadIdForSend);
+        }
       }
     }
 
@@ -5995,7 +6023,9 @@ function ChatViewContent(props: ChatViewProps) {
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
                             projectSelectionRequired={
-                              isLocalDraftThread && routeKind !== "chat-draft" && activeProject === null
+                              isLocalDraftThread &&
+                              routeKind !== "chat-draft" &&
+                              activeProject === null
                             }
                             phase={phase}
                             isConnecting={isConnecting}

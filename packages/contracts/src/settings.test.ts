@@ -112,6 +112,10 @@ describe("ClientSettings sidebar v2", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
+  it("defaults assistant responses to streaming", () => {
+    expect(DEFAULT_SERVER_SETTINGS.enableAssistantStreaming).toBe(true);
+  });
+
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });
