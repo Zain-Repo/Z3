@@ -1,21 +1,30 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
-import { MessageSquareIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArchiveIcon,
+  MessageSquareIcon,
+  MoreHorizontalIcon,
+  SearchIcon,
+  SquarePenIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
-import { cn, newThreadId } from "../lib/utils";
+import { cn } from "../lib/utils";
+import { isAtomCommandInterrupted, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
-  buildChatThreadCreateInput,
+  findDuplicateEmptyChatThreadIds,
   readChatEnvironmentSelection,
   resolveChatEnvironmentId,
-  resolveChatModelSelection,
   writeChatEnvironmentSelection,
 } from "../lib/chatThreadCreation";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useAtomCommand } from "../state/use-atom-command";
 import { threadEnvironment } from "../state/threads";
+import { useThreadActions } from "../hooks/useThreadActions";
 import {
   setActiveEnvironmentId,
   useActiveEnvironmentId,
@@ -36,6 +45,12 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/menu";
 import { toastManager } from "./ui/toast";
 
 const CHAT_THREAD_LIMIT = 40;
@@ -43,11 +58,11 @@ const CHAT_THREAD_LIMIT = 40;
 export default function ChatWorkspaceSidebar() {
   const threads = useThreadShells();
   const router = useRouter();
-  const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+  const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
   const activeEnvironmentId = useActiveEnvironmentId();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { environments } = useEnvironments();
-  const serverConfigs = useServerConfigs();
+  const { archiveThread, confirmAndDeleteThread } = useThreadActions();
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return readChatEnvironmentSelection();
@@ -79,6 +94,61 @@ export default function ChatWorkspaceSidebar() {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const cleanupInFlightRef = useRef(new Set<ThreadId>());
+
+  useEffect(() => {
+    const activeThreadId =
+      routeTarget?.kind === "server" ? routeTarget.threadRef.threadId : null;
+    const duplicateThreadIds = findDuplicateEmptyChatThreadIds(threads, activeThreadId);
+    for (const threadId of duplicateThreadIds) {
+      if (cleanupInFlightRef.current.has(threadId)) continue;
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      if (!thread) continue;
+      cleanupInFlightRef.current.add(threadId);
+      void deleteThread({
+        environmentId: thread.environmentId,
+        input: { threadId },
+      }).then(
+        (result) => {
+          if (result._tag === "Failure") {
+            cleanupInFlightRef.current.delete(threadId);
+          }
+        },
+        () => {
+          cleanupInFlightRef.current.delete(threadId);
+        },
+      );
+    }
+  }, [deleteThread, routeTarget, threads]);
+
+  const showThreadActionError = useCallback(
+    (title: string, result: { readonly _tag: string; readonly cause?: unknown }) => {
+      if (result._tag === "Success" || isAtomCommandInterrupted(result as never)) return;
+      const error = squashAtomCommandFailure(result as never);
+      toastManager.add({
+        type: "error",
+        title,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    },
+    [],
+  );
+
+  const archiveChat = useCallback(
+    async (thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId }) => {
+      const result = await archiveThread(scopeThreadRef(thread.environmentId, thread.id));
+      showThreadActionError("Failed to archive chat", result);
+    },
+    [archiveThread, showThreadActionError],
+  );
+
+  const deleteChat = useCallback(
+    async (thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId }) => {
+      const result = await confirmAndDeleteThread(scopeThreadRef(thread.environmentId, thread.id));
+      showThreadActionError("Failed to delete chat", result);
+    },
+    [confirmAndDeleteThread, showThreadActionError],
+  );
 
   const recentThreads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -96,35 +166,8 @@ export default function ChatWorkspaceSidebar() {
   const handleNewChat = useCallback(async () => {
     if (!isElectron || !availableEnvironmentId) return;
     if (isMobile) setOpenMobile(false);
-    const threadId = newThreadId();
-    const selection = resolveChatModelSelection(
-      serverConfigs.get(availableEnvironmentId)?.providers,
-    );
-    if (!selection) {
-      toastManager.add({
-        type: "error",
-        title: "No chat provider is available",
-        description: "Enable a provider for this environment, then try again.",
-      });
-      return;
-    }
-    const result = await createThread({
-      environmentId: availableEnvironmentId,
-      input: buildChatThreadCreateInput({ threadId, selection }),
-    });
-    if (result._tag === "Failure") {
-      toastManager.add({
-        type: "error",
-        title: "Could not start chat",
-        description: "The environment rejected the new chat. Try again.",
-      });
-      return;
-    }
-    await router.navigate({
-      to: "/$environmentId/$threadId",
-      params: { environmentId: availableEnvironmentId, threadId },
-    });
-  }, [availableEnvironmentId, createThread, isMobile, router, serverConfigs, setOpenMobile]);
+    await router.navigate({ to: "/new" });
+  }, [availableEnvironmentId, isMobile, router, setOpenMobile]);
 
   const navigateToThread = useCallback(
     (environmentId: EnvironmentId, threadId: ThreadId) => {
@@ -232,7 +275,10 @@ export default function ChatWorkspaceSidebar() {
                 routeTarget.threadRef.environmentId === thread.environmentId &&
                 routeTarget.threadRef.threadId === thread.id;
               return (
-                <SidebarMenuItem key={`${thread.environmentId}:${thread.id}`}>
+                <SidebarMenuItem
+                  key={`${thread.environmentId}:${thread.id}`}
+                  className="flex items-center gap-1"
+                >
                   <SidebarMenuButton
                     type="button"
                     isActive={isActive}
@@ -243,6 +289,31 @@ export default function ChatWorkspaceSidebar() {
                     <MessageSquareIcon />
                     <span>{thread.title || "New chat"}</span>
                   </SidebarMenuButton>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover:opacity-100"
+                      aria-label={`Actions for ${thread.title || "New chat"}`}
+                    >
+                      <MoreHorizontalIcon className="size-4" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-36">
+                      <DropdownMenuItem
+                        onClick={() => void archiveChat(thread)}
+                        disabled={!("session" in thread) || thread.session?.status === "running"}
+                      >
+                        <ArchiveIcon />
+                        Archive
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => void deleteChat(thread)}
+                        disabled={!("session" in thread)}
+                      >
+                        <Trash2Icon />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </SidebarMenuItem>
               );
             })}

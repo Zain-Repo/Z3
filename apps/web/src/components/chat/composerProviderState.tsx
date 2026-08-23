@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { shouldRenderTraitsControls, TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
+import { TraitsPicker } from "./TraitsPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
@@ -80,47 +80,29 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
   };
 }
 
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-): ReactNode {
-  const {
-    provider,
-    instanceId,
-    threadRef,
-    draftId,
-    model,
-    models,
-    modelOptions,
-    prompt,
-    onPromptChange,
-  } = input;
-  const hasTarget = threadRef !== undefined || draftId !== undefined;
-  if (
-    !hasTarget ||
-    !shouldRenderTraitsControls({ provider, models, model, modelOptions, prompt })
-  ) {
+export function renderProviderTraitConfigurationRows(input: TraitsRenderInput): ReactNode {
+  const { provider, model, models, modelOptions, prompt } = input;
+  const caps = getProviderModelCapabilities(models, model, provider);
+  const descriptors = getProviderOptionDescriptors({ caps, selections: modelOptions });
+  if (descriptors.length === 0 || (!input.threadRef && !input.draftId)) {
     return null;
   }
-  return (
-    <Component
+
+  return descriptors.map((descriptor) => (
+    <TraitsPicker
+      key={descriptor.id}
       provider={provider}
-      {...(instanceId ? { instanceId } : {})}
+      {...(input.instanceId ? { instanceId: input.instanceId } : {})}
+      {...(input.threadRef ? { threadRef: input.threadRef } : {})}
+      {...(input.draftId ? { draftId: input.draftId } : {})}
       models={models}
-      {...(threadRef ? { threadRef } : {})}
-      {...(draftId ? { draftId } : {})}
       model={model}
       modelOptions={modelOptions}
       prompt={prompt}
-      onPromptChange={onPromptChange}
+      onPromptChange={input.onPromptChange}
+      descriptorId={descriptor.id}
+      configurationDescriptor={descriptor}
+      configurationRow
     />
-  );
-}
-
-export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsMenuContent, input);
-}
-
-export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsPicker, input);
+  ));
 }

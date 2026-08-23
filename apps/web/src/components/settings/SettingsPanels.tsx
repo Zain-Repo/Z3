@@ -82,8 +82,7 @@ import {
   primaryServerProvidersAtom,
   serverEnvironment,
 } from "../../state/server";
-import { usePrimaryEnvironment } from "../../state/environments";
-import { useProjects } from "../../state/entities";
+import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -2207,11 +2206,18 @@ export function ProviderSettingsPanel() {
 }
 
 export function ArchivedThreadsPanel() {
-  const projects = useProjects();
+  const { environments } = useEnvironments();
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   const environmentIds = useMemo(
-    () => [...new Set(projects.map((project) => project.environmentId))],
-    [projects],
+    () => environments.map((environment) => environment.environmentId),
+    [environments],
+  );
+  const environmentLabelById = useMemo(
+    () =>
+      new Map(
+        environments.map((environment) => [environment.environmentId, environment.label] as const),
+      ),
+    [environments],
   );
   const {
     snapshots: archivedSnapshots,
@@ -2245,12 +2251,48 @@ export function ArchivedThreadsPanel() {
     );
 
     const archivedProjects = Array.from(projectsByEnvironmentAndId.values());
-    const groups: Array<{
-      readonly project: (typeof archivedProjects)[number];
-      readonly threads: Array<(typeof threads)[number]>;
-    }> = [];
+    type ArchivedThread = (typeof threads)[number];
+    type ArchivedGroup =
+      | {
+          readonly key: "chats";
+          readonly kind: "chat";
+          readonly environmentId: null;
+          readonly name: "Chats";
+          readonly cwd: null;
+          readonly threads: ReadonlyArray<ArchivedThread>;
+        }
+      | {
+          readonly key: string;
+          readonly kind: "project";
+          readonly environmentId: ArchivedThread["environmentId"];
+          readonly name: string;
+          readonly cwd: string;
+          readonly threads: ReadonlyArray<ArchivedThread>;
+        };
+    const sortArchivedThreads = (items: ReadonlyArray<ArchivedThread>) =>
+      items.toSorted((left, right) => {
+        const leftKey = left.archivedAt ?? left.createdAt;
+        const rightKey = right.archivedAt ?? right.createdAt;
+        return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+      });
+
+    const archivedChats = threads.filter(
+      (thread) => thread.scope === "chat" && thread.projectId === null,
+    );
+    const groups: ArchivedGroup[] = archivedChats.length
+      ? [
+          {
+            key: "chats",
+            kind: "chat",
+            environmentId: null,
+            name: "Chats",
+            cwd: null,
+            threads: sortArchivedThreads(archivedChats),
+          },
+        ]
+      : [];
     for (const project of archivedProjects) {
-      const projectThreads: Array<(typeof threads)[number]> = [];
+      const projectThreads: ArchivedThread[] = [];
       for (const thread of threads) {
         if (thread.projectId === project.id && thread.environmentId === project.environmentId) {
           projectThreads.push(thread);
@@ -2258,12 +2300,12 @@ export function ArchivedThreadsPanel() {
       }
       if (projectThreads.length > 0) {
         groups.push({
-          project,
-          threads: projectThreads.toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.createdAt;
-            return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          }),
+          key: `${project.environmentId}:${project.id}`,
+          kind: "project",
+          environmentId: project.environmentId,
+          name: project.name,
+          cwd: project.cwd,
+          threads: sortArchivedThreads(projectThreads),
         });
       }
     }
@@ -2348,16 +2390,22 @@ export function ArchivedThreadsPanel() {
           />
         </SettingsSection>
       ) : (
-        archivedGroups.map(({ project, threads: projectThreads }, index) => (
+        archivedGroups.map((group, index) => (
           <SettingsSection
-            key={project.id}
+            key={group.key}
             id={index === 0 ? searchableSetting("archive").id : undefined}
-            title={project.name}
-            icon={<ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />}
+            title={group.name}
+            icon={
+              group.kind === "chat" ? (
+                <ArchiveIcon className="size-4 text-muted-foreground" />
+              ) : (
+                <ProjectFavicon environmentId={group.environmentId} cwd={group.cwd} />
+              )
+            }
           >
-            {projectThreads.map((thread) => (
+            {group.threads.map((thread) => (
               <SettingsRow
-                key={thread.id}
+                key={`${thread.environmentId}:${thread.id}`}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   void (async () => {
@@ -2386,6 +2434,12 @@ export function ArchivedThreadsPanel() {
                 title={thread.title}
                 description={
                   <>
+                    {group.kind === "chat" && environments.length > 1 ? (
+                      <>
+                        {environmentLabelById.get(thread.environmentId) ?? thread.environmentId}
+                        {" \u00b7 "}
+                      </>
+                    ) : null}
                     Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
                     {" \u00b7 Created "}
                     {formatRelativeTimeLabel(thread.createdAt)}

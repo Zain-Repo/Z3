@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
-import { buildTraitsTriggerDisplay } from "./TraitsPicker";
+import { buildTraitsTriggerDisplay, getTraitConfigurationLabel } from "./TraitsPicker";
 
 function selectDescriptor(
   id: string,
@@ -128,5 +128,32 @@ describe("buildTraitsTriggerDisplay", () => {
         ultrathinkPromptControlled: true,
       }),
     ).toEqual({ label: "Ultrathink", showFastModeIcon: true });
+  });
+});
+
+describe("getTraitConfigurationLabel", () => {
+  it.each(["effort", "reasoning", "reasoningEffort", "variant"])(
+    "normalizes %s to Effort",
+    (id) => {
+      expect(
+        getTraitConfigurationLabel({
+          id,
+          label: id,
+          type: "select",
+          options: [{ id: "high", label: "High", isDefault: true }],
+        }),
+      ).toBe("Effort");
+    },
+  );
+
+  it("preserves unrelated provider-native labels", () => {
+    expect(
+      getTraitConfigurationLabel({
+        id: "contextWindow",
+        label: "Context Window",
+        type: "select",
+        options: [{ id: "200k", label: "200k", isDefault: true }],
+      }),
+    ).toBe("Context Window");
   });
 });

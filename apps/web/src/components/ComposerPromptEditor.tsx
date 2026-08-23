@@ -1755,7 +1755,7 @@ function ComposerPromptEditorInner({
             <ContentEditable
               className={cn(
                 "block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:text-[14px]",
-                compact && "flex min-h-10 items-center leading-normal",
+                compact && "min-h-10 py-2 leading-normal",
                 className,
               )}
               data-testid="composer-editor"

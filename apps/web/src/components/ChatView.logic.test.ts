@@ -28,6 +28,7 @@ import {
   resolveSendEnvMode,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
+  shouldWaitForThreadShell,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
 
@@ -35,6 +36,17 @@ const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+
+describe("shouldWaitForThreadShell", () => {
+  it("waits for projectless chat drafts that have no composer draft session", () => {
+    expect(shouldWaitForThreadShell("chat-draft", false)).toBe(true);
+  });
+
+  it("preserves the existing composer draft and server route behavior", () => {
+    expect(shouldWaitForThreadShell("draft", true)).toBe(true);
+    expect(shouldWaitForThreadShell("server", false)).toBe(false);
+  });
+});
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {

@@ -893,6 +893,9 @@ const makeWsRpcLayer = (
                 type: "thread.create",
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
                 threadId: command.threadId,
+                ...(bootstrap.createThread.scope !== undefined
+                  ? { scope: bootstrap.createThread.scope }
+                  : {}),
                 projectId: bootstrap.createThread.projectId,
                 title: bootstrap.createThread.title,
                 modelSelection: bootstrap.createThread.modelSelection,

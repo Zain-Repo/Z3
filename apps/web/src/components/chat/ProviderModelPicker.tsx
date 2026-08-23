@@ -3,8 +3,9 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useEffect, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
+import { ChevronRightIcon } from "lucide-react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { buttonVariants } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -40,12 +41,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   triggerAriaLabel?: string;
+  configurationRows?: ReactNode;
   onOpenChange?: (open: boolean) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
 }) {
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
+  const [showModelList, setShowModelList] = useState(false);
+  const configurationSurfaceRef = useRef<HTMLDivElement>(null);
   const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      setShowModelList(false);
+    }
+  }, [isMenuOpen]);
 
   // Resolve the active instance entry by exact routing key. The composer
   // resolves fallbacks before rendering this component; if the selected
@@ -73,6 +83,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const showInstanceBadge = Boolean(activeEntry?.accentColor) || duplicateDriverCount > 1;
 
   const setIsMenuOpen = (open: boolean) => {
+    setShowModelList(
+      open && (props.configurationRows === undefined || props.configurationRows === null),
+    );
     props.onOpenChange?.(open);
     if (props.open === undefined) {
       setUncontrolledIsMenuOpen(open);
@@ -191,21 +204,55 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         className="border-0 bg-transparent p-0 shadow-none before:hidden [-webkit-backdrop-filter:none]! [--viewport-inline-padding:0] [backdrop-filter:none]!"
         viewportClassName="rounded-lg !overflow-hidden p-0"
       >
-        <ModelPickerContent
-          activeInstanceId={activeInstanceId}
-          model={props.model}
-          lockedProvider={props.lockedProvider}
-          lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
-          instanceEntries={props.instanceEntries}
-          {...(props.keybindings ? { keybindings: props.keybindings } : {})}
-          modelOptionsByInstance={props.modelOptionsByInstance}
-          terminalOpen={props.terminalOpen ?? false}
-          onRequestClose={() => setIsMenuOpen(false)}
-          {...(props.getModelDisabledReason
-            ? { getModelDisabledReason: props.getModelDisabledReason }
-            : {})}
-          onInstanceModelChange={handleInstanceModelChange}
-        />
+        {showModelList || props.configurationRows === undefined || props.configurationRows === null ? (
+          <ModelPickerContent
+            activeInstanceId={activeInstanceId}
+            model={props.model}
+            lockedProvider={props.lockedProvider}
+            lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
+            instanceEntries={props.instanceEntries}
+            {...(props.keybindings ? { keybindings: props.keybindings } : {})}
+            modelOptionsByInstance={props.modelOptionsByInstance}
+            terminalOpen={props.terminalOpen ?? false}
+            onRequestClose={() => setIsMenuOpen(false)}
+            {...(props.configurationRows !== undefined && props.configurationRows !== null
+              ? {
+                  onRequestBack: () => {
+                    setShowModelList(false);
+                    window.requestAnimationFrame(() => {
+                      configurationSurfaceRef.current?.querySelector("button")?.focus();
+                    });
+                  },
+                }
+              : {})}
+            {...(props.getModelDisabledReason
+              ? { getModelDisabledReason: props.getModelDisabledReason }
+              : {})}
+            onInstanceModelChange={handleInstanceModelChange}
+          />
+        ) : (
+          <div
+            ref={configurationSurfaceRef}
+            className="dropdown-glass w-72 rounded-lg p-1 text-popover-foreground"
+            data-model-picker-content="true"
+          >
+            <button
+              type="button"
+              className={cn(
+                "flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-sm outline-none",
+                "hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60",
+              )}
+              onClick={() => setShowModelList(true)}
+            >
+              <span className="min-w-0 flex-1 truncate font-medium">Model</span>
+              <span className="flex min-w-0 max-w-40 items-center gap-1.5 text-muted-foreground">
+                <span className="truncate">{triggerTitle}</span>
+                <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 opacity-70" />
+              </span>
+            </button>
+            {props.configurationRows}
+          </div>
+        )}
       </PopoverPopup>
     </Popover>
   );

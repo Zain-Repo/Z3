@@ -10,6 +10,7 @@ import {
   type ProviderApprovalDecision,
   ProviderInstanceId,
   type ServerProvider,
+  type ServerConfig,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
@@ -261,6 +262,7 @@ import {
   dismissBranchMismatchForSession,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
+  shouldWaitForThreadShell,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -483,6 +485,17 @@ type ChatViewProps =
       threadSyncPhase?: never;
       routeKind: "draft";
       draftId: DraftId;
+    }
+  | {
+      environmentId: EnvironmentId;
+      threadId: ThreadId;
+      onDiffPanelOpen?: () => void;
+      reserveTitleBarControlInset?: boolean;
+      forceExpandedMobileComposer?: boolean;
+      threadSyncPhase?: never;
+      routeKind: "chat-draft";
+      chatDraft: Thread;
+      chatDraftServerConfig?: ServerConfig;
     };
 
 interface TerminalLaunchContext {
@@ -1208,16 +1221,18 @@ function ChatViewContent(props: ChatViewProps) {
     [environments],
   );
   const composerDraftTarget: ScopedThreadRef | DraftId =
-    routeKind === "server" ? routeThreadRef : props.draftId;
+    routeKind === "server" || routeKind === "chat-draft" ? routeThreadRef : props.draftId;
   const draftThread = useComposerDraftStore((store) =>
-    routeKind === "server"
+    routeKind === "server" || routeKind === "chat-draft"
       ? store.getDraftSessionByRef(routeThreadRef)
       : draftId
         ? store.getDraftSession(draftId)
         : null,
   );
   const routeServerThreadShell = useThreadShell(routeKind === "server" ? routeThreadRef : null);
-  const serverThread = useThread(routeThreadRef, { waitForShell: draftThread !== null });
+  const serverThread = useThread(routeThreadRef, {
+    waitForShell: shouldWaitForThreadShell(routeKind, draftThread !== null),
+  });
   const loadingServerThread = useMemo(
     () =>
       threadDetailLoading && routeServerThreadShell
@@ -1446,21 +1461,23 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activeServerThread, draftId, localDraftErrorsByDraftId, routeThreadKey]);
   const localDraftThread = useMemo(
     () =>
-      draftThread
-        ? buildLocalDraftThread(
-            threadId,
-            draftThread,
-            fallbackDraftProject?.defaultModelSelection ?? NO_PROVIDER_MODEL_SELECTION,
-          )
-        : undefined,
-    [draftThread, fallbackDraftProject?.defaultModelSelection, threadId],
+      routeKind === "chat-draft"
+        ? props.chatDraft
+        : draftThread
+          ? buildLocalDraftThread(
+              threadId,
+              draftThread,
+              fallbackDraftProject?.defaultModelSelection ?? NO_PROVIDER_MODEL_SELECTION,
+            )
+          : undefined,
+    [draftThread, fallbackDraftProject?.defaultModelSelection, props, threadId, routeKind],
   );
   // Promotion is data-driven: the draft route keeps rendering while the
   // server thread (same pre-allocated ref) starts, so live state must not
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
-  const isChatThread = activeThread?.scope === "chat";
+  const isChatThread = routeKind === "chat-draft" || activeThread?.scope === "chat";
   const isChatSurface = isChatWorkspace || isChatThread;
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
@@ -1888,7 +1905,8 @@ function ChatViewContent(props: ChatViewProps) {
   // Once a thread selects an environment, never substitute the primary
   // environment's config while the selected environment is still loading.
   const serverConfig = activeThread
-    ? (activeEnvironment?.serverConfig ?? null)
+    ? (activeEnvironment?.serverConfig ??
+      (routeKind === "chat-draft" ? (props.chatDraftServerConfig ?? null) : null))
     : (primaryEnvironment?.serverConfig ?? null);
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
@@ -4588,7 +4606,30 @@ function ChatViewContent(props: ChatViewProps) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    const sendCtx = composerRef.current?.getSendContext();
+    const sendCtx =
+      composerRef.current?.getSendContext() ??
+      (isChatThread && activeThread
+        ? {
+            prompt: promptRef.current,
+            images: [],
+            terminalContexts: [],
+            elementContexts: [],
+            previewAnnotations: [],
+            reviewComments: [],
+            selectedPromptEffort: null,
+            selectedModelOptionsForDispatch: activeThread.modelSelection.options ?? null,
+            selectedModelSelection: activeThread.modelSelection,
+            providerAvailable: providerStatuses.some(
+              (provider) => provider.instanceId === activeThread.modelSelection.instanceId,
+            ),
+            selectedProvider,
+            selectedModel: activeThread.modelSelection.model,
+            selectedProviderModels:
+              providerStatuses.find(
+                (provider) => provider.instanceId === activeThread.modelSelection.instanceId,
+              )?.models ?? [],
+          }
+        : null);
     if (!sendCtx?.providerAvailable) return;
     const {
       images: composerImages,
@@ -4689,6 +4730,11 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     sendInFlightRef.current = true;
+    // Commit the local busy state before draft transitions, attachment
+    // preparation, or provider startup can consume the first paint.
+    flushSync(() => {
+      beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
+    });
     if (isDraftHeroState && activeThreadKey) {
       let resolveDockStarted: (() => void) | undefined;
       const dockStarted = new Promise<void>((resolve) => {
@@ -4704,7 +4750,6 @@ function ChatViewContent(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
-    beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
@@ -4859,12 +4904,13 @@ function ChatViewContent(props: ChatViewProps) {
     let turnStartSucceeded = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
       const bootstrap =
-        isLocalDraftThread || baseBranchForWorktree
+        (isLocalDraftThread && (activeProject !== null || isChatThread)) || baseBranchForWorktree
           ? {
-              ...(isLocalDraftThread && activeProject
+              ...(isLocalDraftThread && (activeProject !== null || isChatThread)
                 ? {
                     createThread: {
-                      projectId: activeProject.id,
+                      scope: isChatThread ? ("chat" as const) : ("project" as const),
+                      projectId: activeProject?.id ?? null,
                       title,
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
@@ -5948,7 +5994,9 @@ function ChatViewContent(props: ChatViewProps) {
                             isServerThread={isServerThread}
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
-                            projectSelectionRequired={isLocalDraftThread && activeProject === null}
+                            projectSelectionRequired={
+                              isLocalDraftThread && routeKind !== "chat-draft" && activeProject === null
+                            }
                             phase={phase}
                             isConnecting={isConnecting}
                             isSendBusy={isSendBusy}

@@ -663,7 +663,8 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
 });
 
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
-  projectId: ProjectId,
+  scope: Schema.optional(OrchestrationThreadScope),
+  projectId: Schema.NullOr(ProjectId),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

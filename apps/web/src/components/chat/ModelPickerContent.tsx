@@ -6,7 +6,7 @@ import {
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { ChevronRightIcon, SearchIcon } from "lucide-react";
+import { ArrowLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import {
@@ -89,6 +89,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
   terminalOpen: boolean;
   onRequestClose?: () => void;
+  onRequestBack?: () => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
 }) {
@@ -656,10 +657,20 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           >
             {/* Search bar */}
             <div className="px-2 pt-2">
-              <div className="border-b border-border/70 pb-2.5 transition-colors focus-within:border-ring">
+              <div className="flex items-center gap-1 border-b border-border/70 pb-2.5 transition-colors focus-within:border-ring">
+                {props.onRequestBack ? (
+                  <button
+                    type="button"
+                    aria-label="Back to model options"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+                    onClick={props.onRequestBack}
+                  >
+                    <ArrowLeftIcon aria-hidden="true" className="size-4" />
+                  </button>
+                ) : null}
                 <ComboboxInput
                   ref={searchInputRef}
-                  className="[&_input]:h-6.5 [&_input]:font-sans [&_input]:leading-6.5"
+                  className="min-w-0 flex-1 [&_input]:h-6.5 [&_input]:font-sans [&_input]:leading-6.5"
                   inputClassName="rounded-none bg-transparent text-sm"
                   placeholder="Search models..."
                   showTrigger={false}

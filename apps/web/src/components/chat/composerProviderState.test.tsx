@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  EnvironmentId,
   ProviderDriverKind,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
   type ServerProviderModel,
+  ThreadId,
 } from "@t3tools/contracts";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
+  renderProviderTraitConfigurationRows,
 } from "./composerProviderState";
 
 // Everything in composerProviderState is now data-driven by the model's
@@ -228,7 +229,7 @@ describe("getComposerProviderState", () => {
   });
 });
 
-describe("provider traits render guards", () => {
+describe("provider trait configuration rows", () => {
   it("returns null when no thread target is provided", () => {
     const models = modelWith([
       selectDescriptor("effort", [{ id: "high", label: "High", isDefault: true }]),
@@ -242,7 +243,30 @@ describe("provider traits render guards", () => {
       onPromptChange: () => {},
     };
 
-    expect(renderProviderTraitsPicker(args)).toBeNull();
-    expect(renderProviderTraitsMenuContent(args)).toBeNull();
+    expect(renderProviderTraitConfigurationRows(args)).toBeNull();
+  });
+
+  it("builds one model-picker row for every capability descriptor", () => {
+    const rows = renderProviderTraitConfigurationRows({
+      provider: PROVIDER,
+      threadRef: {
+        environmentId: EnvironmentId.make("test-environment"),
+        threadId: ThreadId.make("test-thread"),
+      },
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("reasoningEffort", [
+          { id: "medium", label: "Medium", isDefault: true },
+          { id: "high", label: "High" },
+        ]),
+        booleanDescriptor("fastMode"),
+      ]),
+      modelOptions: undefined,
+      prompt: "",
+      onPromptChange: () => {},
+    });
+
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows).toHaveLength(2);
   });
 });

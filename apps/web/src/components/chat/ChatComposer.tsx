@@ -99,8 +99,7 @@ import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
+  renderProviderTraitConfigurationRows,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -425,6 +424,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   onPreviousPendingQuestion: () => void;
+  onSend: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
 }) {
@@ -453,6 +453,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
+        onSend={props.onSend}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
       />
@@ -511,7 +512,7 @@ export interface ChatComposerProps {
   variant?: "code" | "chat";
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
-  routeKind: "server" | "draft";
+  routeKind: "server" | "draft" | "chat-draft";
   routeThreadRef: ScopedThreadRef;
   draftId: DraftId | null;
 
@@ -1215,32 +1216,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, promptRef, scheduleComposerFocus, setComposerDraftPrompt],
   );
 
-  const providerTraitsMenuContent = isSimpleChat
-    ? null
-    : renderProviderTraitsMenuContent({
-        provider: selectedProvider,
-        instanceId: selectedInstanceId,
-        ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-        ...(routeKind === "draft" && draftId ? { draftId } : {}),
-        model: selectedModel,
-        models: selectedProviderModels,
-        modelOptions: composerModelOptions?.[selectedInstanceId],
-        prompt,
-        onPromptChange: setPromptFromTraits,
-      });
-  const providerTraitsPicker = isSimpleChat
-    ? null
-    : renderProviderTraitsPicker({
-        provider: selectedProvider,
-        instanceId: selectedInstanceId,
-        ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-        ...(routeKind === "draft" && draftId ? { draftId } : {}),
-        model: selectedModel,
-        models: selectedProviderModels,
-        modelOptions: composerModelOptions?.[selectedInstanceId],
-        prompt,
-        onPromptChange: setPromptFromTraits,
-      });
+  const providerTraitConfigurationRows = renderProviderTraitConfigurationRows({
+    provider: selectedProvider,
+    instanceId: selectedInstanceId,
+    ...(routeKind === "server" || routeKind === "chat-draft" ? { threadRef: routeThreadRef } : {}),
+    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    model: selectedModel,
+    models: selectedProviderModels,
+    modelOptions: composerModelOptions?.[selectedInstanceId],
+    prompt,
+    onPromptChange: setPromptFromTraits,
+  });
   const pendingPrimaryAction = useMemo(
     () =>
       activePendingProgress
@@ -2820,6 +2806,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       hasSendableContent={false}
                       preserveComposerFocusOnPointerDown
                       onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                      onSend={onSend}
                       onInterrupt={handleInterruptPrimaryAction}
                       onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
                     />
@@ -3062,6 +3049,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     : []
                 }
                 skills={selectedProviderStatus?.skills ?? []}
+                compact={isSimpleChat}
                 className={cn(
                   showMobilePendingAnswerActions && "max-sm:pb-11",
                   isSimpleChat && "min-h-10 max-h-40 text-[15px]",
@@ -3112,6 +3100,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     hasSendableContent={false}
                     preserveComposerFocusOnPointerDown
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                    onSend={onSend}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
                   />
@@ -3134,8 +3123,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-footer="true"
               data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
               className={cn(
-                "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
-                isSimpleChat && "w-auto shrink-0 flex-none gap-1 px-2 py-1",
+                "flex min-w-0 flex-nowrap items-center justify-between overflow-visible",
+                isSimpleChat
+                  ? "w-auto shrink-0 flex-none gap-1 px-2 py-1"
+                  : "gap-2 px-3 pb-3 sm:px-4 sm:pb-4",
                 pendingUserInputs.length > 0 && "pt-2",
                 isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 showMobilePendingAnswerActions && "hidden sm:flex",
@@ -3198,6 +3189,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     keybindings={keybindings}
                     modelOptionsByInstance={modelOptionsByInstance}
                     triggerClassName="-ms-px ps-0"
+                    configurationRows={providerTraitConfigurationRows}
                     terminalOpen={terminalOpen}
                     open={isComposerModelPickerOpen}
                     {...(composerProviderState.modelPickerIconClassName
@@ -3222,31 +3214,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     planSidebarOpen={planSidebarOpen}
                     runtimeMode={runtimeMode}
                     showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
-                    traitsMenuContent={providerTraitsMenuContent}
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
                   />
                 ) : (
-                  <>
-                    {providerTraitsPicker ? (
-                      <>
-                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                        {providerTraitsPicker}
-                      </>
-                    ) : null}
-                    <ComposerFooterModeControls
-                      showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
-                      interactionMode={interactionMode}
-                      runtimeMode={runtimeMode}
-                      showPlanToggle={showPlanSidebarToggle}
-                      planSidebarLabel={planSidebarLabel}
-                      planSidebarOpen={planSidebarOpen}
-                      onToggleInteractionMode={toggleInteractionMode}
-                      onRuntimeModeChange={handleRuntimeModeChange}
-                      onTogglePlanSidebar={togglePlanSidebar}
-                    />
-                  </>
+                  <ComposerFooterModeControls
+                    showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
+                    interactionMode={interactionMode}
+                    runtimeMode={runtimeMode}
+                    showPlanToggle={showPlanSidebarToggle}
+                    planSidebarLabel={planSidebarLabel}
+                    planSidebarOpen={planSidebarOpen}
+                    onToggleInteractionMode={toggleInteractionMode}
+                    onRuntimeModeChange={handleRuntimeModeChange}
+                    onTogglePlanSidebar={togglePlanSidebar}
+                  />
                 )}
               </div>
 
@@ -3278,6 +3261,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   hasSendableContent={composerSendState.hasSendableContent}
                   preserveComposerFocusOnPointerDown={isMobileViewport}
                   onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                  onSend={onSend}
                   onInterrupt={handleInterruptPrimaryAction}
                   onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
                 />

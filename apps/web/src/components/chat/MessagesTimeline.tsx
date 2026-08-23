@@ -59,6 +59,7 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import { TextShimmer } from "../text-shimmer";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -1094,21 +1095,12 @@ function ProposedPlanTimelineRow({
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
   return (
     <div className="py-0.5 pl-1.5">
-      <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70 tabular-nums">
-        <span className="inline-flex items-center gap-[3px]">
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse" />
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:200ms]" />
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:400ms]" />
-        </span>
-        <span>
-          {row.createdAt ? (
-            <>
-              Working for <WorkingTimer createdAt={row.createdAt} />
-            </>
-          ) : (
-            "Working..."
-          )}
-        </span>
+      <div className="pt-1 text-[11px] text-muted-foreground/70 tabular-nums">
+        {row.createdAt ? (
+          <WorkingTimer createdAt={row.createdAt} />
+        ) : (
+          <TextShimmer as="span">Working...</TextShimmer>
+        )}
       </div>
     </div>
   );
@@ -1121,13 +1113,13 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
 
 /** Live "Working for Xs" label. */
 function WorkingTimer({ createdAt }: { createdAt: string }) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const initialText = formatWorkingTimerNow(createdAt);
+  const textRef = useRef<HTMLElement>(null);
+  const initialText = `Working for ${formatWorkingTimerNow(createdAt)}`;
 
   useEffect(() => {
     const updateText = () => {
       if (textRef.current) {
-        textRef.current.textContent = formatWorkingTimerNow(createdAt);
+        textRef.current.textContent = `Working for ${formatWorkingTimerNow(createdAt)}`;
       }
     };
     updateText();
@@ -1136,9 +1128,9 @@ function WorkingTimer({ createdAt }: { createdAt: string }) {
   }, [createdAt]);
 
   return (
-    <span ref={textRef} className="tabular-nums">
+    <TextShimmer as="span" className="tabular-nums" elementRef={textRef}>
       {initialText}
-    </span>
+    </TextShimmer>
   );
 }
 

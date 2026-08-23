@@ -31,6 +31,54 @@ export interface ChatModelSelection {
   readonly model: string;
 }
 
+export interface ChatThreadCleanupCandidate {
+  readonly environmentId: EnvironmentId;
+  readonly id: ThreadId;
+  readonly scope?: "project" | "chat" | undefined;
+  readonly projectId: string | null;
+  readonly title: string;
+  readonly latestUserMessageAt: string | null;
+  readonly latestTurn: unknown | null;
+  readonly createdAt: string;
+}
+
+/**
+ * Finds only empty, default-titled chat threads, preserving one per
+ * environment. A currently open thread wins over the newest-thread fallback.
+ */
+export function findDuplicateEmptyChatThreadIds(
+  threads: readonly ChatThreadCleanupCandidate[],
+  activeThreadId: ThreadId | null,
+): ReadonlyArray<ThreadId> {
+  const candidatesByEnvironment = new Map<EnvironmentId, ChatThreadCleanupCandidate[]>();
+  for (const thread of threads) {
+    if (
+      thread.scope !== "chat" ||
+      thread.projectId !== null ||
+      thread.title !== "New chat" ||
+      thread.latestUserMessageAt !== null ||
+      thread.latestTurn !== null
+    ) {
+      continue;
+    }
+    const candidates = candidatesByEnvironment.get(thread.environmentId) ?? [];
+    candidates.push(thread);
+    candidatesByEnvironment.set(thread.environmentId, candidates);
+  }
+
+  const duplicateIds: ThreadId[] = [];
+  for (const candidates of candidatesByEnvironment.values()) {
+    if (candidates.length < 2) continue;
+    candidates.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const preserved =
+      candidates.find((thread) => thread.id === activeThreadId) ?? candidates[0]!;
+    duplicateIds.push(
+      ...candidates.filter((thread) => thread.id !== preserved.id).map((thread) => thread.id),
+    );
+  }
+  return duplicateIds;
+}
+
 export function resolveChatModelSelection(
   providers: readonly ChatProviderCandidate[] | undefined,
 ): ChatModelSelection | null {

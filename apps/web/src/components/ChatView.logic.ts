@@ -28,6 +28,18 @@ export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
+/**
+ * Reserved draft thread IDs must not load server detail until their shell is
+ * registered. Projectless chat drafts do not have a composer draft session,
+ * so their route kind carries the same lifecycle signal explicitly.
+ */
+export function shouldWaitForThreadShell(
+  routeKind: "server" | "draft" | "chat-draft",
+  hasComposerDraftSession: boolean,
+): boolean {
+  return routeKind === "chat-draft" || hasComposerDraftSession;
+}
+
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
   handleNewThread: (projectRef: ScopedProjectRef) => Promise<void>,
@@ -89,6 +101,38 @@ export function buildLocalDraftThread(
     latestTurn: null,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
+    checkpoints: [],
+    activities: [],
+    proposedPlans: [],
+  };
+}
+
+export function buildChatDraftThread(
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  modelSelection: ModelSelection,
+  createdAt: string,
+): Thread {
+  return {
+    id: threadId,
+    environmentId,
+    scope: "chat",
+    projectId: null,
+    title: "New chat",
+    modelSelection,
+    runtimeMode: "approval-required",
+    interactionMode: "default",
+    session: null,
+    messages: [],
+    createdAt,
+    updatedAt: createdAt,
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    deletedAt: null,
+    latestTurn: null,
+    branch: null,
+    worktreePath: null,
     checkpoints: [],
     activities: [],
     proposedPlans: [],
