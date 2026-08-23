@@ -20,7 +20,7 @@ import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import {
-  createOpenRouterCompletion,
+  streamOpenRouterCompletion,
   type OpenRouterCompletionMessage,
 } from "./OpenRouterApi.ts";
 import {
@@ -83,13 +83,39 @@ export const makeOpenRouterAdapter = (config: {
     ) =>
       Effect.gen(function* () {
         const model = turnInput.modelSelection?.model ?? state.session.model ?? config.defaultModel;
-        const result = yield* createOpenRouterCompletion({
+        let content = "";
+        let resolvedModel: string | undefined;
+        let usage: unknown;
+        const itemId = RuntimeItemId.make(`openrouter-item-${turnId}`);
+        yield* streamOpenRouterCompletion({
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           model,
           messages: state.messages,
           httpClient: config.httpClient,
         }).pipe(
+          Effect.flatMap((stream) =>
+            stream.pipe(
+              Stream.runForEach((chunk) =>
+                Effect.gen(function* () {
+                  content += chunk.delta;
+                  resolvedModel ??= chunk.model;
+                  if (chunk.usage !== undefined) usage = chunk.usage;
+                  if (chunk.delta.length === 0) return;
+                  const createdAt = DateTime.formatIso(yield* DateTime.now);
+                  yield* publish({
+                    type: "content.delta",
+                    ...stamp(createdAt),
+                    provider: PROVIDER,
+                    threadId: state.session.threadId,
+                    turnId,
+                    itemId,
+                    payload: { streamKind: "assistant_text", delta: chunk.delta },
+                  });
+                }),
+              ),
+            ),
+          ),
           Effect.mapError(
             (cause) =>
               new ProviderAdapterRequestError({
@@ -100,18 +126,15 @@ export const makeOpenRouterAdapter = (config: {
               }),
           ),
         );
-        state.messages.push({ role: "assistant", content: result.content });
-        const itemId = RuntimeItemId.make(`openrouter-item-${turnId}`);
+        if (content.trim().length === 0) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "chat/completions",
+            detail: "OpenRouter returned no assistant content.",
+          });
+        }
+        state.messages.push({ role: "assistant", content });
         const completedAt = DateTime.formatIso(yield* DateTime.now);
-        yield* publish({
-          type: "content.delta",
-          ...stamp(completedAt),
-          provider: PROVIDER,
-          threadId: state.session.threadId,
-          turnId,
-          itemId,
-          payload: { streamKind: "assistant_text", delta: result.content },
-        });
         yield* publish({
           type: "item.completed",
           ...stamp(completedAt),
@@ -119,13 +142,13 @@ export const makeOpenRouterAdapter = (config: {
           threadId: state.session.threadId,
           turnId,
           itemId,
-          payload: { itemType: "assistant_message", status: "completed", data: { content: result.content } },
+          payload: { itemType: "assistant_message", status: "completed", data: { content } },
         });
         const { activeTurnId: _activeTurnId, ...sessionWithoutActiveTurn } = state.session;
         state.session = {
           ...sessionWithoutActiveTurn,
           status: "ready",
-          model: result.model ?? model,
+          model: resolvedModel ?? model,
           updatedAt: completedAt,
         };
         sessions.set(state.session.threadId, state);
@@ -135,7 +158,7 @@ export const makeOpenRouterAdapter = (config: {
           provider: PROVIDER,
           threadId: state.session.threadId,
           turnId,
-          payload: { state: "completed", stopReason: "stop", usage: result.usage },
+          payload: { state: "completed", stopReason: "stop", usage },
         });
         yield* publish({
           type: "session.state.changed",

@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "2c7f31e03b75119d54cac9dbccd8f379a6dcfe58",
-    "indexed_at": "2026-08-23T04:23:50Z",
-    "project": "D-Documents-projects-Z3",
-    "nodes": 92986,
-    "edges": 272724,
-    "original_size": 187432960,
-    "compressed_size": 26998342,
-    "compression_level": 3
+    "commit": "af071be585cb242f43b8dc10c812bb6e901c1a6b",
+    "indexed_at": "2026-08-23T21:56:03Z",
+    "project": "Z3",
+    "nodes": 93529,
+    "edges": 409995,
+    "original_size": 144375808,
+    "compressed_size": 21116374,
+    "compression_level": 9
 }

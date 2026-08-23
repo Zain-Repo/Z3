@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 
@@ -12,6 +13,13 @@ export interface OpenRouterModel {
 export interface OpenRouterCompletionMessage {
   readonly role: "user" | "assistant" | "system";
   readonly content: string;
+}
+
+export interface OpenRouterCompletionChunk {
+  readonly delta: string;
+  readonly done: boolean;
+  readonly model?: string;
+  readonly usage?: unknown;
 }
 
 export class OpenRouterApiError extends Error {
@@ -90,42 +98,78 @@ export const fetchOpenRouterModels = Effect.fn("fetchOpenRouterModels")(function
   return parseOpenRouterModels(payload);
 });
 
-export const createOpenRouterCompletion = Effect.fn("createOpenRouterCompletion")(function* (input: {
+function parseOpenRouterCompletionSseLine(line: string): OpenRouterCompletionChunk | undefined {
+  const trimmedLine = line.trim();
+  if (!trimmedLine.startsWith("data:")) return undefined;
+
+  const data = trimmedLine.slice("data:".length).trim();
+  if (data === "[DONE]") {
+    return { delta: "", done: true };
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(data) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (!Predicate.isObject(payload)) return undefined;
+  const firstChoice = Array.isArray(payload.choices) ? payload.choices[0] : undefined;
+  const delta =
+    Predicate.isObject(firstChoice) && Predicate.isObject(firstChoice.delta)
+      ? firstChoice.delta
+      : undefined;
+  const content = delta && Predicate.isString(delta.content) ? delta.content : "";
+  const model = stringValue(payload.model);
+
+  return {
+    delta: content,
+    done: false,
+    ...(model !== undefined ? { model } : {}),
+    ...(payload.usage !== undefined ? { usage: payload.usage } : {}),
+  };
+}
+
+export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion")(function* (input: {
   readonly httpClient: HttpClient.HttpClient;
   readonly baseUrl: string;
   readonly apiKey: string;
   readonly model: string;
   readonly messages: ReadonlyArray<OpenRouterCompletionMessage>;
-}): Effect.fn.Return<
-  { readonly content: string; readonly model?: string; readonly usage: unknown },
-  OpenRouterApiError
-> {
-  const payload = yield* requestJson({
-    httpClient: input.httpClient,
-    request: HttpClientRequest.post(endpointUrl(input.baseUrl, "chat/completions")).pipe(
+}): Effect.fn.Return<Stream.Stream<OpenRouterCompletionChunk, OpenRouterApiError>, OpenRouterApiError> {
+  const response = yield* input.httpClient.execute(
+    HttpClientRequest.post(endpointUrl(input.baseUrl, "chat/completions")).pipe(
       HttpClientRequest.bearerToken(input.apiKey),
       HttpClientRequest.setHeader("Content-Type", "application/json"),
+      HttpClientRequest.setHeader("Accept", "text/event-stream"),
       HttpClientRequest.bodyJsonUnsafe({
         model: input.model,
         messages: input.messages,
-        stream: false,
+        stream: true,
+        stream_options: { include_usage: true },
         store: false,
       }),
     ),
-  });
-  if (!Predicate.isObject(payload) || !Array.isArray(payload.choices)) {
-    return yield* Effect.fail(new OpenRouterApiError("OpenRouter returned an invalid completion response."));
+  ).pipe(
+    Effect.mapError(
+      (cause) => new OpenRouterApiError(`OpenRouter request failed: ${String(cause)}`),
+    ),
+  );
+
+  if (response.status < 200 || response.status >= 300) {
+    return yield* Effect.fail(new OpenRouterApiError(errorDetail(response.status), response.status));
   }
-  const firstChoice = payload.choices[0];
-  const message = Predicate.isObject(firstChoice) && Predicate.isObject(firstChoice.message)
-    ? firstChoice.message
-    : undefined;
-  const content = message ? stringValue(message.content) : undefined;
-  if (!content) return yield* Effect.fail(new OpenRouterApiError("OpenRouter returned no assistant content."));
-  const resolvedModel = stringValue(payload.model);
-  return {
-    content,
-    ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
-    usage: payload.usage,
-  };
+
+  return response.stream.pipe(
+    Stream.decodeText(),
+    Stream.splitLines,
+    Stream.map(parseOpenRouterCompletionSseLine),
+    Stream.filter(
+      (chunk): chunk is OpenRouterCompletionChunk => chunk !== undefined,
+    ),
+    Stream.mapError(
+      (cause) => new OpenRouterApiError(`OpenRouter stream failed: ${String(cause)}`),
+    ),
+  );
 });
