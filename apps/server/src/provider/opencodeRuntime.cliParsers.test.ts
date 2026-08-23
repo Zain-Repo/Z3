@@ -2,7 +2,11 @@ import * as NodeAssert from "node:assert/strict";
 
 import { describe, it } from "vite-plus/test";
 
-import { parseModelsCliOutput, parseAgentListCliOutput } from "./opencodeRuntime.ts";
+import {
+  parseAgentListCliOutput,
+  parseModelsCliOutput,
+  parseSkillsCliOutput,
+} from "./opencodeRuntime.ts";
 
 describe("parseModelsCliOutput", () => {
   it("parses a single model from a single provider", () => {
@@ -125,6 +129,31 @@ describe("parseModelsCliOutput", () => {
     NodeAssert.ok(model.variants);
     NodeAssert.equal(model.variants!["medium"] !== undefined, true);
   });
+
+  it("keeps a model whose JSON body has a slash and no interior whitespace", () => {
+    // OpenRouter-style: the model id contains a `/` and no string value has a
+    // space, so the JSON body line itself matches the slug regex. It must still
+    // be treated as the body of the preceding slug, not a new slug.
+    const stdout = [
+      "openrouter/qwen/qwen3-coder",
+      JSON.stringify({
+        id: "qwen/qwen3-coder",
+        providerID: "openrouter",
+        name: "qwen3-coder",
+        status: "active",
+      }),
+    ].join("\n");
+
+    const result = parseModelsCliOutput(stdout);
+    NodeAssert.equal(result.providers.size, 1);
+    NodeAssert.deepEqual([...result.connected], ["openrouter"]);
+    const provider = result.providers.get("openrouter")!;
+    NodeAssert.ok(provider);
+    const model = provider.models["qwen/qwen3-coder"]!;
+    NodeAssert.ok(model);
+    NodeAssert.equal(model.id, "qwen/qwen3-coder");
+    NodeAssert.equal(model.providerID, "openrouter");
+  });
 });
 
 describe("parseAgentListCliOutput", () => {
@@ -225,5 +254,163 @@ describe("parseAgentListCliOutput", () => {
     const result = parseAgentListCliOutput(stdout);
     NodeAssert.equal(result[0]!.hidden, true);
     NodeAssert.equal(result[1]!.hidden, false);
+  });
+});
+
+describe("terminal escape stripping", () => {
+  // opencode <= 1.18 emits `ESC ]0;<cwd>: ready BEL` on stdout for every
+  // command, even when stdout is a pipe.
+  const OSC_TITLE = "\u001b]0;tmp: ready\u0007";
+
+  it("parseModelsCliOutput ignores an OSC title before the first slug", () => {
+    const stdout = [
+      `${OSC_TITLE}openai/gpt-4o`,
+      JSON.stringify({ id: "gpt-4o", providerID: "openai", name: "GPT-4o" }),
+    ].join("\n");
+
+    const result = parseModelsCliOutput(stdout);
+    NodeAssert.deepEqual([...result.connected], ["openai"]);
+    const model = result.providers.get("openai")!.models["gpt-4o"]!;
+    NodeAssert.ok(model);
+    NodeAssert.equal(model.id, "gpt-4o");
+  });
+
+  it("parseAgentListCliOutput strips an OSC title from the agent name", () => {
+    const stdout = [
+      `${OSC_TITLE}build (primary)`,
+      "  " + JSON.stringify([{ permission: "*", action: "allow", pattern: "*" }]),
+    ].join("\n");
+
+    const result = parseAgentListCliOutput(stdout);
+    NodeAssert.equal(result.length, 1);
+    NodeAssert.equal(result[0]!.name, "build");
+  });
+
+  it("parseSkillsCliOutput strips an OSC title before the JSON payload", () => {
+    const stdout = `${OSC_TITLE}${JSON.stringify([{ name: "review-pr" }])}`;
+    NodeAssert.deepEqual(parseSkillsCliOutput(stdout), [{ name: "review-pr" }]);
+  });
+
+  it("strips ST-terminated OSC sequences and ANSI color codes", () => {
+    const stdout = `\u001b]0;tmp: ready\u001b\\openai/gpt-4o\n${JSON.stringify({
+      id: "\u001b[1mgpt-4o\u001b[0m",
+      providerID: "openai",
+    })}`;
+
+    const result = parseModelsCliOutput(stdout);
+    NodeAssert.deepEqual([...result.connected], ["openai"]);
+    NodeAssert.equal(result.providers.get("openai")!.models["gpt-4o"]!.id, "gpt-4o");
+  });
+
+  it("strips escapes embedded inside decoded model string fields at any depth", () => {
+    // JSON.stringify encodes control bytes textually (e.g. `\u001b`), so these
+    // survive the byte-level pass over raw stdout and must be stripped after
+    // JSON decoding.
+    const stdout = [
+      "openai/gpt-4o",
+      JSON.stringify({
+        id: "\u001b]0;pwned\u0007gpt-4o",
+        providerID: "openai",
+        name: "\u001b[31mGPT-4o\u001b[0m",
+        api: {
+          id: "\u001b[1mgpt-4o\u001b[0m",
+          url: "\u001b]8;;https://x\u001b\\https://x\u001b]8;;\u001b\\",
+          npm: "@ai-sdk/openai",
+        },
+      }),
+    ].join("\n");
+
+    const result = parseModelsCliOutput(stdout);
+    const model = result.providers.get("openai")!.models["gpt-4o"]!;
+    NodeAssert.equal(model.id, "gpt-4o");
+    NodeAssert.equal(model.name, "GPT-4o");
+    NodeAssert.equal(model.api.id, "gpt-4o");
+    NodeAssert.equal(model.api.url, "https://x");
+    NodeAssert.equal(model.providerID, "openai");
+  });
+
+  it("keeps unterminated escape prefixes inside decoded model values as literal text", () => {
+    // No BEL/ST terminator: stripping must not swallow trailing value text.
+    const stdout = [
+      "openai/gpt-4o",
+      JSON.stringify({
+        id: "\u001b]0;partial gpt-4o",
+        providerID: "openai",
+        name: "GPT-4o",
+      }),
+    ].join("\n");
+
+    const result = parseModelsCliOutput(stdout);
+    const model = result.providers.get("openai")!.models["gpt-4o"]!;
+    NodeAssert.equal(model.id, "\u001b]0;partial gpt-4o");
+    NodeAssert.equal(model.name, "GPT-4o");
+  });
+
+  it("strips escapes embedded inside decoded agent permission fields", () => {
+    const permissions = [
+      { permission: "\u001b[31m*\u001b[0m", action: "allow", pattern: "*" },
+      {
+        permission: "read",
+        action: "ask",
+        pattern: "\u001b]0;tmp\u0007*.env",
+      },
+    ];
+    const stdout = ["build (primary)", "  " + JSON.stringify(permissions)].join("\n");
+
+    const result = parseAgentListCliOutput(stdout);
+    NodeAssert.equal(result.length, 1);
+    const agentPermission = result[0]!.permission;
+    NodeAssert.deepEqual(agentPermission[0], { permission: "*", action: "allow", pattern: "*" });
+    NodeAssert.equal(agentPermission[1]!.pattern, "*.env");
+  });
+
+  it("strips escapes embedded inside decoded skill string fields", () => {
+    const result = parseSkillsCliOutput(
+      JSON.stringify([
+        {
+          name: "\u001b[1mreview-pr\u001b[0m",
+          description: "\u001b]8;;https://git.host/pr/1\u001b\\Review a PR.\u001b]8;;\u001b\\",
+          location: "/tmp/review-pr/SKILL.md",
+          content: "---\nname: \u001b[32mreview-pr\u001b[0m\n---\n",
+        },
+      ]),
+    );
+
+    NodeAssert.deepEqual(result, [
+      {
+        name: "review-pr",
+        description: "Review a PR.",
+        location: "/tmp/review-pr/SKILL.md",
+        content: "---\nname: review-pr\n---\n",
+      },
+    ]);
+  });
+});
+
+describe("parseSkillsCliOutput", () => {
+  it("parses skill metadata from the CLI JSON output", () => {
+    const result = parseSkillsCliOutput(
+      JSON.stringify([
+        {
+          name: "review-pr",
+          description: "Review a pull request.",
+          location: "/tmp/review-pr/SKILL.md",
+          content: "---\nname: review-pr\n---\n",
+        },
+      ]),
+    );
+
+    NodeAssert.deepEqual(result, [
+      {
+        name: "review-pr",
+        description: "Review a pull request.",
+        location: "/tmp/review-pr/SKILL.md",
+        content: "---\nname: review-pr\n---\n",
+      },
+    ]);
+  });
+
+  it("degrades malformed output to an empty skill list", () => {
+    NodeAssert.deepEqual(parseSkillsCliOutput("not json"), []);
   });
 });
