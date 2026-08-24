@@ -22,6 +22,10 @@ import type {
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
+import * as EffectRuntime from "effect/Effect";
+import * as Semaphore from "effect/Semaphore";
+import * as SynchronizedRef from "effect/SynchronizedRef";
+import { ProviderAdapterSessionNotFoundError } from "../Errors.ts";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
 
@@ -40,6 +44,90 @@ export interface ProviderThreadTurnSnapshot {
 export interface ProviderThreadSnapshot {
   readonly threadId: ThreadId;
   readonly turns: ReadonlyArray<ProviderThreadTurnSnapshot>;
+  readonly resumeCursor?: unknown;
+}
+
+export interface ProviderAdapterSession extends ProviderSession {
+  readonly sessionLease?: import("@t3tools/contracts").ProviderSessionLease;
+}
+
+export interface ProviderThreadRollbackTarget {
+  readonly turnIds: ReadonlyArray<TurnId>;
+  readonly anchorTurnId?: TurnId;
+}
+
+export function rollbackTargetMatchesTurnPrefix(
+  turns: ReadonlyArray<Pick<ProviderThreadTurnSnapshot, "id">>,
+  target: ProviderThreadRollbackTarget,
+): boolean {
+  return target.turnIds.every((turnId, index) => turns[index]?.id === turnId);
+}
+
+export function rollbackTargetMatchesKnownHistory(
+  turns: ReadonlyArray<Pick<ProviderThreadTurnSnapshot, "id">>,
+  target: ProviderThreadRollbackTarget,
+): boolean {
+  return rollbackTargetMatchesTurnPrefix(turns, target);
+}
+
+export const makeRequireActiveProviderSession =
+  <Session extends { readonly stopped: boolean }>(
+    sessions: ReadonlyMap<ThreadId, Session>,
+    provider: ProviderDriverKind,
+  ) =>
+  (threadId: ThreadId): EffectRuntime.Effect<Session, ProviderAdapterSessionNotFoundError> => {
+    const session = sessions.get(threadId);
+    return session === undefined || session.stopped
+      ? EffectRuntime.fail(new ProviderAdapterSessionNotFoundError({ provider, threadId }))
+      : EffectRuntime.succeed(session);
+  };
+
+export function makeKeyedLock<Key>(options?: { readonly retain?: (key: Key) => boolean }) {
+  return EffectRuntime.gen(function* () {
+    const entries = yield* SynchronizedRef.make(
+      new Map<Key, { readonly semaphore: Semaphore.Semaphore; readonly references: number }>(),
+    );
+    return {
+      withLock: <A, E, R>(key: Key, effect: EffectRuntime.Effect<A, E, R>) =>
+        SynchronizedRef.modifyEffect(entries, (current) => {
+          const existing = current.get(key);
+          if (existing) {
+            const next = new Map(current);
+            next.set(key, { ...existing, references: existing.references + 1 });
+            return EffectRuntime.succeed([existing.semaphore, next] as const);
+          }
+          return Semaphore.make(1).pipe(
+            EffectRuntime.map((semaphore) => {
+              const next = new Map(current);
+              next.set(key, { semaphore, references: 1 });
+              return [semaphore, next] as const;
+            }),
+          );
+        }).pipe(
+          EffectRuntime.flatMap((semaphore) =>
+            semaphore.withPermit(effect).pipe(
+              EffectRuntime.ensuring(
+                SynchronizedRef.update(entries, (current) => {
+                  const entry = current.get(key);
+                  if (!entry) return current;
+                  const next = new Map(current);
+                  if (entry.references <= 1 && !options?.retain?.(key)) next.delete(key);
+                  else next.set(key, { ...entry, references: entry.references - 1 });
+                  return next;
+                }),
+              ),
+            ),
+          ),
+        ),
+      inspect: (key: Key) =>
+        SynchronizedRef.get(entries).pipe(
+          EffectRuntime.map((current) => ({
+            keyCount: current.size,
+            references: current.get(key)?.references ?? 0,
+          })),
+        ),
+    };
+  });
 }
 
 export interface ProviderAdapterShape<TError> {
@@ -54,7 +142,7 @@ export interface ProviderAdapterShape<TError> {
    */
   readonly startSession: (
     input: ProviderSessionStartInput,
-  ) => Effect.Effect<ProviderSession, TError>;
+  ) => Effect.Effect<ProviderAdapterSession, TError>;
 
   /**
    * Send a turn to an active provider session.
@@ -94,7 +182,7 @@ export interface ProviderAdapterShape<TError> {
   /**
    * List currently active provider sessions for this adapter.
    */
-  readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
+  readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderAdapterSession>>;
 
   /**
    * Check whether this adapter owns an active session id.
@@ -112,6 +200,12 @@ export interface ProviderAdapterShape<TError> {
   readonly rollbackThread: (
     threadId: ThreadId,
     numTurns: number,
+  ) => Effect.Effect<ProviderThreadSnapshot, TError>;
+
+  /** Optional absolute rollback for providers that own durable turn identities. */
+  readonly rollbackThreadTo?: (
+    threadId: ThreadId,
+    target: ProviderThreadRollbackTarget,
   ) => Effect.Effect<ProviderThreadSnapshot, TError>;
 
   /**

@@ -30,4 +30,27 @@ describe("runtimeEventToActivities approval details", () => {
     expect(activity?.kind).toBe("approval.requested");
     expect((activity?.payload as Record<string, unknown> | undefined)?.detail).toBe(detail);
   });
+
+  it("preserves provider-supported approval decisions", () => {
+    const event = {
+      type: "request.opened",
+      eventId: EventId.make("evt-droid-plan-approval"),
+      provider: ProviderDriverKind.make("droid"),
+      createdAt: "2026-07-18T00:00:00.000Z",
+      threadId: ThreadId.make("thread-droid"),
+      requestId: RuntimeRequestId.make("approval-droid"),
+      payload: {
+        requestType: "plan_approval",
+        supportedDecisions: ["accept", "decline"],
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    const [activity] = runtimeEventToActivities(event);
+
+    expect(activity?.kind).toBe("approval.requested");
+    expect((activity?.payload as Record<string, unknown> | undefined)?.supportedDecisions).toEqual([
+      "accept",
+      "decline",
+    ]);
+  });
 });

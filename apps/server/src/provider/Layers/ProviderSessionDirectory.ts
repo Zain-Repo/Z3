@@ -72,6 +72,7 @@ function toRuntimeBinding(
           // persistence so hot routing code never has to infer an instance
           // from a driver kind.
           providerInstanceId: runtime.providerInstanceId ?? defaultInstanceIdForDriver(provider),
+          sessionLease: runtime.sessionLease ?? null,
           adapterKey: runtime.adapterKey,
           runtimeMode: runtime.runtimeMode,
           status: runtime.status,
@@ -119,6 +120,12 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       existingRuntime !== undefined && existingRuntime.providerName !== binding.provider;
     const providerInstanceId =
       binding.providerInstanceId ?? (!providerChanged ? existingRuntime?.providerInstanceId : null);
+    const sessionLease =
+      binding.sessionLease !== undefined
+        ? binding.sessionLease
+        : providerChanged
+          ? null
+          : (existingRuntime?.sessionLease ?? null);
     if (providerInstanceId === null || providerInstanceId === undefined) {
       return yield* new ProviderValidationError({
         operation: "ProviderSessionDirectory.upsert",
@@ -130,6 +137,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
         threadId: resolvedThreadId,
         providerName: binding.provider,
         providerInstanceId,
+        sessionLease,
         adapterKey:
           binding.adapterKey ??
           (providerChanged ? binding.provider : (existingRuntime?.adapterKey ?? binding.provider)),

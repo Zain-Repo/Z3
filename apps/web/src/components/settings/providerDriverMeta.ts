@@ -2,6 +2,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
+  DroidSettings,
   GrokSettings,
   OpenCodeSettings,
   OpenRouterSettings,
@@ -11,6 +12,7 @@ import type * as Schema from "effect/Schema";
 import {
   ClaudeAI,
   CursorIcon,
+  DroidIcon,
   GrokIcon,
   type Icon,
   OpenAI,
@@ -62,6 +64,13 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     icon: CursorIcon,
     badgeLabel: "Early Access",
     settingsSchema: CursorSettings,
+  },
+  {
+    value: ProviderDriverKind.make("droid"),
+    label: "Droid",
+    icon: DroidIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: DroidSettings,
   },
   {
     value: ProviderDriverKind.make("grok"),

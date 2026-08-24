@@ -117,6 +117,31 @@ describe("derivePendingApprovals", () => {
     ]);
   });
 
+  it("preserves Droid plan approval capabilities", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "droid-plan-approval",
+        kind: "approval.requested",
+        summary: "Plan approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "droid-plan-request",
+          requestType: "plan_approval",
+          supportedDecisions: ["accept", "decline"],
+        },
+      }),
+    ];
+
+    expect(derivePendingApprovals(activities)).toEqual([
+      {
+        requestId: "droid-plan-request",
+        requestKind: "plan",
+        createdAt: "2026-02-23T00:00:00.000Z",
+        supportedDecisions: ["accept", "decline"],
+      },
+    ]);
+  });
+
   it("clears stale pending approvals when provider reports unknown pending request", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

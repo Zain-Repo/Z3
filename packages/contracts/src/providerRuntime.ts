@@ -13,7 +13,11 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
-import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
+import {
+  ProviderInstanceId,
+  ProviderDriverKind,
+  ProviderSessionLease,
+} from "./providerInstance.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -26,6 +30,8 @@ const RuntimeEventRawSource = Schema.Union([
   Schema.Literal("claude.sdk.permission"),
   Schema.Literal("codex.sdk.thread-event"),
   Schema.Literal("opencode.sdk.event"),
+  Schema.Literal("droid.jsonrpc.notification"),
+  Schema.Literal("droid.jsonrpc.request"),
   Schema.Literal("acp.jsonrpc"),
   Schema.TemplateLiteral(["acp.", Schema.String, ".extension"]),
 ]);
@@ -43,6 +49,7 @@ const ProviderRequestId = TrimmedNonEmptyStringSchema;
 export type ProviderRequestId = typeof ProviderRequestId.Type;
 
 const ProviderRefs = Schema.Struct({
+  sessionLease: Schema.optional(ProviderSessionLease),
   providerTurnId: Schema.optional(TrimmedNonEmptyStringSchema),
   providerItemId: Schema.optional(ProviderItemId),
   providerRequestId: Schema.optional(ProviderRequestId),
@@ -141,6 +148,7 @@ export const CanonicalRequestType = Schema.Literals([
   "tool_user_input",
   "dynamic_tool_call",
   "auth_tokens_refresh",
+  "plan_approval",
   "unknown",
 ]);
 export type CanonicalRequestType = typeof CanonicalRequestType.Type;
@@ -248,6 +256,7 @@ const RuntimeErrorType = Schema.Literal("runtime.error");
 const ProviderRuntimeEventBase = Schema.Struct({
   eventId: EventId,
   provider: ProviderDriverKind,
+  sessionLease: Schema.optional(ProviderSessionLease),
   // Optional during the driver/instance migration. See providerInstance.ts
   // for the routing-key-vs-driver-id distinction. Once every emitter
   // populates it (post-slice-4), routing flips to instance-id-only.
@@ -420,6 +429,7 @@ export type ContentDeltaPayload = typeof ContentDeltaPayload.Type;
 
 const RequestOpenedPayload = Schema.Struct({
   requestType: CanonicalRequestType,
+  supportedDecisions: Schema.optional(Schema.Array(TrimmedNonEmptyStringSchema)),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
   args: Schema.optional(Schema.Unknown),
 });
@@ -509,6 +519,7 @@ const HookCompletedPayload = Schema.Struct({
 export type HookCompletedPayload = typeof HookCompletedPayload.Type;
 
 const ToolProgressPayload = Schema.Struct({
+  taskId: Schema.optional(RuntimeTaskId),
   toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
   toolName: Schema.optional(TrimmedNonEmptyStringSchema),
   summary: Schema.optional(TrimmedNonEmptyStringSchema),

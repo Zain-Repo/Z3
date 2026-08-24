@@ -46,13 +46,14 @@ yay -S t3code-bin
 Z3 drives provider CLIs; it does not ship them. Install the CLI for each provider you want
 to use, then authenticate it.
 
-| Provider   | CLI                                                   | Default binary | Log in with           |
-| ---------- | ----------------------------------------------------- | -------------- | --------------------- |
-| Codex      | [Codex CLI](https://developers.openai.com/codex/cli)  | `codex`        | `codex login`         |
-| Claude     | [Claude Code](https://claude.com/product/claude-code) | `claude`       | `claude auth login`   |
-| Cursor     | [Cursor CLI](https://cursor.com/cli)                  | `cursor-agent` | `agent login`         |
-| Grok Build | [Grok Build CLI](https://x.ai/cli)                    | `grok`         | `grok login`          |
-| OpenCode   | [OpenCode](https://opencode.ai)                       | `opencode`     | `opencode auth login` |
+| Provider   | CLI                                                           | Default binary | Log in with                              |
+| ---------- | ------------------------------------------------------------- | -------------- | ---------------------------------------- |
+| Codex      | [Codex CLI](https://developers.openai.com/codex/cli)          | `codex`        | `codex login`                            |
+| Claude     | [Claude Code](https://claude.com/product/claude-code)         | `claude`       | `claude auth login`                      |
+| Cursor     | [Cursor CLI](https://cursor.com/cli)                          | `cursor-agent` | `agent login`                            |
+| Droid      | [Factory Droid](https://docs.factory.ai/droid-cli/quickstart) | `droid`        | Run `droid` and complete browser sign-in |
+| Grok Build | [Grok Build CLI](https://x.ai/cli)                            | `grok`         | `grok login`                             |
+| OpenCode   | [OpenCode](https://opencode.ai)                               | `opencode`     | `opencode auth login`                    |
 
 Cursor is the one to watch: install Cursor CLI, which provides the `cursor-agent` binary that
 Z3 looks for, but authenticate with `agent login`, not `cursor-agent login`.
@@ -74,7 +75,8 @@ Z3. You can install Z3, open it, and add providers afterwards. A provider that i
 authenticated shows its status in **Settings** and fails at session start with the login command
 to run.
 
-For multi-account setups, see [Codex](./providers-codex.md) and [Claude](./providers-claude.md).
+For provider-specific setup, see [Codex](./providers-codex.md),
+[Claude](./providers-claude.md), and [Factory Droid](./providers-droid.md).
 
 ## Next Steps
 

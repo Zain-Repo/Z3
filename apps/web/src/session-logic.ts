@@ -6,6 +6,7 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
+  type ProviderApprovalDecision,
   ProviderDriverKind,
   type ToolLifecycleItemType,
   type UserInputQuestion,
@@ -42,6 +43,12 @@ export const PROVIDER_OPTIONS: Array<{
   {
     value: ProviderDriverKind.make("cursor"),
     label: "Cursor",
+    available: true,
+    pickerSidebarBadge: "new",
+  },
+  {
+    value: ProviderDriverKind.make("droid"),
+    label: "Droid",
     available: true,
     pickerSidebarBadge: "new",
   },
@@ -101,9 +108,10 @@ const derivedWorkLogEntryByActivity = new WeakMap<
 
 export interface PendingApproval {
   requestId: ApprovalRequestId;
-  requestKind: "command" | "file-read" | "file-change";
+  requestKind: "command" | "file-read" | "file-change" | "plan";
   createdAt: string;
   detail?: string;
+  supportedDecisions?: ReadonlyArray<ProviderApprovalDecision>;
 }
 
 export interface PendingUserInput {
@@ -335,6 +343,8 @@ export function deriveActiveWorkStartedAt(
 
 function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
   switch (requestType) {
+    case "plan_approval":
+      return "plan";
     case "command_execution_approval":
     case "exec_command_approval":
     case "dynamic_tool_call":
@@ -390,6 +400,16 @@ export function derivePendingApprovals(
           ? requestKindFromRequestType(payload.requestType)
           : null;
     const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
+    const supportedDecisions =
+      payload && Array.isArray(payload.supportedDecisions)
+        ? payload.supportedDecisions.filter(
+            (decision): decision is ProviderApprovalDecision =>
+              decision === "accept" ||
+              decision === "acceptForSession" ||
+              decision === "decline" ||
+              decision === "cancel",
+          )
+        : undefined;
 
     if (activity.kind === "approval.requested" && requestId && requestKind) {
       openByRequestId.set(requestId, {
@@ -397,6 +417,7 @@ export function derivePendingApprovals(
         requestKind,
         createdAt: activity.createdAt,
         ...(detail ? { detail } : {}),
+        ...(supportedDecisions ? { supportedDecisions } : {}),
       });
       continue;
     }

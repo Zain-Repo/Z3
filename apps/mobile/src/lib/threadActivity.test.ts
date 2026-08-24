@@ -13,10 +13,38 @@ import {
 
 import {
   buildThreadFeed,
+  derivePendingApprovals,
   deriveThreadFeedPresentation,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
 } from "./threadActivity";
+
+describe("derivePendingApprovals", () => {
+  it("preserves Droid plan approval capabilities", () => {
+    expect(
+      derivePendingApprovals([
+        makeActivity({
+          id: EventId.make("droid-plan-approval"),
+          kind: "approval.requested",
+          summary: "Plan approval requested",
+          createdAt: "2026-04-01T00:00:00.000Z",
+          payload: {
+            requestId: "droid-plan-request",
+            requestType: "plan_approval",
+            supportedDecisions: ["accept", "decline"],
+          },
+        }),
+      ]),
+    ).toEqual([
+      {
+        requestId: "droid-plan-request",
+        requestKind: "plan",
+        createdAt: "2026-04-01T00:00:00.000Z",
+        supportedDecisions: ["accept", "decline"],
+      },
+    ]);
+  });
+});
 
 function makeActivity(
   input: Partial<OrchestrationThreadActivity> &

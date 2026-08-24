@@ -1,4 +1,8 @@
-import { ApprovalRequestId, isToolLifecycleItemType } from "@t3tools/contracts";
+import {
+  ApprovalRequestId,
+  isToolLifecycleItemType,
+  type ProviderApprovalDecision,
+} from "@t3tools/contracts";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
@@ -14,9 +18,10 @@ import * as Order from "effect/Order";
 
 export interface PendingApproval {
   readonly requestId: ApprovalRequestId;
-  readonly requestKind: "command" | "file-read" | "file-change";
+  readonly requestKind: "command" | "file-read" | "file-change" | "plan";
   readonly createdAt: string;
   readonly detail?: string;
+  readonly supportedDecisions?: ReadonlyArray<ProviderApprovalDecision>;
 }
 
 export interface PendingUserInput {
@@ -137,6 +142,8 @@ export type ThreadFeedLatestTurn = Pick<
 
 function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
   switch (requestType) {
+    case "plan_approval":
+      return "plan";
     case "command_execution_approval":
     case "exec_command_approval":
       return "command";
@@ -1259,6 +1266,15 @@ export function derivePendingApprovals(
         ? payload.requestKind
         : requestKindFromRequestType(payload?.requestType);
     const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
+    const supportedDecisions = Array.isArray(payload?.supportedDecisions)
+      ? payload.supportedDecisions.filter(
+          (decision): decision is ProviderApprovalDecision =>
+            decision === "accept" ||
+            decision === "acceptForSession" ||
+            decision === "decline" ||
+            decision === "cancel",
+        )
+      : undefined;
 
     if (activity.kind === "approval.requested" && requestId && requestKind) {
       openByRequestId.set(requestId, {
@@ -1266,6 +1282,7 @@ export function derivePendingApprovals(
         requestKind,
         createdAt: activity.createdAt,
         ...(detail ? { detail } : {}),
+        ...(supportedDecisions ? { supportedDecisions } : {}),
       });
       continue;
     }

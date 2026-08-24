@@ -1,5 +1,6 @@
 import type {
   ProviderInstanceId,
+  ProviderSessionLease,
   ProviderDriverKind,
   ProviderSessionRuntimeStatus,
   RuntimeMode,
@@ -23,6 +24,8 @@ export interface ProviderRuntimeBinding {
    * exposing bindings; runtime callers must not infer this from `provider`.
    */
   readonly providerInstanceId?: ProviderInstanceId;
+  /** Optional until every legacy adapter stamps a live lease. */
+  readonly sessionLease?: ProviderSessionLease | null;
   readonly adapterKey?: string;
   readonly status?: ProviderSessionRuntimeStatus;
   readonly resumeCursor?: unknown | null;
