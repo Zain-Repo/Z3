@@ -20,6 +20,7 @@ export interface ChatProjectSource {
 export interface ChatProject {
   readonly id: string;
   readonly name: string;
+  readonly isPinned: boolean;
   readonly instructions: string;
   readonly sources: readonly ChatProjectSource[];
   readonly threadIds: readonly string[];
@@ -34,7 +35,10 @@ interface ChatProjectsState {
   readonly updateProject: (
     environmentId: EnvironmentId,
     projectId: string,
-    patch: { readonly name?: string; readonly instructions?: string },
+    patch: {
+      readonly name?: string;
+      readonly instructions?: string;
+    },
   ) => void;
   readonly deleteProject: (environmentId: EnvironmentId, projectId: string) => void;
   readonly addSource: (
@@ -48,6 +52,7 @@ interface ChatProjectsState {
     sourceId: string,
   ) => void;
   readonly setActiveProject: (environmentId: EnvironmentId, projectId: string | null) => void;
+  readonly toggleProjectPin: (environmentId: EnvironmentId, projectId: string) => void;
   readonly addThreadToProject: (
     environmentId: EnvironmentId,
     projectId: string,
@@ -113,6 +118,7 @@ function sanitizeProject(value: unknown): ChatProject | null {
   return {
     id,
     name,
+    isPinned: value.isPinned === true,
     instructions: stringValue(value.instructions),
     sources: sources.slice(0, MAX_SOURCES_PER_PROJECT),
     threadIds,
@@ -198,6 +204,7 @@ export const useChatProjectsStore = create<ChatProjectsState>((set) => ({
       const project: ChatProject = {
         id: projectId,
         name,
+        isPinned: false,
         instructions: "",
         sources: [],
         threadIds: [],
@@ -308,6 +315,15 @@ export const useChatProjectsStore = create<ChatProjectsState>((set) => ({
       persistState(nextState);
       return nextState;
     });
+  },
+  toggleProjectPin: (environmentId, projectId) => {
+    set((state) =>
+      updateEnvironmentProjects(state, environmentId, (projects) =>
+        projects.map((project) =>
+          project.id === projectId ? { ...project, isPinned: !project.isPinned } : project,
+        ),
+      ),
+    );
   },
   addThreadToProject: (environmentId, projectId, threadId) => {
     set((state) =>
