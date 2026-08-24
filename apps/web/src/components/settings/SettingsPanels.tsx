@@ -32,6 +32,8 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
+  DEFAULT_Z3CHAT_EMBEDDING_MODEL,
+  DEFAULT_Z3CHAT_EMBEDDING_PROVIDER,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
   MAX_GLASS_OPACITY,
@@ -138,6 +140,12 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  embeddingModelsForProvider,
+  embeddingProviderForModel,
+  Z3CHAT_EMBEDDING_PROVIDERS,
+  Z3CHAT_EMBEDDING_PROVIDER_LABELS,
+} from "../../lib/z3chatEmbeddingModels";
 
 const THEME_OPTIONS = [
   {
@@ -1165,6 +1173,12 @@ export function GeneralSettingsPanel() {
     settings.backgroundActivity,
     DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
   );
+  const embeddingProvider =
+    Z3CHAT_EMBEDDING_PROVIDER_LABELS[settings.z3chatEmbeddingProvider] !== undefined
+      ? settings.z3chatEmbeddingProvider
+      : (embeddingProviderForModel(settings.z3chatEmbeddingModel) ??
+        DEFAULT_Z3CHAT_EMBEDDING_PROVIDER);
+  const embeddingModels = embeddingModelsForProvider(embeddingProvider);
 
   return (
     <SettingsPageContainer>
@@ -1661,6 +1675,88 @@ export function GeneralSettingsPanel() {
                   });
                 }}
               />
+            </div>
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Z3Chat">
+        <SettingsRow
+          {...searchableSetting("z3chat-project-embeddings")}
+          description={`Background embeddings are always enabled for Z3Chat project sources and routed through OpenRouter. Default: Voyage AI / ${DEFAULT_Z3CHAT_EMBEDDING_MODEL}.`}
+          resetAction={
+            settings.z3chatEmbeddingProvider !== DEFAULT_UNIFIED_SETTINGS.z3chatEmbeddingProvider ||
+            settings.z3chatEmbeddingModel !== DEFAULT_UNIFIED_SETTINGS.z3chatEmbeddingModel ? (
+              <SettingResetButton
+                label="Z3Chat project embeddings"
+                onClick={() =>
+                  updateSettings({
+                    z3chatEmbeddingProvider: DEFAULT_UNIFIED_SETTINGS.z3chatEmbeddingProvider,
+                    z3chatEmbeddingModel: DEFAULT_UNIFIED_SETTINGS.z3chatEmbeddingModel,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              <Select
+                value={embeddingProvider}
+                onValueChange={(value) => {
+                  const nextProvider = String(value);
+                  const nextModel = embeddingModelsForProvider(nextProvider)[0];
+                  if (!nextModel) return;
+                  updateSettings({
+                    z3chatEmbeddingProvider: nextProvider,
+                    z3chatEmbeddingModel: nextModel.id,
+                  });
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-44" aria-label="Z3Chat embedding provider">
+                  <SelectValue>
+                    {Z3CHAT_EMBEDDING_PROVIDER_LABELS[embeddingProvider] ?? embeddingProvider}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {Z3CHAT_EMBEDDING_PROVIDERS.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <Select
+                value={
+                  embeddingModels.some((model) => model.id === settings.z3chatEmbeddingModel)
+                    ? settings.z3chatEmbeddingModel
+                    : embeddingModels[0]?.id
+                }
+                onValueChange={(value) =>
+                  updateSettings({
+                    z3chatEmbeddingProvider: embeddingProvider,
+                    z3chatEmbeddingModel: String(value),
+                  })
+                }
+              >
+                <SelectTrigger className="w-full sm:w-64" aria-label="Z3Chat embedding model">
+                  <SelectValue>
+                    {embeddingModels.find((model) => model.id === settings.z3chatEmbeddingModel)
+                      ?.label ?? settings.z3chatEmbeddingModel}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {embeddingModels.map((model) => (
+                    <SelectItem key={model.id} value={model.id}>
+                      <span className="flex w-full items-center justify-between gap-4">
+                        <span>{model.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {model.contextLength.toLocaleString()} tokens
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
             </div>
           }
         />

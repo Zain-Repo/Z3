@@ -10,6 +10,7 @@ import {
 const project: ChatProject = {
   id: "project-1",
   name: "Launch plan",
+  isPinned: false,
   instructions: "Prefer concise launch checklists.",
   sources: [
     {

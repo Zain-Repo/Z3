@@ -3,7 +3,6 @@ import {
   ANDROID_PLAY_STORE_URL,
   GITHUB_REPOSITORY_URL,
   IOS_APP_STORE_URL,
-  MARKETING_STATS,
 } from "../lib/site";
 
 interface Props {
@@ -43,20 +42,6 @@ const {
           <a href="/" class="nav-brand" aria-label="Z3 home">
             <span class="nav-brand-name">Z3</span>
           </a>
-          <div class="nav-right">
-            <a
-              class="nav-stars"
-              href={GITHUB_REPOSITORY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Star Z3 on GitHub — ${MARKETING_STATS.githubStars} stars`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2.3l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.12l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.3z"/>
-              </svg>
-              <span><strong>{MARKETING_STATS.githubStars}</strong> GitHub stars</span>
-            </a>
-          </div>
         </div>
       </nav>
 
@@ -315,7 +300,7 @@ const {
     padding: 12px 32px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 24px;
   }
 
@@ -335,44 +320,12 @@ const {
     font-weight: 650;
     letter-spacing: -0.025em;
     line-height: 1;
+    color: var(--accent);
+    transition: color 0.2s ease;
   }
 
-  .nav-right {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .nav-stars {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 36px;
-    padding: 0 14px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--fg-muted);
-    font-size: 13px;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-  }
-
-  .nav-stars:hover {
-    color: var(--fg);
-    border-color: var(--border-strong);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .nav-stars strong {
-    color: var(--fg);
-    font-weight: 600;
-  }
-
-  .nav-stars svg {
-    color: var(--warn);
-    flex-shrink: 0;
+  .nav-brand:hover .nav-brand-name {
+    color: #fff;
   }
 
   .main {
@@ -459,16 +412,4 @@ const {
     }
   }
 
-  @media (max-width: 420px) {
-    .nav-inner {
-      gap: 12px;
-    }
-
-    .nav-stars {
-      height: 34px;
-      gap: 6px;
-      padding: 0 12px;
-      font-size: 12px;
-    }
-  }
 </style>

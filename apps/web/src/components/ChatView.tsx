@@ -220,6 +220,7 @@ import {
   useThreadProposedPlans,
   useThreadRefs,
   useThreadShell,
+  useThreadShells,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -228,6 +229,7 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ChatProjectHero } from "./ChatProjectHero";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -1493,6 +1495,8 @@ function ChatViewContent(props: ChatViewProps) {
     (state) => state.activeProjectIdByEnvironment[environmentId] ?? null,
   );
   const addThreadToChatProject = useChatProjectsStore((state) => state.addThreadToProject);
+  const toggleChatProjectPin = useChatProjectsStore((state) => state.toggleProjectPin);
+  const chatThreadShells = useThreadShells();
   const chatProject = useMemo(() => {
     if (!isChatThread) return null;
     if (routeKind === "chat-draft") {
@@ -1500,6 +1504,27 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return projectForChatThread(chatProjects, threadId);
   }, [chatProjects, isChatThread, routeKind, selectedChatProjectId, threadId]);
+  const recentChatProjectThreads = useMemo(() => {
+    if (!chatProject) return [];
+    return chatThreadShells
+      .filter(
+        (thread) =>
+          thread.scope === "chat" &&
+          thread.archivedAt === null &&
+          chatProject.threadIds.includes(thread.id),
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, 6);
+  }, [chatProject, chatThreadShells]);
+  const selectRecentChatProjectThread = useCallback(
+    (nextEnvironmentId: EnvironmentId, nextThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: nextEnvironmentId, threadId: nextThreadId },
+      });
+    },
+    [navigate],
+  );
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
@@ -5973,7 +5998,18 @@ function ChatViewContent(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        {isChatSurface ? (
+                        {isChatSurface && chatProject ? (
+                          <ChatProjectHero
+                            key={chatProject.id}
+                            environmentId={environmentId}
+                            project={chatProject}
+                            recentThreads={recentChatProjectThreads}
+                            onTogglePin={() => {
+                              toggleChatProjectPin(environmentId, chatProject.id);
+                            }}
+                            onSelectThread={selectRecentChatProjectThread}
+                          />
+                        ) : isChatSurface ? (
                           <h1 className="text-center text-2xl font-medium tracking-tight text-foreground/90 sm:text-[28px]">
                             What should we work on?
                           </h1>

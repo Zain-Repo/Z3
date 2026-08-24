@@ -64,8 +64,12 @@ export function ChatProjectDialog({
       return;
     }
     if (project) {
-      updateProject(environmentId, project.id, { name: trimmedName, instructions });
+      updateProject(environmentId, project.id, {
+        name: trimmedName,
+        instructions,
+      });
       toastManager.add({ type: "success", title: "Project saved" });
+      onOpenChange(false);
       return;
     }
     const projectId = createProject(environmentId, trimmedName);
@@ -75,6 +79,7 @@ export function ChatProjectDialog({
     }
     updateProject(environmentId, projectId, { instructions });
     onCreated(projectId);
+    onOpenChange(false);
   };
 
   const handleFiles = async (files: FileList | null) => {

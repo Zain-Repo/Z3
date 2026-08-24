@@ -221,14 +221,20 @@ function ChatSidebarProjectRow({
 
   return (
     <SidebarMenuItem className="group flex items-center gap-0.5 rounded-lg px-1">
-      <button
+      <SidebarMenuButton
         type="button"
-        disabled={!hasVisibleThreads}
+        isActive={isActive}
         aria-expanded={projectIsOpen}
-        aria-label={`${projectIsOpen ? "Collapse" : "Expand"} ${project.name}`}
+        aria-label={`${projectIsOpen ? "Collapse" : "Open"} ${project.name}`}
         {...(hasVisibleThreads ? { "aria-controls": projectPanelId } : {})}
-        className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => onToggleExpanded(project.id)}
+        className={cn("min-w-0 flex-1 rounded-lg px-2 font-medium", isActive && "font-semibold")}
+        title={`${project.name}${isActive ? " (selected for new chats)" : ""}`}
+        onClick={() => {
+          onSelect(project);
+          if (hasVisibleThreads) {
+            onToggleExpanded(project.id);
+          }
+        }}
       >
         <AnimatePresence initial={false} mode="popLayout">
           <motion.span
@@ -253,15 +259,8 @@ function ChatSidebarProjectRow({
             )}
           </motion.span>
         </AnimatePresence>
-      </button>
-      <SidebarMenuButton
-        type="button"
-        isActive={isActive}
-        onClick={() => onSelect(project)}
-        className={cn("min-w-0 flex-1 rounded-lg px-1 font-medium", isActive && "font-semibold")}
-        title={`${project.name}${isActive ? " (selected for new chats)" : ""}`}
-      >
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
+        {project.isPinned ? <PinIcon className="size-3 shrink-0 text-sidebar-muted-foreground" /> : null}
         <span className="text-[10px] font-normal text-sidebar-muted-foreground/70 tabular-nums">
           {threadCount}
         </span>
@@ -489,6 +488,10 @@ export default function ChatWorkspaceSidebar() {
 
   const projectThreadIds = useMemo(
     () => new Set(chatProjects.flatMap((project) => project.threadIds)),
+    [chatProjects],
+  );
+  const orderedChatProjects = useMemo(
+    () => [...chatProjects].sort((left, right) => Number(right.isPinned) - Number(left.isPinned)),
     [chatProjects],
   );
   const projectThreadsById = useMemo(() => {
@@ -737,9 +740,9 @@ export default function ChatWorkspaceSidebar() {
               <PlusIcon className="size-3.5" />
             </Button>
           </div>
-          {chatProjects.length > 0 ? (
+          {orderedChatProjects.length > 0 ? (
             <div className="grid gap-0.5">
-              {chatProjects.map((project) => {
+              {orderedChatProjects.map((project) => {
                 const projectThreads = projectThreadById(project, projectThreadsById);
                 const hasVisibleThreads = projectThreads.length > 0;
                 const projectPanelId = `chat-project-panel-${project.id}`;
@@ -756,12 +759,8 @@ export default function ChatWorkspaceSidebar() {
                         onToggleExpanded={toggleProjectExpanded}
                         onSelect={(selectedProject) => {
                           if (availableEnvironmentId) {
-                            setActiveChatProject(
-                              availableEnvironmentId,
-                              selectedProject.id === activeChatProjectId
-                                ? null
-                                : selectedProject.id,
-                            );
+                            setActiveChatProject(availableEnvironmentId, selectedProject.id);
+                            void handleNewChat();
                           }
                         }}
                         projectPanelId={projectPanelId}

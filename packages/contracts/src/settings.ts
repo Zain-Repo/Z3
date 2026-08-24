@@ -62,6 +62,9 @@ export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill",
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
 
+export const DEFAULT_Z3CHAT_EMBEDDING_PROVIDER = "voyageai";
+export const DEFAULT_Z3CHAT_EMBEDDING_MODEL = "voyageai/voyage-4-large";
+
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -75,6 +78,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  z3chatEmbeddingProvider: TrimmedString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_Z3CHAT_EMBEDDING_PROVIDER)),
+  ),
+  z3chatEmbeddingModel: TrimmedString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_Z3CHAT_EMBEDDING_MODEL)),
   ),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
@@ -741,6 +750,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  z3chatEmbeddingProvider: Schema.optionalKey(TrimmedString),
+  z3chatEmbeddingModel: Schema.optionalKey(TrimmedString),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
