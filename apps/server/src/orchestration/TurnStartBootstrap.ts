@@ -10,7 +10,6 @@
 import {
   CommandId,
   EventId,
-  type OrchestrationClientOrigin,
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
   type ThreadId,
@@ -30,16 +29,11 @@ import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 
 export type TurnStartCommand = Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
 
-export interface TurnStartBootstrapDispatchOptions {
-  readonly origin?: OrchestrationClientOrigin;
-}
-
 export class TurnStartBootstrap extends Context.Service<
   TurnStartBootstrap,
   {
     readonly dispatchTurnStart: (
       command: TurnStartCommand,
-      options?: TurnStartBootstrapDispatchOptions,
     ) => Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError>;
   }
 >()("t3/orchestration/TurnStartBootstrap") {}
@@ -118,13 +112,10 @@ export const make = Effect.gen(function* () {
 
   const dispatchTurnStart = (
     command: TurnStartCommand,
-    options?: TurnStartBootstrapDispatchOptions,
   ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
     Effect.gen(function* () {
-      // Every sub-command the bootstrap emits carries the caller's origin: the
-      // client's request caused them.
       const dispatch = (subCommand: OrchestrationCommand) =>
-        orchestrationEngine.dispatch(subCommand, options);
+        orchestrationEngine.dispatch(subCommand);
 
       const appendSetupScriptActivity = (input: {
         readonly threadId: ThreadId;
@@ -316,13 +307,7 @@ export const make = Effect.gen(function* () {
           // "Start from origin" is a stored default; repos without an
           // origin remote fall back to the local base branch instead of
           // failing the whole bootstrap on `git fetch origin`.
-          const startFromOrigin =
-            bootstrap.prepareWorktree.startFromOrigin === true &&
-            (yield* gitWorkflow.remoteExists({
-              cwd: bootstrap.prepareWorktree.projectCwd,
-              remoteName: "origin",
-            }));
-          if (startFromOrigin) {
+          if (bootstrap.prepareWorktree.startFromOrigin) {
             yield* gitWorkflow.fetchRemote({
               cwd: bootstrap.prepareWorktree.projectCwd,
               remoteName: "origin",
@@ -378,7 +363,6 @@ export const make = Effect.gen(function* () {
                         ...(dispatchError.cause !== undefined
                           ? { cause: dispatchError.cause }
                           : {}),
-                        bootstrapThreadDisposition: "deleted",
                       })
                     : dispatchError,
                 ),
