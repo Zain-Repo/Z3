@@ -3,6 +3,7 @@ import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import {
   ArchiveIcon,
   FolderIcon,
+  FolderOpenIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "@tanstack/react-router";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { isElectron } from "../env";
 import {
@@ -190,34 +192,66 @@ function ChatSidebarThreadRow({
 }
 
 interface ChatSidebarProjectRowProps {
+  readonly isExpanded: boolean;
   readonly isActive: boolean;
   readonly onDelete: (project: ChatProject) => void;
   readonly onEdit: (project: ChatProject) => void;
+  readonly onToggleExpanded: (projectId: string) => void;
   readonly onSelect: (project: ChatProject) => void;
   readonly project: ChatProject;
   readonly threadCount: number;
 }
 
 function ChatSidebarProjectRow({
+  isExpanded,
   isActive,
   onDelete,
   onEdit,
+  onToggleExpanded,
   onSelect,
   project,
   threadCount,
 }: ChatSidebarProjectRowProps) {
+  const isReducedMotion = useReducedMotion() ?? false;
+
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem className="group flex items-center gap-0.5 rounded-lg px-1">
+      <button
+        type="button"
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.name}`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        onClick={() => onToggleExpanded(project.id)}
+      >
+        <AnimatePresence initial={false} mode="wait">
+          <motion.span
+            key={isExpanded ? "open" : "closed"}
+            initial={isReducedMotion ? false : { opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+            exit={
+              isReducedMotion
+                ? { opacity: 1, scale: 1, filter: "blur(0px)" }
+                : { opacity: 0, scale: 0.25, filter: "blur(4px)" }
+            }
+            transition={
+              isReducedMotion ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0 }
+            }
+            className="flex"
+            aria-hidden="true"
+          >
+            {isExpanded ? <FolderOpenIcon className="size-4" /> : <FolderIcon className="size-4" />}
+          </motion.span>
+        </AnimatePresence>
+      </button>
       <SidebarMenuButton
         type="button"
         isActive={isActive}
         onClick={() => onSelect(project)}
-        className={cn("font-medium", isActive && "font-semibold")}
+        className={cn("min-w-0 flex-1 rounded-lg px-1 font-medium", isActive && "font-semibold")}
         title={`${project.name}${isActive ? " (selected for new chats)" : ""}`}
       >
-        <FolderIcon />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        <span className="text-[10px] font-normal text-sidebar-muted-foreground/70">
+        <span className="text-[10px] font-normal text-sidebar-muted-foreground/70 tabular-nums">
           {threadCount}
         </span>
       </SidebarMenuButton>
@@ -244,6 +278,7 @@ function ChatSidebarProjectRow({
 }
 
 export default function ChatWorkspaceSidebar() {
+  const isReducedMotion = useReducedMotion() ?? false;
   const threads = useThreadShells();
   const router = useRouter();
   const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
@@ -255,6 +290,19 @@ export default function ChatWorkspaceSidebar() {
   const serverConfigs = useServerConfigs();
   const { environments } = useEnvironments();
   const { archiveThread, confirmAndDeleteThread } = useThreadActions();
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectDialogId, setProjectDialogId] = useState<string | null>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string> | null>(null);
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return readChatEnvironmentSelection();
+  });
+  const availableEnvironmentId = resolveChatEnvironmentId(
+    selectedEnvironmentId,
+    activeEnvironmentId,
+    primaryEnvironmentId,
+    environments.map((environment) => environment.environmentId),
+  );
   const chatProjects = useChatProjectsStore((state) =>
     availableEnvironmentId === null
       ? EMPTY_CHAT_PROJECTS
@@ -267,18 +315,6 @@ export default function ChatWorkspaceSidebar() {
   );
   const setActiveChatProject = useChatProjectsStore((state) => state.setActiveProject);
   const deleteChatProject = useChatProjectsStore((state) => state.deleteProject);
-  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  const [projectDialogId, setProjectDialogId] = useState<string | null>(null);
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return readChatEnvironmentSelection();
-  });
-  const availableEnvironmentId = resolveChatEnvironmentId(
-    selectedEnvironmentId,
-    activeEnvironmentId,
-    primaryEnvironmentId,
-    environments.map((environment) => environment.environmentId),
-  );
 
   useEffect(() => {
     if (availableEnvironmentId === null) {
@@ -464,6 +500,27 @@ export default function ChatWorkspaceSidebar() {
   );
   const projectDialogProject =
     chatProjects.find((project) => project.id === projectDialogId) ?? null;
+
+  const isProjectExpanded = useCallback(
+    (projectId: string) => expandedProjectIds === null || expandedProjectIds.has(projectId),
+    [expandedProjectIds],
+  );
+
+  const toggleProjectExpanded = useCallback(
+    (projectId: string) => {
+      setExpandedProjectIds((current) => {
+        const next =
+          current === null ? new Set(chatProjects.map((project) => project.id)) : new Set(current);
+        if (next.has(projectId)) {
+          next.delete(projectId);
+        } else {
+          next.add(projectId);
+        }
+        return next;
+      });
+    },
+    [chatProjects],
+  );
 
   const handleOpenNewProject = useCallback(() => {
     setProjectDialogId(null);
@@ -668,9 +725,11 @@ export default function ChatWorkspaceSidebar() {
                 <div key={project.id} className="grid gap-0.5">
                   <SidebarMenu className="gap-0.5">
                     <ChatSidebarProjectRow
+                      isExpanded={isProjectExpanded(project.id)}
                       isActive={project.id === activeChatProjectId}
                       onDelete={handleDeleteProject}
                       onEdit={handleEditProject}
+                      onToggleExpanded={toggleProjectExpanded}
                       onSelect={(selectedProject) => {
                         if (availableEnvironmentId) {
                           setActiveChatProject(
@@ -683,11 +742,25 @@ export default function ChatWorkspaceSidebar() {
                       threadCount={projectThreadsById.get(project.id)?.length ?? 0}
                     />
                   </SidebarMenu>
-                  {(projectThreadById(project, projectThreadsById) ?? []).length > 0 ? (
-                    <SidebarMenu className="gap-0.5 pl-3">
-                      {renderThreadRows(projectThreadById(project, projectThreadsById) ?? [])}
-                    </SidebarMenu>
-                  ) : null}
+                  <AnimatePresence initial={false}>
+                    {isProjectExpanded(project.id) &&
+                    (projectThreadById(project, projectThreadsById) ?? []).length > 0 ? (
+                      <motion.div
+                        key="project-chats"
+                        initial={{ opacity: 0, height: 0, y: -4 }}
+                        animate={{ opacity: 1, height: "auto", y: 0 }}
+                        exit={{ opacity: 0, height: 0, y: -4 }}
+                        transition={
+                          isReducedMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }
+                        }
+                        className="overflow-hidden"
+                      >
+                        <SidebarMenu className="gap-0.5 ps-9">
+                          {renderThreadRows(projectThreadById(project, projectThreadsById) ?? [])}
+                        </SidebarMenu>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
                 </div>
               ))}
             </div>
