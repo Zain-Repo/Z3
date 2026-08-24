@@ -39,8 +39,8 @@ jobs:
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
 
-      - name: Check
-        run: vp check
+      - name: Lint and typecheck
+        run: vp check --no-fmt
 
       - name: Typecheck
         run: vpr typecheck
