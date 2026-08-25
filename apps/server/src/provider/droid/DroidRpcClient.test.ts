@@ -8,12 +8,12 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Duration from "effect/Duration";
 import * as Fiber from "effect/Fiber";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { DroidRpcError, DroidRpcSpawnError, makeDroidRpcClient } from "./DroidRpcClient.ts";
 
@@ -884,10 +884,13 @@ it.effect("fails registration after exit and ends every public stream", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), TestClock.withLive),
 );
 
-// Windows Node children keep the inherited pipe open after closing fd 1, so this POSIX pipe-EOF regression is not observable there.
-describe.skipIf(process.platform === "win32")("stdout-close transport", () => {
+describe("stdout-close transport", () => {
   it.effect("terminates the transport when stdout closes before the process exits", () =>
     Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      // Windows Node children keep the inherited pipe open after closing fd 1, so this POSIX pipe-EOF regression is not observable there.
+      if (platform === "win32") return;
+
       const markerDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "droid-rpc-exit-"));
       const pidPath = NodePath.join(markerDir, "pid");
       const client = yield* makeDroidRpcClient({

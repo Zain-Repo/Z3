@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DroidSettings } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -24,11 +25,12 @@ const makeInventoryProbeBinary = Effect.fn("makeInventoryProbeBinary")(function*
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const platform = yield* HostProcessPlatform;
   const directory = yield* fileSystem.makeTempDirectoryScoped({
     prefix: "t3-droid-provider-",
   });
   const scriptPath = path.join(directory, "droid-mock.cjs");
-  const binaryPath = path.join(directory, process.platform === "win32" ? "droid.cmd" : "droid");
+  const binaryPath = path.join(directory, platform === "win32" ? "droid.cmd" : "droid");
   const script = `#!/usr/bin/env node
 const readline = require("node:readline");
 
@@ -117,7 +119,7 @@ input.on("line", (line) => handle(JSON.parse(line)));
 input.once("close", () => process.exit(0));
 `;
   yield* fileSystem.writeFileString(scriptPath, script);
-  if (process.platform === "win32") {
+  if (platform === "win32") {
     yield* fileSystem.writeFileString(
       binaryPath,
       '@echo off\r\nif "%~1"=="--version" (echo droid 0.200.0 & exit /b 0)\r\n"' +
@@ -135,6 +137,24 @@ input.once("close", () => process.exit(0));
   }
   return { binaryPath, scriptPath };
 });
+
+function inventoryProbeOptions(platform: NodeJS.Platform, scriptPath: string) {
+  return platform === "win32"
+    ? {
+        inventorySpawnOverride: {
+          command: process.execPath,
+          args: [
+            scriptPath,
+            "exec",
+            "--input-format",
+            "stream-jsonrpc",
+            "--output-format",
+            "stream-jsonrpc",
+          ],
+        },
+      }
+    : undefined;
+}
 
 describe("buildDroidDiscoveredModels", () => {
   it("keeps enabled models, dedupes ids, and falls back to the id for a display name", () => {
@@ -412,28 +432,13 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
   it.effect("issues the three inventory requests concurrently", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const platform = yield* HostProcessPlatform;
         const { binaryPath, scriptPath } = yield* makeInventoryProbeBinary("concurrent");
         const snapshot = yield* checkDroidProviderStatus(
           decodeDroidSettings({ enabled: true, binaryPath }),
           { FACTORY_API_KEY: "test-key", PATH: process.env.PATH },
           process.cwd(),
-          ...(process.platform === "win32"
-            ? [
-                {
-                  inventorySpawnOverride: {
-                    command: process.execPath,
-                    args: [
-                      scriptPath,
-                      "exec",
-                      "--input-format",
-                      "stream-jsonrpc",
-                      "--output-format",
-                      "stream-jsonrpc",
-                    ],
-                  },
-                },
-              ]
-            : []),
+          inventoryProbeOptions(platform, scriptPath),
         );
 
         assert.equal(snapshot.status, "ready");
@@ -460,29 +465,14 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
+        const platform = yield* HostProcessPlatform;
         const { binaryPath, scriptPath } = yield* makeInventoryProbeBinary("cwd");
         const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-droid-inventory-cwd-" });
         const snapshot = yield* checkDroidProviderStatus(
           decodeDroidSettings({ enabled: true, binaryPath }),
           { FACTORY_API_KEY: "test-key", PATH: process.env.PATH },
           cwd,
-          ...(process.platform === "win32"
-            ? [
-                {
-                  inventorySpawnOverride: {
-                    command: process.execPath,
-                    args: [
-                      scriptPath,
-                      "exec",
-                      "--input-format",
-                      "stream-jsonrpc",
-                      "--output-format",
-                      "stream-jsonrpc",
-                    ],
-                  },
-                },
-              ]
-            : []),
+          inventoryProbeOptions(platform, scriptPath),
         );
 
         assert.equal(snapshot.slashCommands[0]?.description, cwd);
@@ -516,6 +506,7 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
   it.effect("warns and uses the complete fallback when one inventory request fails", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const platform = yield* HostProcessPlatform;
         const { binaryPath, scriptPath } = yield* makeInventoryProbeBinary("commands-error");
         const snapshot = yield* checkDroidProviderStatus(
           decodeDroidSettings({
@@ -525,23 +516,7 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
           }),
           { FACTORY_API_KEY: "test-key", PATH: process.env.PATH },
           process.cwd(),
-          ...(process.platform === "win32"
-            ? [
-                {
-                  inventorySpawnOverride: {
-                    command: process.execPath,
-                    args: [
-                      scriptPath,
-                      "exec",
-                      "--input-format",
-                      "stream-jsonrpc",
-                      "--output-format",
-                      "stream-jsonrpc",
-                    ],
-                  },
-                },
-              ]
-            : []),
+          inventoryProbeOptions(platform, scriptPath),
         );
 
         assert.equal(snapshot.status, "warning");
@@ -562,6 +537,7 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
   it.effect("warns and uses the complete fallback when inventory decoding fails", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const platform = yield* HostProcessPlatform;
         const { binaryPath, scriptPath } = yield* makeInventoryProbeBinary("malformed-model");
         const snapshot = yield* checkDroidProviderStatus(
           decodeDroidSettings({
@@ -571,23 +547,7 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
           }),
           { FACTORY_API_KEY: "test-key", PATH: process.env.PATH },
           process.cwd(),
-          ...(process.platform === "win32"
-            ? [
-                {
-                  inventorySpawnOverride: {
-                    command: process.execPath,
-                    args: [
-                      scriptPath,
-                      "exec",
-                      "--input-format",
-                      "stream-jsonrpc",
-                      "--output-format",
-                      "stream-jsonrpc",
-                    ],
-                  },
-                },
-              ]
-            : []),
+          inventoryProbeOptions(platform, scriptPath),
         );
 
         assert.equal(snapshot.status, "warning");

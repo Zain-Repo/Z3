@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { DroidSettings, ProviderInstanceId } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -106,6 +107,7 @@ function makeTextGenerationDroid(options: {
 
 it.effect("fails observably when streamed Droid output exceeds the one-shot limit", () =>
   Effect.gen(function* () {
+    const platform = yield* HostProcessPlatform;
     const { binaryPath, scriptPath, initializeParamsPath, tempDir } = makeTextGenerationDroid({
       outputChunks: ['{"title":"Bounded output"}', " ".repeat(300_000)],
       completionReason: "completed",
@@ -116,9 +118,9 @@ it.effect("fails observably when streamed Droid output exceeds the one-shot limi
     const textGeneration = yield* makeDroidTextGeneration(
       decodeDroidSettings({ binaryPath }),
       process.env,
-      ...(process.platform === "win32"
-        ? [{ spawnOverride: { command: process.execPath, args: [scriptPath] } }]
-        : []),
+      platform === "win32"
+        ? { spawnOverride: { command: process.execPath, args: [scriptPath] } }
+        : undefined,
     );
 
     const error = yield* Effect.flip(
@@ -140,6 +142,7 @@ it.effect("fails observably when streamed Droid output exceeds the one-shot limi
 
 it.effect("rejects structured output from a turn that did not complete successfully", () =>
   Effect.gen(function* () {
+    const platform = yield* HostProcessPlatform;
     const { binaryPath, scriptPath, tempDir } = makeTextGenerationDroid({
       outputChunks: ['{"title":"Must not be accepted"}'],
       completionReason: "model_authentication_failed",
@@ -150,9 +153,9 @@ it.effect("rejects structured output from a turn that did not complete successfu
     const textGeneration = yield* makeDroidTextGeneration(
       decodeDroidSettings({ binaryPath }),
       process.env,
-      ...(process.platform === "win32"
-        ? [{ spawnOverride: { command: process.execPath, args: [scriptPath] } }]
-        : []),
+      platform === "win32"
+        ? { spawnOverride: { command: process.execPath, args: [scriptPath] } }
+        : undefined,
     );
 
     const result = yield* Effect.result(
