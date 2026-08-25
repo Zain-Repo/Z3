@@ -24,6 +24,7 @@ import {
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
+  resolveLocalThreadErrorKey,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   startNewThreadForProject,
@@ -45,6 +46,17 @@ describe("shouldWaitForThreadShell", () => {
   it("preserves the existing composer draft and server route behavior", () => {
     expect(shouldWaitForThreadShell("draft", true)).toBe(true);
     expect(shouldWaitForThreadShell("server", false)).toBe(false);
+  });
+});
+
+describe("resolveLocalThreadErrorKey", () => {
+  it("uses the reserved thread id for projectless chat drafts", () => {
+    expect(resolveLocalThreadErrorKey("chat-draft", null, threadId)).toBe(threadId);
+  });
+
+  it("uses project draft ids and ignores server routes", () => {
+    expect(resolveLocalThreadErrorKey("draft", "draft-1", threadId)).toBe("draft-1");
+    expect(resolveLocalThreadErrorKey("server", null, threadId)).toBeNull();
   });
 });
 

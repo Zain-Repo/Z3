@@ -276,6 +276,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveLocalThreadErrorKey,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
@@ -1432,28 +1433,30 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
     : null;
   const fallbackDraftProject = useProject(fallbackDraftProjectRef);
+  const localThreadErrorKey = resolveLocalThreadErrorKey(routeKind, draftId, threadId);
   const localDraftError = activeServerThread
     ? null
-    : ((draftId ? localDraftErrorsByDraftId[draftId]?.message : null) ?? null);
+    : ((localThreadErrorKey ? localDraftErrorsByDraftId[localThreadErrorKey]?.message : null) ??
+      null);
   const localServerError = localServerErrorsByThreadKey[routeThreadKey]?.message ?? null;
   // Draft errors are keyed by draftId while server errors are keyed by thread
   // key, so a pending draft entry must migrate when the server thread loads or
   // a failed send would silently disappear on promotion. When both keys hold
   // an entry, the most recent write wins.
   useEffect(() => {
-    if (!activeServerThread || !draftId) {
+    if (!activeServerThread || !localThreadErrorKey) {
       return;
     }
-    const pendingDraftEntry = localDraftErrorsByDraftId[draftId];
+    const pendingDraftEntry = localDraftErrorsByDraftId[localThreadErrorKey];
     if (pendingDraftEntry === undefined) {
       return;
     }
     setLocalDraftErrorsByDraftId((existing) => {
-      if (existing[draftId] === undefined) {
+      if (existing[localThreadErrorKey] === undefined) {
         return existing;
       }
       const next = { ...existing };
-      delete next[draftId];
+      delete next[localThreadErrorKey];
       return next;
     });
     setLocalServerErrorsByThreadKey((existing) => {
@@ -1470,7 +1473,7 @@ function ChatViewContent(props: ChatViewProps) {
         [routeThreadKey]: pendingDraftEntry,
       };
     });
-  }, [activeServerThread, draftId, localDraftErrorsByDraftId, routeThreadKey]);
+  }, [activeServerThread, localThreadErrorKey, localDraftErrorsByDraftId, routeThreadKey]);
   const localDraftThread = useMemo(
     () =>
       routeKind === "chat-draft"

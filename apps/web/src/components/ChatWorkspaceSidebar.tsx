@@ -49,6 +49,7 @@ import { sortThreadsForSidebarV2 } from "./Sidebar.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Spinner } from "./ui/spinner";
 import {
   SidebarContent,
   SidebarGroup,
@@ -113,6 +114,8 @@ function ChatSidebarThreadRow({
   thread,
 }: ChatSidebarThreadRowProps) {
   const title = thread.title || "New chat";
+  const isThreadRunning =
+    thread.session?.status === "running" && thread.session.activeTurnId != null;
 
   return (
     <SidebarMenuItem className="flex items-center gap-1">
@@ -143,7 +146,14 @@ function ChatSidebarThreadRow({
           className={cn("font-normal", isActive && "font-medium")}
           title={title}
         >
-          <MessageSquareIcon />
+          {isThreadRunning ? (
+            <Spinner
+              aria-label="Model is working"
+              className="size-4 shrink-0 text-sidebar-muted-foreground motion-reduce:animate-none"
+            />
+          ) : (
+            <MessageSquareIcon />
+          )}
           <span className="min-w-0 flex-1">
             <span className="block truncate">{title}</span>
             {providerLabel ? (

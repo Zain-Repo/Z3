@@ -307,7 +307,7 @@ export function buildInitialDroidProviderSnapshot(
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Droid is disabled in T3 Code settings.",
+          message: "Droid is disabled in Z3 Code settings.",
         },
       });
     }
@@ -357,7 +357,7 @@ export const checkDroidProviderStatus = Effect.fn("checkDroidProviderStatus")(fu
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Droid is disabled in T3 Code settings.",
+        message: "Droid is disabled in Z3 Code settings.",
       },
     });
   }

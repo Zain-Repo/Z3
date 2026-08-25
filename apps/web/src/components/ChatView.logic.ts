@@ -40,6 +40,19 @@ export function shouldWaitForThreadShell(
   return routeKind === "chat-draft" || hasComposerDraftSession;
 }
 
+/**
+ * Project drafts store transient errors under their draft id. Z3Chat drafts
+ * do not have one, so their reserved thread id is the stable local key until
+ * the server promotes the draft into a persisted thread.
+ */
+export function resolveLocalThreadErrorKey(
+  routeKind: "server" | "draft" | "chat-draft",
+  draftId: string | null,
+  threadId: ThreadId,
+): string | null {
+  return draftId ?? (routeKind === "chat-draft" ? threadId : null);
+}
+
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
   handleNewThread: (projectRef: ScopedProjectRef) => Promise<void>,

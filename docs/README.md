@@ -22,6 +22,7 @@ policy in [CONTRIBUTING.md](../CONTRIBUTING.md); agent rules in [AGENTS.md](../A
 
 - [Architecture overview](./internals/overview.md)
 - [Z3Chat project persistence](./internals/z3chat-project-persistence.md)
+- [Z3Chat thread bootstrap](./internals/z3chat-thread-bootstrap.md)
 - [Workspace layout](./internals/workspace-layout.md)
 - [Glossary](./internals/glossary.md)
 - [Scripts](./internals/scripts.md)
