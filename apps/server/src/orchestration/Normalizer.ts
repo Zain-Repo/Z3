@@ -7,12 +7,15 @@ import {
   type IsoDateTime,
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
+  isSupportedChatTextFile,
+  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@t3tools/contracts";
 
 import { createAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import { ServerConfig } from "../config.ts";
 import { parseBase64DataUrl } from "../imageMime.ts";
+import { decodeTextAttachmentBytes } from "../textAttachment.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export const canonicalizeClientCommandTimestamps = (
@@ -123,16 +126,47 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       (attachment) =>
         Effect.gen(function* () {
           const parsed = parseBase64DataUrl(attachment.dataUrl);
-          if (!parsed || !parsed.mimeType.startsWith("image/")) {
+          if (!parsed) {
             return yield* new OrchestrationDispatchCommandError({
-              message: `Invalid image attachment payload for '${attachment.name}'.`,
+              message: `Invalid attachment payload for '${attachment.name}'.`,
             });
           }
 
           const bytes = Buffer.from(parsed.base64, "base64");
-          if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+          const normalizedMimeType = parsed.mimeType.toLowerCase();
+          const maxBytes =
+            attachment.type === "image"
+              ? PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
+              : PROVIDER_SEND_TURN_MAX_FILE_BYTES;
+          if (bytes.byteLength === 0 || bytes.byteLength > maxBytes) {
             return yield* new OrchestrationDispatchCommandError({
-              message: `Image attachment '${attachment.name}' is empty or too large.`,
+              message: `Attachment '${attachment.name}' is empty or too large.`,
+            });
+          }
+          if (bytes.byteLength !== attachment.sizeBytes) {
+            return yield* new OrchestrationDispatchCommandError({
+              message: `Attachment '${attachment.name}' size does not match its payload.`,
+            });
+          }
+          if (attachment.type === "image" && !normalizedMimeType.startsWith("image/")) {
+            return yield* new OrchestrationDispatchCommandError({
+              message: `Invalid image attachment payload for '${attachment.name}'.`,
+            });
+          }
+          if (
+            attachment.type === "file" &&
+            !isSupportedChatTextFile({
+              name: attachment.name,
+              mimeType: normalizedMimeType,
+            })
+          ) {
+            return yield* new OrchestrationDispatchCommandError({
+              message: `Unsupported text attachment '${attachment.name}'.`,
+            });
+          }
+          if (attachment.type === "file" && decodeTextAttachmentBytes(bytes) === null) {
+            return yield* new OrchestrationDispatchCommandError({
+              message: `Text attachment '${attachment.name}' is not valid UTF-8 text.`,
             });
           }
 
@@ -144,10 +178,10 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           }
 
           const persistedAttachment = {
-            type: "image" as const,
+            type: attachment.type,
             id: attachmentId,
             name: attachment.name,
-            mimeType: parsed.mimeType.toLowerCase(),
+            mimeType: normalizedMimeType,
             sizeBytes: bytes.byteLength,
           };
 

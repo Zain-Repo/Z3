@@ -2,6 +2,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
+  DeepSeekSettings,
   GrokSettings,
   OpenCodeSettings,
   OpenRouterSettings,
@@ -11,6 +12,7 @@ import type * as Schema from "effect/Schema";
 import {
   ClaudeAI,
   CursorIcon,
+  DeepSeekIcon,
   GrokIcon,
   type Icon,
   OpenAI,
@@ -75,6 +77,12 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     label: "OpenCode",
     icon: OpenCodeIcon,
     settingsSchema: OpenCodeSettings,
+  },
+  {
+    value: ProviderDriverKind.make("deepseek"),
+    label: "DeepSeek",
+    icon: DeepSeekIcon,
+    settingsSchema: DeepSeekSettings,
   },
   {
     value: ProviderDriverKind.make("openrouter"),

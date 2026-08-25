@@ -24,6 +24,8 @@ import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { WorkspaceContextRail, WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { useWorkspace } from "../../workspace";
+import { useActiveEnvironmentId } from "../../state/entities";
+import { useChatProjectsStore } from "../../lib/chatProjects";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -31,6 +33,8 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron: boolean;
 }) {
   const { activeWorkspace } = useWorkspace();
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const setActiveChatProject = useChatProjectsStore((state) => state.setActiveProject);
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const backdropVariant = resolveSidebarStageBackdropVariant(
@@ -59,7 +63,14 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
               "[:hover,[data-pressed]]:bg-white/15 focus-visible:ring-white/90 focus-visible:ring-offset-blue-700 [&_svg]:stroke-white/90! [&_svg]:opacity-100! [&_svg]:hover:stroke-white!",
           )}
         />
-        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        <SidebarBrand
+          onBackdrop={backdropVariant !== null}
+          onClick={
+            activeWorkspace.id === "chat" && activeEnvironmentId !== null
+              ? () => setActiveChatProject(activeEnvironmentId, null)
+              : undefined
+          }
+        />
         <WorkspaceSwitcher />
         {pillLabel ? (
           <Badge
@@ -77,10 +88,17 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
-function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+function SidebarBrand({
+  onBackdrop,
+  onClick,
+}: {
+  onBackdrop: boolean;
+  onClick?: (() => void) | undefined;
+}) {
   return (
     <Link
       aria-label="Go to threads"
+      onClick={onClick}
       className={cn(
         "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2",
         onBackdrop ? "text-white" : "text-foreground",

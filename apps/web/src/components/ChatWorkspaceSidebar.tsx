@@ -562,16 +562,25 @@ export default function ChatWorkspaceSidebar() {
     [availableEnvironmentId, deleteChatProject],
   );
 
-  const handleNewChat = useCallback(async () => {
+  const handleNewChat = useCallback(async (projectId: string | null = null) => {
     if (!isElectron || !availableEnvironmentId) return;
+    // A plain new chat is not project-scoped. Project rows pass their id
+    // explicitly so selecting a project remains an intentional action.
+    setActiveChatProject(availableEnvironmentId, projectId);
     if (isMobile) setOpenMobile(false);
     await router.navigate({ to: "/new" });
-  }, [availableEnvironmentId, isMobile, router, setOpenMobile]);
+  }, [availableEnvironmentId, isMobile, router, setActiveChatProject, setOpenMobile]);
 
   const navigateToThread = useCallback(
     (environmentId: EnvironmentId, threadId: ThreadId) => {
       if (isMobile) setOpenMobile(false);
       const threadRef = scopeThreadRef(environmentId, threadId);
+      const isProjectChat = chatProjects.some((project) => project.threadIds.includes(threadId));
+      if (!isProjectChat && availableEnvironmentId === environmentId) {
+        // Recent chats are intentionally outside every project. Clear the
+        // remembered project so the chat surface follows the selected thread.
+        setActiveChatProject(environmentId, null);
+      }
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: {
@@ -580,7 +589,7 @@ export default function ChatWorkspaceSidebar() {
         },
       });
     },
-    [isMobile, router, setOpenMobile],
+    [availableEnvironmentId, chatProjects, isMobile, router, setActiveChatProject, setOpenMobile],
   );
 
   const renderThreadRows = useCallback(
@@ -680,7 +689,7 @@ export default function ChatWorkspaceSidebar() {
               type="button"
               variant="outline"
               className="h-9 w-full justify-start gap-2 bg-sidebar-control-surface font-medium shadow-none"
-              onClick={handleNewChat}
+              onClick={() => void handleNewChat()}
               disabled={availableEnvironmentId === null}
               title={availableEnvironmentId === null ? "Connect an environment first" : "New chat"}
             >
@@ -759,8 +768,7 @@ export default function ChatWorkspaceSidebar() {
                         onToggleExpanded={toggleProjectExpanded}
                         onSelect={(selectedProject) => {
                           if (availableEnvironmentId) {
-                            setActiveChatProject(availableEnvironmentId, selectedProject.id);
-                            void handleNewChat();
+                            void handleNewChat(selectedProject.id);
                           }
                         }}
                         projectPanelId={projectPanelId}

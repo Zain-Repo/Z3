@@ -5,6 +5,8 @@ import * as Schema from "effect/Schema";
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  ChatAttachment,
+  isSupportedChatTextFile,
   ModelSelection,
   OrchestrationCommand,
   OrchestrationEvent,
@@ -53,6 +55,33 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+const decodeChatAttachment = Schema.decodeUnknownEffect(ChatAttachment);
+
+it.effect("decodes persisted text file attachments", () =>
+  Effect.gen(function* () {
+    const attachment = yield* decodeChatAttachment({
+      type: "file",
+      id: "thread-1-00000000-0000-4000-8000-000000000001",
+      name: "context.ts",
+      mimeType: "text/plain",
+      sizeBytes: 42,
+    });
+
+    assert.strictEqual(attachment.type, "file");
+    assert.strictEqual(attachment.name, "context.ts");
+  }),
+);
+
+it("recognizes text and code files without trusting browser MIME metadata", () => {
+  assert.strictEqual(
+    isSupportedChatTextFile({ name: "Dockerfile", mimeType: "application/octet-stream" }),
+    true,
+  );
+  assert.strictEqual(
+    isSupportedChatTextFile({ name: "payload.bin", mimeType: "application/octet-stream" }),
+    false,
+  );
+});
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {

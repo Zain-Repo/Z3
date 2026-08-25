@@ -52,6 +52,12 @@ export const PROVIDER_OPTIONS: Array<{
     pickerSidebarBadge: "new",
   },
   {
+    value: ProviderDriverKind.make("deepseek"),
+    label: "DeepSeek",
+    available: true,
+    pickerSidebarBadge: "new",
+  },
+  {
     value: ProviderDriverKind.make("openrouter"),
     label: "OpenRouter",
     available: true,

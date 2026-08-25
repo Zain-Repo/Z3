@@ -66,6 +66,7 @@ import {
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import { useTheme } from "../../hooks/useTheme";
+import { BUILT_IN_THEMES, T3_CODE_THEME } from "../../themePalette";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
@@ -161,6 +162,8 @@ const THEME_OPTIONS = [
     label: "Dark",
   },
 ] as const;
+
+const COLOR_STYLE_OPTIONS = [T3_CODE_THEME, ...BUILT_IN_THEMES];
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -956,7 +959,7 @@ function BackgroundActivityAdvancedDialog({
 }
 
 export function AppearanceSettingsPanel() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, themeId, setThemeId } = useTheme();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const environmentStageLabel = useEnvironmentStageLabel();
@@ -1002,6 +1005,45 @@ export function AppearanceSettingsPanel() {
                 ))}
               </SelectPopup>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Color style"
+          description="Choose a built-in palette. The selected style follows the appearance mode above."
+          control={
+            <div
+              className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3"
+              role="radiogroup"
+              aria-label="Color style"
+            >
+              {COLOR_STYLE_OPTIONS.map((option) => {
+                const isSelected = themeId === option.id;
+                const colors = option.colors;
+                return (
+                  <button
+                    aria-checked={isSelected}
+                    className="group min-w-0 rounded-lg border p-2 text-left transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    key={option.id}
+                    onClick={() => setThemeId(option.id)}
+                    role="radio"
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderColor: isSelected ? colors.accent : colors.border,
+                      color: colors.text,
+                    }}
+                    type="button"
+                  >
+                    <span className="mb-2 flex items-center gap-1.5" aria-hidden="true">
+                      <span className="size-2.5 rounded-full" style={{ backgroundColor: colors.accent }} />
+                      <span className="size-2.5 rounded-full" style={{ backgroundColor: colors.surfaceRaised }} />
+                      <span className="size-2.5 rounded-full" style={{ backgroundColor: colors.border }} />
+                    </span>
+                    <span className="block truncate text-xs font-medium">{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           }
         />
 

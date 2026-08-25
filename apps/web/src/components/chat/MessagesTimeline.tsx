@@ -44,7 +44,9 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  DownloadIcon,
   EyeIcon,
+  FileTextIcon,
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
@@ -114,6 +116,12 @@ import {
   parseReviewCommentMessageSegments,
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
+
+function formatAttachmentSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.ceil(sizeBytes / 1024)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -833,6 +841,10 @@ function TimelineMinimap({
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
+type TimelineImageAttachment = Extract<
+  NonNullable<TimelineMessage["attachments"]>[number],
+  { type: "image" }
+>;
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
 
@@ -869,7 +881,11 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const userImages = row.message.attachments ?? [];
+  const attachments = row.message.attachments ?? [];
+  const userImages = attachments.filter(
+    (attachment): attachment is TimelineImageAttachment => attachment.type === "image",
+  );
+  const userFiles = attachments.filter((attachment) => attachment.type === "file");
   const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
   const terminalContexts = displayedUserMessage.contexts;
   const previewAnnotations: ParsedPreviewAnnotation[] = [];
@@ -894,7 +910,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       <div className="relative max-w-[80%] rounded-2xl bg-accent p-3">
         {regularImages.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-            {regularImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+            {regularImages.map((image) => (
               <div
                 key={image.id}
                 className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
@@ -925,6 +941,44 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         )}
+        {userFiles.length > 0 ? (
+          <div className="mb-2 flex flex-col gap-1.5">
+            {userFiles.map((file) => {
+              const content = (
+                <>
+                  <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium">{file.name}</span>
+                    <span className="block text-[10px] text-muted-foreground">
+                      {formatAttachmentSize(file.sizeBytes)}
+                    </span>
+                  </span>
+                  {file.downloadUrl ? (
+                    <DownloadIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  ) : null}
+                </>
+              );
+              return file.downloadUrl ? (
+                <a
+                  key={file.id}
+                  href={file.downloadUrl}
+                  download={file.name}
+                  className="flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2 transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Download ${file.name}`}
+                >
+                  {content}
+                </a>
+              ) : (
+                <div
+                  key={file.id}
+                  className="flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2"
+                >
+                  {content}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
         {previewAnnotations.map((annotation, index) => (
           <UserMessagePreviewAnnotationCard
             key={annotation.id}
@@ -1337,7 +1391,7 @@ const UserMessageElementContextChip = memo(function UserMessageElementContextChi
 
 function UserMessagePreviewAnnotationCard(props: {
   annotation: ParsedPreviewAnnotation;
-  image: NonNullable<TimelineMessage["attachments"]>[number] | null;
+  image: TimelineImageAttachment | null;
 }) {
   const ctx = use(TimelineRowCtx);
   return (

@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFSP from "node:fs/promises";
+
 import {
   type ChatAttachment,
   CommandId,
@@ -29,6 +32,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { ensureChatWorkspace } from "../../chat/ChatWorkspace.ts";
+import { ServerConfig } from "../../config.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -48,6 +52,12 @@ import {
 } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import {
+  appendTextAttachmentContext,
+  decodeTextAttachmentBytes,
+  type DecodedTextAttachment,
+} from "../../textAttachment.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -312,6 +322,7 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -819,10 +830,66 @@ const make = Effect.gen(function* () {
           : requestedModelSelection
         : input.modelSelection;
 
+    const providerAcceptsNativeFiles = activeSession?.provider === "opencode";
+    const decodedFiles = yield* Effect.forEach(
+      providerAcceptsNativeFiles
+        ? []
+        : normalizedAttachments.filter((attachment) => attachment.type === "file"),
+      (attachment) =>
+        Effect.gen(function* () {
+          const attachmentPath = resolveAttachmentPath({
+            attachmentsDir: serverConfig.attachmentsDir,
+            attachment,
+          });
+          if (!attachmentPath) {
+            return yield* new ProviderAdapterRequestError({
+              provider: providerErrorLabel(activeSession?.provider),
+              method: "thread.turn.start",
+              detail: `Invalid attachment id '${attachment.id}'.`,
+            });
+          }
+          const bytes = yield* Effect.tryPromise({
+            try: () => NodeFSP.readFile(attachmentPath),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: providerErrorLabel(activeSession?.provider),
+                method: "thread.turn.start",
+                detail: `Failed to read attachment '${attachment.name}'.`,
+                cause,
+              }),
+          });
+          const text = decodeTextAttachmentBytes(bytes);
+          if (text === null) {
+            return yield* new ProviderAdapterRequestError({
+              provider: providerErrorLabel(activeSession?.provider),
+              method: "thread.turn.start",
+              detail: `Attachment '${attachment.name}' is not valid UTF-8 text.`,
+            });
+          }
+          return { attachment, text } satisfies DecodedTextAttachment;
+        }),
+      { concurrency: 2 },
+    );
+    const providerInputResult = appendTextAttachmentContext({
+      message: normalizedInput,
+      files: decodedFiles,
+    });
+    if (providerInputResult._tag === "InputLimitExceeded") {
+      return yield* new ProviderAdapterRequestError({
+        provider: providerErrorLabel(activeSession?.provider),
+        method: "thread.turn.start",
+        detail: "The message leaves no model input space for its attached files.",
+      });
+    }
+    const providerInput = providerInputResult.input;
+    const providerAttachments = normalizedAttachments.filter(
+      (attachment) => attachment.type === "image" || providerAcceptsNativeFiles,
+    );
+
     return {
       threadId: input.threadId,
-      ...(normalizedInput ? { input: normalizedInput } : {}),
-      ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+      ...(providerInput ? { input: providerInput } : {}),
+      ...(providerAttachments.length > 0 ? { attachments: providerAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     };
@@ -860,7 +927,9 @@ const make = Effect.gen(function* () {
       const generated = yield* textGeneration.generateBranchName({
         cwd,
         message: input.messageText,
-        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(attachments.some((attachment) => attachment.type === "image")
+          ? { attachments: attachments.filter((attachment) => attachment.type === "image") }
+          : {}),
         modelSelection,
       });
       if (!generated) return;
@@ -905,7 +974,9 @@ const make = Effect.gen(function* () {
         const generated = yield* textGeneration.generateThreadTitle({
           cwd: input.cwd,
           message: input.messageText,
-          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(attachments.some((attachment) => attachment.type === "image")
+            ? { attachments: attachments.filter((attachment) => attachment.type === "image") }
+            : {}),
           modelSelection,
         });
         if (!generated) return;
@@ -975,7 +1046,9 @@ const make = Effect.gen(function* () {
       cwd,
       message,
       previousTitle,
-      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(attachments.some((attachment) => attachment.type === "image")
+        ? { attachments: attachments.filter((attachment) => attachment.type === "image") }
+        : {}),
       modelSelection,
     });
     if (generated.title === DEFAULT_THREAD_TITLE || generated.title === previousTitle) {

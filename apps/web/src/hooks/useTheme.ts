@@ -2,12 +2,20 @@ import type { DesktopBridge } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  applyThemePalette,
+  DEFAULT_THEME_ID,
+  readThemePalettePreference,
+  THEME_APPEARANCE_MODE_STORAGE_KEY,
+  writeThemePalettePreference,
+} from "../themePalette";
 
 const ThemePreference = Schema.Literals(["light", "dark", "system"]);
 type Theme = typeof ThemePreference.Type;
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
+  themeId: string;
 };
 
 type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
@@ -17,6 +25,7 @@ const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
   theme: "system",
   systemDark: false,
+  themeId: DEFAULT_THEME_ID,
 };
 const THEME_COLOR_META_NAME = "theme-color";
 const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data-dynamic-theme-color="true"]`;
@@ -55,7 +64,12 @@ let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let lastDesktopTheme: Theme | null = null;
 let lastAppliedTheme: ThemeSnapshot | null = null;
+let lastAppliedPalette: string | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
+
+function readSelectedPalette(): string {
+  return themeStorageReadFailure === null ? readThemePalettePreference() : DEFAULT_THEME_ID;
+}
 
 function emitChange() {
   for (const listener of listeners) listener();
@@ -73,7 +87,9 @@ export function readThemePreference(): Theme {
   if (typeof window === "undefined") return DEFAULT_THEME_SNAPSHOT.theme;
   let raw: string | null;
   try {
-    raw = window.localStorage.getItem(STORAGE_KEY);
+    raw =
+      window.localStorage.getItem(THEME_APPEARANCE_MODE_STORAGE_KEY) ??
+      window.localStorage.getItem(STORAGE_KEY);
   } catch (cause) {
     throw new ThemeStorageError({
       operation: "read",
@@ -89,6 +105,7 @@ export function writeThemePreference(theme: Theme): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(STORAGE_KEY, theme);
+    window.localStorage.setItem(THEME_APPEARANCE_MODE_STORAGE_KEY, theme);
     themeStorageReadFailure = null;
   } catch (cause) {
     throw new ThemeStorageError({
@@ -176,7 +193,12 @@ export function syncBrowserChromeTheme() {
 function applyTheme(theme: Theme, suppressTransitions = false) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
   const systemDark = theme === "system" ? getSystemDark() : false;
-  if (lastAppliedTheme?.theme === theme && lastAppliedTheme.systemDark === systemDark) {
+  const themeId = readSelectedPalette();
+  if (
+    lastAppliedTheme?.theme === theme &&
+    lastAppliedTheme.systemDark === systemDark &&
+    lastAppliedPalette === themeId
+  ) {
     syncDesktopTheme(theme);
     return;
   }
@@ -186,7 +208,9 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   }
   const isDark = theme === "dark" || (theme === "system" && systemDark);
   document.documentElement.classList.toggle("dark", isDark);
-  lastAppliedTheme = { theme, systemDark };
+  applyThemePalette(themeId, isDark ? "dark" : "light");
+  lastAppliedTheme = { theme, systemDark, themeId };
+  lastAppliedPalette = themeId;
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
   if (suppressTransitions) {
@@ -241,12 +265,18 @@ function getSnapshot(): ThemeSnapshot {
   if (typeof window === "undefined") return DEFAULT_THEME_SNAPSHOT;
   const theme = getStored();
   const systemDark = theme === "system" ? getSystemDark() : false;
+  const themeId = readSelectedPalette();
 
-  if (lastSnapshot && lastSnapshot.theme === theme && lastSnapshot.systemDark === systemDark) {
+  if (
+    lastSnapshot &&
+    lastSnapshot.theme === theme &&
+    lastSnapshot.systemDark === systemDark &&
+    lastSnapshot.themeId === themeId
+  ) {
     return lastSnapshot;
   }
 
-  lastSnapshot = { theme, systemDark };
+  lastSnapshot = { theme, systemDark, themeId };
   return lastSnapshot;
 }
 
@@ -268,7 +298,7 @@ function subscribe(listener: () => void): () => void {
 
   // Listen for storage changes from other tabs
   const handleStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
+    if (e.key === STORAGE_KEY || e.key === THEME_APPEARANCE_MODE_STORAGE_KEY || e.key === "t3code:theme-palette") {
       themeStorageReadFailure = null;
       applyTheme(getStored(), true);
       emitChange();
@@ -315,10 +345,16 @@ export function useTheme() {
     emitChange();
   }, []);
 
+  const setThemeId = useCallback((next: string) => {
+    writeThemePalettePreference(next);
+    applyTheme(theme, true);
+    emitChange();
+  }, [theme]);
+
   // Keep DOM in sync on mount/change
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
-  return { theme, setTheme, resolvedTheme } as const;
+  return { theme, setTheme, resolvedTheme, themeId: snapshot.themeId, setThemeId } as const;
 }
