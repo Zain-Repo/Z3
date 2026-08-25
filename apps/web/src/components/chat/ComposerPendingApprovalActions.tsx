@@ -4,6 +4,7 @@ import { Button } from "../ui/button";
 
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
+  supportedDecisions?: ReadonlyArray<ProviderApprovalDecision>;
   isResponding: boolean;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
@@ -13,43 +14,52 @@ interface ComposerPendingApprovalActionsProps {
 
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
+  supportedDecisions,
   isResponding,
   onRespondToApproval,
 }: ComposerPendingApprovalActionsProps) {
   return (
     <>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "cancel")}
-      >
-        Cancel turn
-      </Button>
-      <Button
-        size="sm"
-        variant="destructive-outline"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "decline")}
-      >
-        Decline
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
-      >
-        Always allow this session
-      </Button>
-      <Button
-        size="sm"
-        variant="default"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "accept")}
-      >
-        Approve once
-      </Button>
+      {(supportedDecisions?.includes("cancel") ?? true) ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={isResponding}
+          onClick={() => void onRespondToApproval(requestId, "cancel")}
+        >
+          Cancel turn
+        </Button>
+      ) : null}
+      {(supportedDecisions?.includes("decline") ?? true) ? (
+        <Button
+          size="sm"
+          variant="destructive-outline"
+          disabled={isResponding}
+          onClick={() => void onRespondToApproval(requestId, "decline")}
+        >
+          Decline
+        </Button>
+      ) : null}
+      {(supportedDecisions?.includes("acceptForSession") ?? true) ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isResponding}
+          onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
+        >
+          Always allow this session
+        </Button>
+      ) : null}
+      {(supportedDecisions?.includes("accept") ?? true) ? (
+        <Button
+          size="sm"
+          variant="default"
+          disabled={isResponding}
+          onClick={() => void onRespondToApproval(requestId, "accept")}
+        >
+          Approve once
+        </Button>
+      ) : null}
     </>
   );
 });

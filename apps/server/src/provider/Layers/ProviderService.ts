@@ -46,7 +46,7 @@ import {
   withMetrics,
 } from "../../observability/Metrics.ts";
 import { type ProviderAdapterError, ProviderValidationError } from "../Errors.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import type { ProviderAdapterSession, ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
@@ -257,7 +257,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         );
 
   const upsertSessionBinding = (
-    session: ProviderSession,
+    session: ProviderAdapterSession,
     threadId: ThreadId,
     extra?: {
       readonly modelSelection?: unknown;
@@ -274,6 +274,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         threadId,
         provider: session.provider,
         providerInstanceId,
+        ...(session.sessionLease !== undefined ? { sessionLease: session.sessionLease } : {}),
         runtimeMode: session.runtimeMode,
         status: toRuntimeStatus(session),
         ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
@@ -998,7 +999,23 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         "provider.thread_id": input.threadId,
         "provider.rollback_turns": input.numTurns,
       });
-      yield* routed.adapter.rollbackThread(routed.threadId, input.numTurns);
+      const snapshot = yield* routed.adapter.rollbackThread(routed.threadId, input.numTurns);
+      if (snapshot.resumeCursor !== undefined) {
+        const activeSession = (yield* routed.adapter.listSessions()).find(
+          (session) => session.threadId === routed.threadId,
+        );
+        if (!activeSession) {
+          return yield* toValidationError(
+            "ProviderService.rollbackConversation",
+            `Provider session '${routed.threadId}' disappeared after rollback.`,
+          );
+        }
+        yield* upsertSessionBinding(
+          { ...activeSession, resumeCursor: snapshot.resumeCursor },
+          routed.threadId,
+          { lastRuntimeEvent: "provider.rollback" },
+        );
+      }
       yield* analytics.record("provider.conversation.rolled_back", {
         provider: routed.adapter.provider,
         turns: input.numTurns,

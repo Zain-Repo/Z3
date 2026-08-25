@@ -12,6 +12,7 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import {
   IsoDateTime,
   ProviderInstanceId,
+  ProviderSessionLease,
   ProviderSessionRuntimeStatus,
   RuntimeMode,
   ThreadId,
@@ -43,6 +44,8 @@ export const ProviderSessionRuntime = Schema.Struct({
    * instance id before routing.
    */
   providerInstanceId: Schema.NullOr(ProviderInstanceId),
+  // Null preserves rows written before the lease-aware migration.
+  sessionLease: Schema.optionalKey(Schema.NullOr(ProviderSessionLease)),
   adapterKey: Schema.String,
   runtimeMode: RuntimeMode,
   status: ProviderSessionRuntimeStatus,
@@ -113,6 +116,7 @@ const ProviderSessionRuntimeRawDbRowSchema = Schema.Struct({
   threadId: Schema.String,
   providerName: Schema.Unknown,
   providerInstanceId: Schema.Unknown,
+  sessionLease: Schema.Unknown,
   adapterKey: Schema.Unknown,
   runtimeMode: Schema.Unknown,
   status: Schema.Unknown,
@@ -155,6 +159,7 @@ export const make = Effect.gen(function* () {
           thread_id,
           provider_name,
           provider_instance_id,
+          session_lease,
           adapter_key,
           runtime_mode,
           status,
@@ -166,6 +171,7 @@ export const make = Effect.gen(function* () {
           ${runtime.threadId},
           ${runtime.providerName},
           ${runtime.providerInstanceId},
+          ${runtime.sessionLease ?? null},
           ${runtime.adapterKey},
           ${runtime.runtimeMode},
           ${runtime.status},
@@ -177,6 +183,7 @@ export const make = Effect.gen(function* () {
         DO UPDATE SET
           provider_name = excluded.provider_name,
           provider_instance_id = excluded.provider_instance_id,
+          session_lease = excluded.session_lease,
           adapter_key = excluded.adapter_key,
           runtime_mode = excluded.runtime_mode,
           status = excluded.status,
@@ -195,6 +202,7 @@ export const make = Effect.gen(function* () {
           thread_id AS "threadId",
           provider_name AS "providerName",
           provider_instance_id AS "providerInstanceId",
+          session_lease AS "sessionLease",
           adapter_key AS "adapterKey",
           runtime_mode AS "runtimeMode",
           status,
@@ -215,6 +223,7 @@ export const make = Effect.gen(function* () {
           thread_id AS "threadId",
           provider_name AS "providerName",
           provider_instance_id AS "providerInstanceId",
+          session_lease AS "sessionLease",
           adapter_key AS "adapterKey",
           runtime_mode AS "runtimeMode",
           status,

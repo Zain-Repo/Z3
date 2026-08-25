@@ -70,6 +70,12 @@ const slugSchema = TrimmedNonEmptyString.check(
 export const ProviderDriverKind = slugSchema.pipe(Schema.brand("ProviderDriverKind"));
 export type ProviderDriverKind = typeof ProviderDriverKind.Type;
 
+/** Opaque ownership token for one live provider session. Optional at old boundaries. */
+export const ProviderSessionLease = TrimmedNonEmptyString.pipe(
+  Schema.brand("ProviderSessionLease"),
+);
+export type ProviderSessionLease = typeof ProviderSessionLease.Type;
+
 const isProviderDriverKindValue = Schema.is(ProviderDriverKind);
 export const isProviderDriverKind = (value: unknown): value is ProviderDriverKind =>
   isProviderDriverKindValue(value);
