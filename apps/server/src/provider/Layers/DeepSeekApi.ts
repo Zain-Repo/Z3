@@ -10,8 +10,15 @@ export interface DeepSeekModel {
 }
 
 export interface DeepSeekCompletionMessage {
-  readonly role: "user" | "assistant" | "system";
-  readonly content: string;
+  readonly role: "user" | "assistant" | "system" | "tool";
+  readonly content: string | null;
+  readonly tool_calls?: ReadonlyArray<{
+    readonly id: string;
+    readonly type: "function";
+    readonly function: { readonly name: string; readonly arguments: string };
+  }>;
+  readonly tool_call_id?: string;
+  readonly name?: string;
 }
 
 export interface DeepSeekCompletionChunk {
@@ -62,9 +69,11 @@ const requestJson = Effect.fn("deepSeekRequestJson")(function* (input: {
   readonly httpClient: HttpClient.HttpClient;
   readonly request: HttpClientRequest.HttpClientRequest;
 }): Effect.fn.Return<unknown, DeepSeekApiError> {
-  const response = yield* input.httpClient.execute(input.request).pipe(
-    Effect.mapError((cause) => new DeepSeekApiError(`DeepSeek request failed: ${String(cause)}`)),
-  );
+  const response = yield* input.httpClient
+    .execute(input.request)
+    .pipe(
+      Effect.mapError((cause) => new DeepSeekApiError(`DeepSeek request failed: ${String(cause)}`)),
+    );
   if (response.status < 200 || response.status >= 300) {
     return yield* Effect.fail(new DeepSeekApiError(errorDetail(response.status), response.status));
   }
@@ -131,10 +140,7 @@ export const streamDeepSeekCompletion = Effect.fn("streamDeepSeekCompletion")(fu
   readonly apiKey: string;
   readonly model: string;
   readonly messages: ReadonlyArray<DeepSeekCompletionMessage>;
-}): Effect.fn.Return<
-  Stream.Stream<DeepSeekCompletionChunk, DeepSeekApiError>,
-  DeepSeekApiError
-> {
+}): Effect.fn.Return<Stream.Stream<DeepSeekCompletionChunk, DeepSeekApiError>, DeepSeekApiError> {
   const response = yield* input.httpClient
     .execute(
       HttpClientRequest.post(endpointUrl(input.baseUrl, "chat/completions")).pipe(

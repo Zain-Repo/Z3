@@ -11,8 +11,36 @@ export interface OpenRouterModel {
 }
 
 export interface OpenRouterCompletionMessage {
-  readonly role: "user" | "assistant" | "system";
-  readonly content: string;
+  readonly role: "user" | "assistant" | "system" | "tool";
+  readonly content: string | null;
+  readonly tool_calls?: ReadonlyArray<OpenRouterToolCall>;
+  readonly tool_call_id?: string;
+  readonly name?: string;
+}
+
+export interface OpenRouterToolCall {
+  readonly id: string;
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly arguments: string;
+  };
+}
+
+export interface OpenRouterToolCallDelta {
+  readonly index: number;
+  readonly id?: string;
+  readonly name?: string;
+  readonly argumentsDelta?: string;
+}
+
+export interface OpenRouterToolDefinition {
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+  };
 }
 
 export interface OpenRouterCompletionChunk {
@@ -21,6 +49,7 @@ export interface OpenRouterCompletionChunk {
   readonly model?: string;
   readonly usage?: unknown;
   readonly annotations?: ReadonlyArray<unknown>;
+  readonly toolCallDeltas?: ReadonlyArray<OpenRouterToolCallDelta>;
 }
 
 export class OpenRouterApiError extends Error {
@@ -127,6 +156,31 @@ function parseOpenRouterCompletionSseLine(line: string): OpenRouterCompletionChu
       ? firstChoice.delta
       : undefined;
   const content = delta && Predicate.isString(delta.content) ? delta.content : "";
+  const toolCallDeltas =
+    delta && Array.isArray(delta.tool_calls)
+      ? delta.tool_calls.flatMap((toolCall, index): ReadonlyArray<OpenRouterToolCallDelta> => {
+          if (!Predicate.isObject(toolCall)) return [];
+          const functionValue = Predicate.isObject(toolCall.function)
+            ? toolCall.function
+            : undefined;
+          if (!functionValue) return [];
+          const callIndex = typeof toolCall.index === "number" ? toolCall.index : index;
+          const id = stringValue(toolCall.id);
+          const name = functionValue ? stringValue(functionValue.name) : undefined;
+          const argumentsDelta =
+            functionValue && Predicate.isString(functionValue.arguments)
+              ? functionValue.arguments
+              : undefined;
+          return [
+            {
+              index: callIndex,
+              ...(id !== undefined ? { id } : {}),
+              ...(name !== undefined ? { name } : {}),
+              ...(argumentsDelta !== undefined ? { argumentsDelta } : {}),
+            },
+          ];
+        })
+      : undefined;
   const model = stringValue(payload.model);
   const annotationsValue =
     (delta && delta.annotations) ??
@@ -140,6 +194,7 @@ function parseOpenRouterCompletionSseLine(line: string): OpenRouterCompletionChu
     ...(model !== undefined ? { model } : {}),
     ...(payload.usage !== undefined ? { usage: payload.usage } : {}),
     ...(annotations !== undefined ? { annotations } : {}),
+    ...(toolCallDeltas !== undefined && toolCallDeltas.length > 0 ? { toolCallDeltas } : {}),
   };
 }
 
@@ -150,6 +205,7 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
     readonly apiKey: string;
     readonly model: string;
     readonly messages: ReadonlyArray<OpenRouterCompletionMessage>;
+    readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
   }): Effect.fn.Return<
     Stream.Stream<OpenRouterCompletionChunk, OpenRouterApiError>,
     OpenRouterApiError
@@ -167,7 +223,9 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
             stream_options: { include_usage: true },
             store: false,
             // OpenRouter selects native search or its managed fallback for the model.
-            tools: [{ type: "openrouter:web_search" }],
+            tools: [{ type: "openrouter:web_search" }, ...(input.tools ?? [])],
+            tool_choice: "auto",
+            parallel_tool_calls: true,
             max_tool_calls: 5,
           }),
         ),

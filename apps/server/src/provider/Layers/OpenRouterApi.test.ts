@@ -120,4 +120,71 @@ describe("streamOpenRouterCompletion", () => {
       }),
     );
   });
+
+  it.effect("parses streamed function tool calls and advertises workspace tools", () => {
+    const encoder = new TextEncoder();
+    const responseBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"src/"}}]}}]}\n\n',
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"main.ts\\"}"}}]}}]}\n\ndata: [DONE]\n\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    let requestBody: unknown;
+    const client = HttpClient.make((request) => {
+      const body = request.body as { readonly body?: Uint8Array };
+      if (body.body) requestBody = JSON.parse(new TextDecoder().decode(body.body)) as unknown;
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(responseBody, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        ),
+      );
+    });
+
+    return streamOpenRouterCompletion({
+      httpClient: client,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "test-key",
+      model: "openai/test",
+      messages: [{ role: "user", content: "Read the file." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a file.",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+    }).pipe(
+      Effect.flatMap((stream) => Stream.runCollect(stream)),
+      Effect.map((chunks) => {
+        expect(requestBody).toMatchObject({
+          tool_choice: "auto",
+          parallel_tool_calls: true,
+          tools: [
+            { type: "openrouter:web_search" },
+            { type: "function", function: { name: "read_file" } },
+          ],
+        });
+        expect(Array.from(chunks).flatMap((chunk) => chunk.toolCallDeltas ?? [])).toEqual([
+          { index: 0, id: "call-1", name: "read_file", argumentsDelta: '{"path":"src/' },
+          { index: 0, argumentsDelta: 'main.ts"}' },
+        ]);
+      }),
+    );
+  });
 });

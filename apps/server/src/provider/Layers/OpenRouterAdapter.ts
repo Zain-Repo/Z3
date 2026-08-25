@@ -1,3 +1,4 @@
+// @effect-diagnostics preferSchemaOverJson:off
 import {
   EventId,
   ProviderDriverKind,
@@ -19,7 +20,12 @@ import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
-import { streamOpenRouterCompletion } from "./OpenRouterApi.ts";
+import {
+  streamOpenRouterCompletion,
+  type OpenRouterCompletionChunk,
+  type OpenRouterToolCall,
+  type OpenRouterToolDefinition,
+} from "./OpenRouterApi.ts";
 import {
   type ProviderAdapterError,
   ProviderAdapterRequestError,
@@ -35,8 +41,11 @@ import type {
 } from "../Services/ProviderAdapter.ts";
 
 type CompatibleCompletionMessage = {
-  readonly role: "user" | "assistant" | "system";
-  readonly content: string;
+  readonly role: "user" | "assistant" | "system" | "tool";
+  readonly content: string | null;
+  readonly tool_calls?: ReadonlyArray<OpenRouterToolCall>;
+  readonly tool_call_id?: string;
+  readonly name?: string;
 };
 
 type CompatibleCompletionChunk = {
@@ -46,7 +55,65 @@ type CompatibleCompletionChunk = {
   readonly model?: string;
   readonly usage?: unknown;
   readonly annotations?: ReadonlyArray<unknown>;
+  readonly toolCallDeltas?: OpenRouterCompletionChunk["toolCallDeltas"];
 };
+
+export interface OpenRouterToolSupport {
+  readonly definitions: ReadonlyArray<OpenRouterToolDefinition>;
+  readonly execute: (input: {
+    readonly name: string;
+    readonly arguments: unknown;
+    readonly cwd: string | undefined;
+    readonly runtimeMode: ProviderSession["runtimeMode"];
+  }) => Effect.Effect<string>;
+}
+
+export const OPENROUTER_WORKSPACE_TOOL_DEFINITIONS: ReadonlyArray<OpenRouterToolDefinition> = [
+  {
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read a UTF-8 text file relative to the current workspace.",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string", description: "Workspace-relative file path." } },
+        required: ["path"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_file",
+      description: "Write complete UTF-8 file contents relative to the current workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Workspace-relative file path." },
+          contents: { type: "string", description: "The complete new file contents." },
+        },
+        required: ["path", "contents"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_files",
+      description: "Search workspace paths to discover files and directories.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Optional path search text." },
+          kind: { type: "string", enum: ["file", "directory"] },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+];
 
 export interface OpenAICompatibleAdapterConfig {
   readonly httpClient: HttpClient.HttpClient;
@@ -57,12 +124,14 @@ export interface OpenAICompatibleAdapterConfig {
   readonly provider: ProviderDriverKind;
   readonly providerLabel: string;
   readonly idPrefix: string;
+  readonly toolSupport?: OpenRouterToolSupport;
   readonly streamCompletion: (input: {
     readonly httpClient: HttpClient.HttpClient;
     readonly baseUrl: string;
     readonly apiKey: string;
     readonly model: string;
     readonly messages: ReadonlyArray<CompatibleCompletionMessage>;
+    readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
   }) => Effect.Effect<Stream.Stream<CompatibleCompletionChunk, Error>, Error>;
 }
 
@@ -102,30 +171,77 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
     const missingSession = (threadId: string) =>
       new ProviderAdapterSessionNotFoundError({ provider: config.provider, threadId });
 
-    const completeTurn = (
+    const completeTurn: (
       state: CompatibleSessionState,
       turnId: TurnId,
       turnInput: ProviderSendTurnInput,
+      toolRound?: number,
+    ) => Effect.Effect<void, never> = (
+      state: CompatibleSessionState,
+      turnId: TurnId,
+      turnInput: ProviderSendTurnInput,
+      toolRound = 0,
     ) =>
       Effect.gen(function* () {
+        if (toolRound > 8) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "chat/completions",
+            detail: `${config.providerLabel} exceeded the workspace tool-call limit for this turn.`,
+          });
+        }
         const model = turnInput.modelSelection?.model ?? state.session.model ?? config.defaultModel;
         let content = "";
         let resolvedModel: string | undefined;
         let usage: unknown;
         let annotations: ReadonlyArray<unknown> | undefined;
+        const toolCallParts = new Map<
+          number,
+          { id: string | undefined; name: string | undefined; arguments: string }
+        >();
         const itemId = RuntimeItemId.make(`${config.idPrefix}-item-${turnId}`);
-        yield* config.streamCompletion({
-          baseUrl: config.baseUrl,
-          apiKey: config.apiKey,
-          model,
-          messages: state.messages,
-          httpClient: config.httpClient,
-        }).pipe(
-          Effect.flatMap((stream) =>
-            stream.pipe(
-              Stream.runForEach((chunk) =>
-                Effect.gen(function* () {
-                  if (chunk.reasoningDelta && chunk.reasoningDelta.length > 0) {
+        yield* config
+          .streamCompletion({
+            baseUrl: config.baseUrl,
+            apiKey: config.apiKey,
+            model,
+            messages: state.messages,
+            httpClient: config.httpClient,
+            ...(config.toolSupport ? { tools: config.toolSupport.definitions } : {}),
+          })
+          .pipe(
+            Effect.flatMap((stream) =>
+              stream.pipe(
+                Stream.runForEach((chunk) =>
+                  Effect.gen(function* () {
+                    if (chunk.reasoningDelta && chunk.reasoningDelta.length > 0) {
+                      const createdAt = DateTime.formatIso(yield* DateTime.now);
+                      yield* publish({
+                        type: "content.delta",
+                        ...stamp(createdAt),
+                        provider: PROVIDER,
+                        threadId: state.session.threadId,
+                        turnId,
+                        itemId,
+                        payload: { streamKind: "reasoning_text", delta: chunk.reasoningDelta },
+                      });
+                    }
+                    content += chunk.delta;
+                    resolvedModel ??= chunk.model;
+                    if (chunk.usage !== undefined) usage = chunk.usage;
+                    if (chunk.annotations !== undefined) annotations = chunk.annotations;
+                    for (const toolCallDelta of chunk.toolCallDeltas ?? []) {
+                      const current = toolCallParts.get(toolCallDelta.index) ?? {
+                        id: undefined,
+                        name: undefined,
+                        arguments: "",
+                      };
+                      current.id ??= toolCallDelta.id;
+                      current.name ??= toolCallDelta.name;
+                      current.arguments += toolCallDelta.argumentsDelta ?? "";
+                      toolCallParts.set(toolCallDelta.index, current);
+                    }
+                    if (chunk.delta.length === 0) return;
                     const createdAt = DateTime.formatIso(yield* DateTime.now);
                     yield* publish({
                       type: "content.delta",
@@ -134,38 +250,103 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
                       threadId: state.session.threadId,
                       turnId,
                       itemId,
-                      payload: { streamKind: "reasoning_text", delta: chunk.reasoningDelta },
+                      payload: { streamKind: "assistant_text", delta: chunk.delta },
                     });
-                  }
-                  content += chunk.delta;
-                  resolvedModel ??= chunk.model;
-                  if (chunk.usage !== undefined) usage = chunk.usage;
-                  if (chunk.annotations !== undefined) annotations = chunk.annotations;
-                  if (chunk.delta.length === 0) return;
-                  const createdAt = DateTime.formatIso(yield* DateTime.now);
-                  yield* publish({
-                    type: "content.delta",
-                    ...stamp(createdAt),
-                    provider: PROVIDER,
-                    threadId: state.session.threadId,
-                    turnId,
-                    itemId,
-                    payload: { streamKind: "assistant_text", delta: chunk.delta },
-                  });
-                }),
+                  }),
+                ),
               ),
             ),
-          ),
-          Effect.mapError(
-            (cause) =>
-              new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "chat/completions",
-                detail: errorDetail(cause, config.providerLabel),
-                cause,
-              }),
-          ),
-        );
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "chat/completions",
+                  detail: errorDetail(cause, config.providerLabel),
+                  cause,
+                }),
+            ),
+          );
+        if (toolCallParts.size > 0) {
+          const toolCalls: Array<OpenRouterToolCall> = [];
+          for (const [index, part] of [...toolCallParts.entries()].sort(
+            ([left], [right]) => left - right,
+          )) {
+            if (!part.name) continue;
+            toolCalls.push({
+              id: part.id ?? `${config.idPrefix}-tool-call-${turnId}-${index}`,
+              type: "function",
+              function: { name: part.name, arguments: part.arguments },
+            });
+          }
+          if (toolCalls.length === 0) {
+            return yield* new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "chat/completions",
+              detail: `${config.providerLabel} returned an incomplete tool call.`,
+            });
+          }
+          state.messages.push({
+            role: "assistant",
+            content: content || null,
+            tool_calls: toolCalls,
+          });
+          for (const toolCall of toolCalls) {
+            const toolItemId = RuntimeItemId.make(`${config.idPrefix}-${toolCall.id}`);
+            const toolStartedAt = DateTime.formatIso(yield* DateTime.now);
+            yield* publish({
+              type: "item.started",
+              ...stamp(toolStartedAt),
+              provider: PROVIDER,
+              threadId: state.session.threadId,
+              turnId,
+              itemId: toolItemId,
+              payload: {
+                itemType: "dynamic_tool_call",
+                status: "inProgress",
+                data: { name: toolCall.function.name, arguments: toolCall.function.arguments },
+              },
+            });
+            let toolArguments: unknown;
+            try {
+              toolArguments = JSON.parse(toolCall.function.arguments) as unknown;
+            } catch {
+              toolArguments = {};
+            }
+            const result = config.toolSupport
+              ? yield* config.toolSupport.execute({
+                  name: toolCall.function.name,
+                  arguments: toolArguments,
+                  cwd: state.session.cwd,
+                  runtimeMode: state.session.runtimeMode,
+                })
+              : JSON.stringify({ error: "Workspace tools are unavailable." });
+            state.messages.push({
+              role: "tool",
+              content: result,
+              tool_call_id: toolCall.id,
+              name: toolCall.function.name,
+            });
+            const toolCompletedAt = DateTime.formatIso(yield* DateTime.now);
+            yield* publish({
+              type: "item.completed",
+              ...stamp(toolCompletedAt),
+              provider: PROVIDER,
+              threadId: state.session.threadId,
+              turnId,
+              itemId: toolItemId,
+              payload: {
+                itemType: "dynamic_tool_call",
+                status: "completed",
+                data: {
+                  name: toolCall.function.name,
+                  arguments: toolCall.function.arguments,
+                  result,
+                },
+              },
+            });
+          }
+          return yield* Effect.suspend(() => completeTurn(state, turnId, turnInput, toolRound + 1));
+        }
         if (content.trim().length === 0) {
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
@@ -472,11 +653,13 @@ export const makeOpenRouterAdapter = (config: {
   readonly apiKey: string;
   readonly defaultModel: string;
   readonly instanceId: string;
+  readonly toolSupport: OpenRouterToolSupport;
 }) =>
   makeOpenAICompatibleAdapter({
     ...config,
     provider: ProviderDriverKind.make("openrouter"),
     providerLabel: "OpenRouter",
     idPrefix: "openrouter",
+    toolSupport: config.toolSupport,
     streamCompletion: (input) => streamOpenRouterCompletion(input),
   });

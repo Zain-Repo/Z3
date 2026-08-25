@@ -22,12 +22,21 @@ OpenRouter model IDs use the `provider/model` form, such as `openai/gpt-4o-mini`
 `anthropic/claude-3.7-sonnet`. Z3 refreshes the model list from OpenRouter and also keeps the
 configured default model available when the account cannot be probed yet.
 
-## Current boundary
+## Workspace tools
 
-The direct driver supports text chat turns and canonical runtime event delivery through the normal
-Z3 session path. It does not currently expose workspace tools, ACP approval requests, image
-attachments, or source-control text-generation helpers. Those operations report an explicit
-unsupported error rather than pretending they succeeded.
+The direct driver exposes workspace tools to models that support OpenRouter function calling:
+
+- `list_files` searches the current workspace paths.
+- `read_file` reads a UTF-8 text file relative to the workspace.
+- `write_file` writes a UTF-8 file relative to the workspace.
+
+Tool calls are executed by the server and their results are sent back to OpenRouter so the model
+can continue the same turn. Paths are checked against the current workspace root and cannot escape
+it. File writes are rejected when the session is in approval-required mode.
+
+The direct driver still does not expose ACP approval requests, image attachments, or source-control
+text-generation helpers. Those operations report an explicit unsupported error rather than
+pretending they succeeded.
 
 If the provider is shown with a warning, check that an API key is configured for that instance and
 that the server can reach the configured endpoint. A 401 means the key was rejected, 402 means the
