@@ -10,7 +10,7 @@
  *
  *  2. **Many drivers, one registry** — the "all drivers slice" describe
  *     block below configures one instance of every shipped driver
- *     (`codex`, `claudeAgent`, `cursor`, `grok`, `opencode`, `openrouter`) in a single
+ *     (`codex`, `claudeAgent`, `cursor`, `grok`, `opencode`, `deepseek`, `openrouter`) in a single
  *     `ProviderInstanceConfigMap` and asserts the registry boots them all
  *     without cross-contamination. This proves the driver SPI is uniform
  *     across every provider — any driver plugs into the registry through
@@ -28,6 +28,7 @@ import {
   type ClaudeSettings,
   type CodexSettings,
   type CursorSettings,
+  type DeepSeekSettings,
   type GrokSettings,
   type OpenCodeSettings,
   type OpenRouterSettings,
@@ -47,6 +48,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ClaudeDriver } from "../Drivers/ClaudeDriver.ts";
 import { CodexDriver } from "../Drivers/CodexDriver.ts";
 import { CursorDriver } from "../Drivers/CursorDriver.ts";
+import { DeepSeekDriver } from "../Drivers/DeepSeekDriver.ts";
 import { GrokDriver } from "../Drivers/GrokDriver.ts";
 import { OpenCodeDriver } from "../Drivers/OpenCodeDriver.ts";
 import { OpenRouterDriver } from "../Drivers/OpenRouterDriver.ts";
@@ -142,6 +144,15 @@ const makeOpenRouterConfig = (
   apiEndpoint: "https://openrouter.ai/api/v1",
   apiKey: "",
   defaultModel: "openai/gpt-4o-mini",
+  customModels: [],
+  ...overrides,
+});
+
+const makeDeepSeekConfig = (overrides: Partial<DeepSeekSettings>): DeepSeekSettings => ({
+  enabled: false,
+  apiEndpoint: "https://api.deepseek.com",
+  apiKey: "",
+  defaultModel: "deepseek-v4-flash",
   customModels: [],
   ...overrides,
 });
@@ -308,6 +319,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       const cursorId = ProviderInstanceId.make("cursor_default");
       const grokId = ProviderInstanceId.make("grok_default");
       const openCodeId = ProviderInstanceId.make("opencode_default");
+      const deepSeekId = ProviderInstanceId.make("deepseek_default");
       const openRouterId = ProviderInstanceId.make("openrouter_default");
 
       const codexDriverKind = ProviderDriverKind.make("codex");
@@ -315,6 +327,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       const cursorDriverKind = ProviderDriverKind.make("cursor");
       const grokDriverKind = ProviderDriverKind.make("grok");
       const openCodeDriverKind = ProviderDriverKind.make("opencode");
+      const deepSeekDriverKind = ProviderDriverKind.make("deepseek");
       const openRouterDriverKind = ProviderDriverKind.make("openrouter");
 
       const configMap: ProviderInstanceConfigMap = {
@@ -357,6 +370,12 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
           enabled: false,
           config: makeOpenRouterConfig({}),
         },
+        [deepSeekId]: {
+          driver: deepSeekDriverKind,
+          displayName: "DeepSeek",
+          enabled: false,
+          config: makeDeepSeekConfig({}),
+        },
       };
 
       const { registry } = yield* makeProviderInstanceRegistry({
@@ -366,6 +385,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
           CursorDriver,
           GrokDriver,
           OpenCodeDriver,
+          DeepSeekDriver,
           OpenRouterDriver,
         ],
         configMap,
@@ -377,9 +397,9 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       expect(unavailable).toEqual([]);
 
       const instances = yield* registry.listInstances;
-      expect(instances).toHaveLength(6);
+      expect(instances).toHaveLength(7);
       expect(instances.map((instance) => instance.instanceId).toSorted()).toEqual(
-        [codexId, claudeId, cursorId, grokId, openCodeId, openRouterId].toSorted(),
+        [codexId, claudeId, cursorId, grokId, openCodeId, deepSeekId, openRouterId].toSorted(),
       );
 
       // Instance lookup by id resolves each instance to its own bundle —
@@ -390,18 +410,21 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       const cursor = yield* registry.getInstance(cursorId);
       const grok = yield* registry.getInstance(grokId);
       const openCode = yield* registry.getInstance(openCodeId);
+      const deepSeek = yield* registry.getInstance(deepSeekId);
       const openRouter = yield* registry.getInstance(openRouterId);
       expect(codex?.driverKind).toBe(codexDriverKind);
       expect(claude?.driverKind).toBe(claudeDriverKind);
       expect(cursor?.driverKind).toBe(cursorDriverKind);
       expect(grok?.driverKind).toBe(grokDriverKind);
       expect(openCode?.driverKind).toBe(openCodeDriverKind);
+      expect(deepSeek?.driverKind).toBe(deepSeekDriverKind);
       expect(openRouter?.driverKind).toBe(openRouterDriverKind);
       expect(codex?.displayName).toBe("Codex");
       expect(claude?.displayName).toBe("Claude");
       expect(cursor?.displayName).toBe("Cursor");
       expect(grok?.displayName).toBe("Grok");
       expect(openCode?.displayName).toBe("OpenCode");
+      expect(deepSeek?.displayName).toBe("DeepSeek");
       expect(openRouter?.displayName).toBe("OpenRouter");
 
       // Every instance owns its own set of closures — no sharing across
@@ -415,6 +438,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
         cursor!.adapter,
         grok!.adapter,
         openCode!.adapter,
+        deepSeek!.adapter,
         openRouter!.adapter,
       ];
       expect(new Set(adapters).size).toBe(adapters.length);
@@ -424,6 +448,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
         cursor!.textGeneration,
         grok!.textGeneration,
         openCode!.textGeneration,
+        deepSeek!.textGeneration,
         openRouter!.textGeneration,
       ];
       expect(new Set(textGenerations).size).toBe(textGenerations.length);
@@ -433,6 +458,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
         cursor!.snapshot,
         grok!.snapshot,
         openCode!.snapshot,
+        deepSeek!.snapshot,
         openRouter!.snapshot,
       ];
       expect(new Set(snapshots).size).toBe(snapshots.length);
@@ -483,6 +509,14 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       expect(openRouterSnapshot.enabled).toBe(false);
       expect(openRouterSnapshot.continuation?.groupKey).toBe(
         `${openRouterDriverKind}:instance:${openRouterId}`,
+      );
+
+      const deepSeekSnapshot = yield* deepSeek!.snapshot.getSnapshot;
+      expect(deepSeekSnapshot.instanceId).toBe(deepSeekId);
+      expect(deepSeekSnapshot.driver).toBe(deepSeekDriverKind);
+      expect(deepSeekSnapshot.enabled).toBe(false);
+      expect(deepSeekSnapshot.continuation?.groupKey).toBe(
+        `${deepSeekDriverKind}:instance:${deepSeekId}`,
       );
     }).pipe(Effect.provide(testLayer)),
   );

@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import {
   ModelSelection,
   ProviderRuntimeEvent,
+  type ProviderSendTurnInput,
   ProviderSession,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -156,7 +157,7 @@ describe("ProviderCommandReactor", () => {
     const baseDir =
       input?.baseDir ?? NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3code-reactor-"));
     createdBaseDirs.add(baseDir);
-    const { stateDir } = deriveServerPathsSync(baseDir, undefined);
+    const { attachmentsDir, stateDir } = deriveServerPathsSync(baseDir, undefined);
     createdStateDirs.add(stateDir);
     const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     let nextSessionIndex = 1;
@@ -498,6 +499,7 @@ describe("ProviderCommandReactor", () => {
       generateThreadTitle,
       runtimeSessions,
       stateDir,
+      attachmentsDir,
       drain,
       runEffect,
       get titleRegenerationCompletionDispatchAttempts() {
@@ -545,6 +547,53 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
+
+  effectIt.effect(
+    "injects persisted text files into provider input without forwarding unsupported file blocks",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const attachmentId = "thread-1-00000000-0000-4000-8000-000000000001";
+        NodeFS.mkdirSync(harness.attachmentsDir, { recursive: true });
+        NodeFS.writeFileSync(
+          NodePath.join(harness.attachmentsDir, `${attachmentId}.bin`),
+          "export const answer = 42;",
+        );
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-file"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-file"),
+            role: "user",
+            text: "Explain the attachment.",
+            attachments: [
+              {
+                type: "file",
+                id: attachmentId,
+                name: "answer.ts",
+                mimeType: "text/plain",
+                sizeBytes: 25,
+              },
+            ],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+        const request = harness.sendTurn.mock.calls[0]?.[0] as ProviderSendTurnInput | undefined;
+        expect(request).toMatchObject({
+          threadId: ThreadId.make("thread-1"),
+        });
+        expect(request?.attachments).toBeUndefined();
+        expect(request?.input).toContain("Explain the attachment.");
+        expect(request?.input).toContain("export const answer = 42;");
+        expect(request?.input).toContain("untrusted reference material");
+      }),
+  );
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>
     Effect.gen(function* () {

@@ -73,4 +73,51 @@ describe("streamOpenRouterCompletion", () => {
       }),
     );
   });
+
+  it.effect("enables OpenRouter web search and preserves citation annotations", () => {
+    const encoder = new TextEncoder();
+    const responseBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"content":"Current answer","annotations":[{"type":"url_citation","url":"https://example.com"}]}}]}\n\ndata: [DONE]\n\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    let requestBody: unknown;
+    const client = HttpClient.make((request) => {
+      const body = request.body as { readonly body?: Uint8Array };
+      if (body.body) requestBody = JSON.parse(new TextDecoder().decode(body.body)) as unknown;
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(responseBody, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        ),
+      );
+    });
+
+    return streamOpenRouterCompletion({
+      httpClient: client,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "test-key",
+      model: "openai/test",
+      messages: [{ role: "user", content: "What is current?" }],
+    }).pipe(
+      Effect.flatMap((stream) => Stream.runCollect(stream)),
+      Effect.map((chunks) => {
+        expect(requestBody).toMatchObject({
+          tools: [{ type: "openrouter:web_search" }],
+          max_tool_calls: 5,
+        });
+        expect(Array.from(chunks)[0]?.annotations).toEqual([
+          { type: "url_citation", url: "https://example.com" },
+        ]);
+      }),
+    );
+  });
 });

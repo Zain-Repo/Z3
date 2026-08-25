@@ -434,6 +434,56 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
+export const DeepSeekSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    apiEndpoint: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("https://api.deepseek.com")),
+      Schema.annotateKey({
+        title: "API endpoint",
+        description: "DeepSeek OpenAI-compatible API base URL.",
+        providerSettingsForm: {
+          placeholder: "https://api.deepseek.com",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    apiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "API key",
+        description: "Stored securely and used for DeepSeek model discovery and chat requests.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "sk-...",
+          clearWhenEmpty: "omit",
+          environmentVariable: "DEEPSEEK_API_KEY",
+        },
+      }),
+    ),
+    defaultModel: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("deepseek-v4-flash")),
+      Schema.annotateKey({
+        title: "Default model",
+        description: "DeepSeek model ID used when a thread has no model selection.",
+        providerSettingsForm: {
+          placeholder: "deepseek-v4-flash",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  { order: ["apiKey", "apiEndpoint", "defaultModel"] },
+);
+export type DeepSeekSettings = typeof DeepSeekSettings.Type;
+
 export const OpenRouterSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -604,6 +654,7 @@ export const ServerSettings = Schema.Struct({
     droid: DroidSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    deepseek: DeepSeekSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     openrouter: OpenRouterSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -721,6 +772,13 @@ const OpenRouterSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const DeepSeekSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  apiEndpoint: Schema.optionalKey(TrimmedString),
+  defaultModel: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
@@ -762,6 +820,7 @@ export const ServerSettingsPatch = Schema.Struct({
       droid: Schema.optionalKey(DroidSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
+      deepseek: Schema.optionalKey(DeepSeekSettingsPatch),
       openrouter: Schema.optionalKey(OpenRouterSettingsPatch),
     }),
   ),

@@ -65,6 +65,7 @@ import {
   markPromotedDraftThreadByRef,
   markPromotedDraftThreads,
   markPromotedDraftThreadsByRef,
+  type ComposerFileAttachment,
   type ComposerImageAttachment,
   useComposerDraftStore,
   DraftId,
@@ -100,6 +101,25 @@ function makeImage(input: {
     mimeType,
     sizeBytes: file.size,
     previewUrl: input.previewUrl,
+    file,
+  };
+}
+
+function makeFile(input: {
+  id: string;
+  name?: string;
+  contents?: string;
+  mimeType?: string;
+}): ComposerFileAttachment {
+  const name = input.name ?? "context.ts";
+  const mimeType = input.mimeType ?? "text/plain";
+  const file = new File([input.contents ?? "export const value = 1;"], name, { type: mimeType });
+  return {
+    type: "file",
+    id: input.id,
+    name,
+    mimeType,
+    sizeBytes: file.size,
     file,
   };
 }
@@ -254,6 +274,48 @@ describe("composerDraftStore addImages", () => {
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
     expect(draft?.images.map((image) => image.id)).toEqual(["img-shared"]);
     expect(revokeSpy).not.toHaveBeenCalledWith("blob:shared");
+  });
+});
+
+describe("composerDraftStore addFiles", () => {
+  const threadId = ThreadId.make("thread-file-dedupe");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("deduplicates files by name, MIME type, and byte size", () => {
+    const first = makeFile({ id: "file-1", name: "context.ts", contents: "same" });
+    const duplicate = makeFile({ id: "file-2", name: "context.ts", contents: "same" });
+
+    useComposerDraftStore.getState().addFiles(threadRef, [first, duplicate]);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.files.map((file) => file.id)).toEqual([
+      "file-1",
+    ]);
+  });
+
+  it("removes file payload and persisted metadata together", () => {
+    const file = makeFile({ id: "file-1" });
+    const store = useComposerDraftStore.getState();
+    store.addFiles(threadRef, [file]);
+    store.syncPersistedAttachments(threadRef, [
+      {
+        type: "file",
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        dataUrl: "data:text/plain;base64,Y29udGV4dA==",
+      },
+    ]);
+
+    useComposerDraftStore.getState().removeFile(threadRef, file.id);
+
+    const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    expect(draft?.files ?? []).toEqual([]);
+    expect(draft?.persistedAttachments ?? []).toEqual([]);
   });
 });
 

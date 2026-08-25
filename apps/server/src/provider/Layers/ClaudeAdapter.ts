@@ -948,7 +948,11 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
 
   for (const attachment of input.attachments ?? []) {
     if (attachment.type !== "image") {
-      continue;
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "sendTurn",
+        issue: "Claude accepts native image attachments only.",
+      });
     }
 
     if (!SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType)) {

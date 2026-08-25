@@ -3,6 +3,7 @@ import {
   CodexSettings,
   CursorSettings,
   DroidSettings,
+  DeepSeekSettings,
   GrokSettings,
   OpenCodeSettings,
   OpenRouterSettings,
@@ -13,6 +14,7 @@ import {
   ClaudeAI,
   CursorIcon,
   DroidIcon,
+  DeepSeekIcon,
   GrokIcon,
   type Icon,
   OpenAI,
@@ -84,6 +86,12 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     label: "OpenCode",
     icon: OpenCodeIcon,
     settingsSchema: OpenCodeSettings,
+  },
+  {
+    value: ProviderDriverKind.make("deepseek"),
+    label: "DeepSeek",
+    icon: DeepSeekIcon,
+    settingsSchema: DeepSeekSettings,
   },
   {
     value: ProviderDriverKind.make("openrouter"),

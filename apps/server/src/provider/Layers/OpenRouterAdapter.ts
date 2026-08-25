@@ -19,7 +19,7 @@ import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
-import { streamOpenRouterCompletion, type OpenRouterCompletionMessage } from "./OpenRouterApi.ts";
+import { streamOpenRouterCompletion } from "./OpenRouterApi.ts";
 import {
   type ProviderAdapterError,
   ProviderAdapterRequestError,
@@ -34,38 +34,63 @@ import type {
   ProviderThreadTurnSnapshot,
 } from "../Services/ProviderAdapter.ts";
 
-const PROVIDER = ProviderDriverKind.make("openrouter");
+type CompatibleCompletionMessage = {
+  readonly role: "user" | "assistant" | "system";
+  readonly content: string;
+};
 
-interface OpenRouterSessionState {
-  session: ProviderSession;
-  messages: Array<OpenRouterCompletionMessage>;
-}
+type CompatibleCompletionChunk = {
+  readonly delta: string;
+  readonly done: boolean;
+  readonly reasoningDelta?: string;
+  readonly model?: string;
+  readonly usage?: unknown;
+  readonly annotations?: ReadonlyArray<unknown>;
+};
 
-const capabilities: ProviderAdapterCapabilities = { sessionModelSwitch: "in-session" };
-
-function errorDetail(error: unknown): string {
-  return error instanceof Error ? error.message : "OpenRouter request failed.";
-}
-
-export const makeOpenRouterAdapter = (config: {
+export interface OpenAICompatibleAdapterConfig {
   readonly httpClient: HttpClient.HttpClient;
   readonly baseUrl: string;
   readonly apiKey: string;
   readonly defaultModel: string;
   readonly instanceId: string;
-}) =>
+  readonly provider: ProviderDriverKind;
+  readonly providerLabel: string;
+  readonly idPrefix: string;
+  readonly streamCompletion: (input: {
+    readonly httpClient: HttpClient.HttpClient;
+    readonly baseUrl: string;
+    readonly apiKey: string;
+    readonly model: string;
+    readonly messages: ReadonlyArray<CompatibleCompletionMessage>;
+  }) => Effect.Effect<Stream.Stream<CompatibleCompletionChunk, Error>, Error>;
+}
+
+interface CompatibleSessionState {
+  session: ProviderSession;
+  messages: Array<CompatibleCompletionMessage>;
+}
+
+const capabilities: ProviderAdapterCapabilities = { sessionModelSwitch: "in-session" };
+
+function errorDetail(error: unknown, providerLabel: string): string {
+  return error instanceof Error ? error.message : `${providerLabel} request failed.`;
+}
+
+export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfig) =>
   Effect.gen(function* () {
+    const PROVIDER = config.provider;
     const events = yield* Effect.acquireRelease(
       PubSub.unbounded<ProviderRuntimeEvent>(),
       PubSub.shutdown,
     );
     const adapterScope = yield* Effect.scope;
-    const sessions = new Map<string, OpenRouterSessionState>();
+    const sessions = new Map<string, CompatibleSessionState>();
     const turnFibers = new Map<string, Fiber.Fiber<void, never>>();
     let sequence = 0;
 
     const stamp = (createdAt: string) => ({
-      eventId: EventId.make(`openrouter-${sequence++}`),
+      eventId: EventId.make(`${config.idPrefix}-${sequence++}`),
       createdAt,
     });
     const publish = (event: ProviderRuntimeEvent) =>
@@ -75,10 +100,10 @@ export const makeOpenRouterAdapter = (config: {
       return state;
     };
     const missingSession = (threadId: string) =>
-      new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId });
+      new ProviderAdapterSessionNotFoundError({ provider: config.provider, threadId });
 
     const completeTurn = (
-      state: OpenRouterSessionState,
+      state: CompatibleSessionState,
       turnId: TurnId,
       turnInput: ProviderSendTurnInput,
     ) =>
@@ -87,8 +112,9 @@ export const makeOpenRouterAdapter = (config: {
         let content = "";
         let resolvedModel: string | undefined;
         let usage: unknown;
-        const itemId = RuntimeItemId.make(`openrouter-item-${turnId}`);
-        yield* streamOpenRouterCompletion({
+        let annotations: ReadonlyArray<unknown> | undefined;
+        const itemId = RuntimeItemId.make(`${config.idPrefix}-item-${turnId}`);
+        yield* config.streamCompletion({
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           model,
@@ -99,9 +125,22 @@ export const makeOpenRouterAdapter = (config: {
             stream.pipe(
               Stream.runForEach((chunk) =>
                 Effect.gen(function* () {
+                  if (chunk.reasoningDelta && chunk.reasoningDelta.length > 0) {
+                    const createdAt = DateTime.formatIso(yield* DateTime.now);
+                    yield* publish({
+                      type: "content.delta",
+                      ...stamp(createdAt),
+                      provider: PROVIDER,
+                      threadId: state.session.threadId,
+                      turnId,
+                      itemId,
+                      payload: { streamKind: "reasoning_text", delta: chunk.reasoningDelta },
+                    });
+                  }
                   content += chunk.delta;
                   resolvedModel ??= chunk.model;
                   if (chunk.usage !== undefined) usage = chunk.usage;
+                  if (chunk.annotations !== undefined) annotations = chunk.annotations;
                   if (chunk.delta.length === 0) return;
                   const createdAt = DateTime.formatIso(yield* DateTime.now);
                   yield* publish({
@@ -122,7 +161,7 @@ export const makeOpenRouterAdapter = (config: {
               new ProviderAdapterRequestError({
                 provider: PROVIDER,
                 method: "chat/completions",
-                detail: errorDetail(cause),
+                detail: errorDetail(cause, config.providerLabel),
                 cause,
               }),
           ),
@@ -131,7 +170,7 @@ export const makeOpenRouterAdapter = (config: {
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "chat/completions",
-            detail: "OpenRouter returned no assistant content.",
+            detail: `${config.providerLabel} returned no assistant content.`,
           });
         }
         state.messages.push({ role: "assistant", content });
@@ -143,7 +182,11 @@ export const makeOpenRouterAdapter = (config: {
           threadId: state.session.threadId,
           turnId,
           itemId,
-          payload: { itemType: "assistant_message", status: "completed", data: { content } },
+          payload: {
+            itemType: "assistant_message",
+            status: "completed",
+            data: { content, ...(annotations !== undefined ? { annotations } : {}) },
+          },
         });
         const { activeTurnId: _activeTurnId, ...sessionWithoutActiveTurn } = state.session;
         state.session = {
@@ -166,7 +209,7 @@ export const makeOpenRouterAdapter = (config: {
           ...stamp(completedAt),
           provider: PROVIDER,
           threadId: state.session.threadId,
-          payload: { state: "ready", reason: "OpenRouter turn completed" },
+          payload: { state: "ready", reason: `${config.providerLabel} turn completed` },
         });
       }).pipe(
         Effect.catch((error: ProviderAdapterRequestError) =>
@@ -181,7 +224,10 @@ export const makeOpenRouterAdapter = (config: {
               provider: PROVIDER,
               threadId: state.session.threadId,
               turnId,
-              payload: { message: errorDetail(error), class: "provider_error" },
+              payload: {
+                message: errorDetail(error, config.providerLabel),
+                class: "provider_error",
+              },
             });
             yield* publish({
               type: "turn.completed",
@@ -189,14 +235,17 @@ export const makeOpenRouterAdapter = (config: {
               provider: PROVIDER,
               threadId: state.session.threadId,
               turnId,
-              payload: { state: "failed", errorMessage: errorDetail(error) },
+              payload: {
+                state: "failed",
+                errorMessage: errorDetail(error, config.providerLabel),
+              },
             });
             yield* publish({
               type: "session.state.changed",
               ...stamp(now),
               provider: PROVIDER,
               threadId: state.session.threadId,
-              payload: { state: "ready", reason: "OpenRouter turn failed" },
+              payload: { state: "ready", reason: `${config.providerLabel} turn failed` },
             });
           }),
         ),
@@ -238,7 +287,7 @@ export const makeOpenRouterAdapter = (config: {
             provider: PROVIDER,
             providerInstanceId: input.providerInstanceId,
             threadId: input.threadId,
-            payload: { state: "ready", reason: "OpenRouter session ready" },
+            payload: { state: "ready", reason: `${config.providerLabel} session ready` },
           });
           yield* publish({
             type: "thread.started",
@@ -263,16 +312,16 @@ export const makeOpenRouterAdapter = (config: {
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "sendTurn",
-              issue: "OpenRouter requires text input.",
+              issue: `${config.providerLabel} requires text input.`,
             });
           if ((input.attachments?.length ?? 0) > 0)
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "sendTurn",
-              issue: "The direct OpenRouter driver currently accepts text turns only.",
+              issue: `The direct ${config.providerLabel} driver currently accepts text turns only.`,
             });
           const now = DateTime.formatIso(yield* DateTime.now);
-          const turnId = TurnId.make(`openrouter-turn-${sequence++}`);
+          const turnId = TurnId.make(`${config.idPrefix}-turn-${sequence++}`);
           state.messages.push({ role: "user", content: input.input });
           const model = input.modelSelection?.model ?? state.session.model ?? config.defaultModel;
           state.session = {
@@ -291,7 +340,7 @@ export const makeOpenRouterAdapter = (config: {
             turnId,
             payload: { model },
           });
-          const itemId = RuntimeItemId.make(`openrouter-item-${turnId}`);
+          const itemId = RuntimeItemId.make(`${config.idPrefix}-item-${turnId}`);
           yield* publish({
             type: "item.started",
             ...stamp(now),
@@ -344,7 +393,7 @@ export const makeOpenRouterAdapter = (config: {
           new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "respondToRequest",
-            detail: "OpenRouter does not expose approval requests.",
+            detail: `${config.providerLabel} does not expose approval requests.`,
           }),
         ),
       respondToUserInput: (
@@ -356,7 +405,7 @@ export const makeOpenRouterAdapter = (config: {
           new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "respondToUserInput",
-            detail: "OpenRouter does not expose user-input requests.",
+            detail: `${config.providerLabel} does not expose user-input requests.`,
           }),
         ),
       stopSession: (threadId) =>
@@ -391,7 +440,7 @@ export const makeOpenRouterAdapter = (config: {
         const turns: Array<ProviderThreadTurnSnapshot> = [];
         for (let index = 0; index < state.messages.length; index += 2) {
           turns.push({
-            id: TurnId.make(`openrouter-history-${index}`),
+            id: TurnId.make(`${config.idPrefix}-history-${index}`),
             items: state.messages.slice(index, index + 2),
           });
         }
@@ -415,4 +464,19 @@ export const makeOpenRouterAdapter = (config: {
       streamEvents: Stream.fromPubSub(events),
     };
     return adapter;
+  });
+
+export const makeOpenRouterAdapter = (config: {
+  readonly httpClient: HttpClient.HttpClient;
+  readonly baseUrl: string;
+  readonly apiKey: string;
+  readonly defaultModel: string;
+  readonly instanceId: string;
+}) =>
+  makeOpenAICompatibleAdapter({
+    ...config,
+    provider: ProviderDriverKind.make("openrouter"),
+    providerLabel: "OpenRouter",
+    idPrefix: "openrouter",
+    streamCompletion: (input) => streamOpenRouterCompletion(input),
   });

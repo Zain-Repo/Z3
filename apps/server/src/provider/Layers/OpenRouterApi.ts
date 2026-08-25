@@ -20,6 +20,7 @@ export interface OpenRouterCompletionChunk {
   readonly done: boolean;
   readonly model?: string;
   readonly usage?: unknown;
+  readonly annotations?: ReadonlyArray<unknown>;
 }
 
 export class OpenRouterApiError extends Error {
@@ -127,12 +128,18 @@ function parseOpenRouterCompletionSseLine(line: string): OpenRouterCompletionChu
       : undefined;
   const content = delta && Predicate.isString(delta.content) ? delta.content : "";
   const model = stringValue(payload.model);
+  const annotationsValue =
+    (delta && delta.annotations) ??
+    (Predicate.isObject(firstChoice) ? firstChoice.annotations : undefined) ??
+    payload.annotations;
+  const annotations = Array.isArray(annotationsValue) ? annotationsValue : undefined;
 
   return {
     delta: content,
     done: false,
     ...(model !== undefined ? { model } : {}),
     ...(payload.usage !== undefined ? { usage: payload.usage } : {}),
+    ...(annotations !== undefined ? { annotations } : {}),
   };
 }
 
@@ -159,6 +166,9 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
             stream: true,
             stream_options: { include_usage: true },
             store: false,
+            // OpenRouter selects native search or its managed fallback for the model.
+            tools: [{ type: "openrouter:web_search" }],
+            max_tool_calls: 5,
           }),
         ),
       )

@@ -17,6 +17,14 @@ orchestration layer does not know which one is behind a thread.
 | `droid`       | [`Drivers/DroidDriver.ts`][droid]           |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]             |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode]     |
+| Driver kind   | Driver source                           |
+| ------------- | --------------------------------------- |
+| `codex`       | [`Drivers/CodexDriver.ts`][codex]       |
+| `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]     |
+| `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
+| `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
+| `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
+| `deepseek`    | [`Drivers/DeepSeekDriver.ts`][deepseek] |
 | `openrouter`  | [`Drivers/OpenRouterDriver.ts`][openrouter] |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
@@ -39,9 +47,9 @@ Two registries separate configuration from live processes:
 directory to route session and turn operations for a thread, so callers name a thread, not an agent.
 
 Adding a CLI or ACP driver means writing the driver plus adapter and adding it to
-`BUILT_IN_DRIVERS`. OpenRouter is the first direct HTTP driver: its adapter translates the
-OpenAI-compatible chat endpoint into canonical runtime events, while its snapshot probes `/models`.
-Direct drivers also need a contract settings schema and client catalog entry.
+`BUILT_IN_DRIVERS`. DeepSeek and OpenRouter are direct HTTP drivers: their adapters translate
+OpenAI-compatible chat endpoints into canonical runtime events, while their snapshots probe
+`/models`. Direct drivers also need a contract settings schema and client catalog entry.
 
 ## How provider work is requested
 
@@ -86,6 +94,7 @@ when a request opens (approval) or user input is requested, via
 [droid]: ../../apps/server/src/provider/Drivers/DroidDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
+[deepseek]: ../../apps/server/src/provider/Drivers/DeepSeekDriver.ts
 [openrouter]: ../../apps/server/src/provider/Drivers/OpenRouterDriver.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts

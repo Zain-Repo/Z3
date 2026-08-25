@@ -63,6 +63,10 @@ export function attachmentRelativePath(attachment: ChatAttachment): string {
       });
       return `${attachment.id}${extension}`;
     }
+    case "file":
+      // User-controlled names and extensions never participate in storage paths.
+      // The original name is retained only in validated attachment metadata.
+      return `${attachment.id}.bin`;
   }
 }
 

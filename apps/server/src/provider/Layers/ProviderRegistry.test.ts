@@ -1807,6 +1807,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 "codex",
                 "cursor",
                 "droid",
+                "deepseek",
                 "grok",
                 "opencode",
                 "openrouter",

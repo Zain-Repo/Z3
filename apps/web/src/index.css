@@ -1670,3 +1670,67 @@ label:has(> select#reasoning-effort) select {
   opacity: 0.3;
   pointer-events: none;
 }
+
+/* Built-in palettes are applied by the theme hook through these semantic
+   variables. Keep the bridge in CSS so every existing component inherits the
+   selected palette without a component-by-component theme branch. */
+html[data-theme-id] {
+  --background: var(--app-theme-canvas);
+  --foreground: var(--app-theme-text);
+  --card: var(--app-theme-surface);
+  --card-foreground: var(--app-theme-text);
+  --surface-raised: var(--app-theme-surface-raised);
+  --popover: var(--app-theme-surface-raised);
+  --popover-foreground: var(--app-theme-text);
+  --border: var(--app-theme-border);
+  --input: var(--app-theme-input);
+  --ring: var(--app-theme-accent);
+  --primary: var(--app-theme-accent);
+  --primary-foreground: var(--app-theme-accent-foreground);
+  --secondary: var(--app-theme-secondary);
+  --secondary-foreground: var(--app-theme-secondary-foreground);
+  --muted: var(--app-theme-muted);
+  --muted-foreground: var(--app-theme-muted-foreground);
+  --accent: var(--app-theme-secondary);
+  --accent-foreground: var(--app-theme-secondary-foreground);
+  --sidebar: var(--app-theme-sidebar);
+  --sidebar-foreground: var(--app-theme-sidebar-foreground);
+  --sidebar-muted-foreground: var(--app-theme-muted-foreground);
+  --sidebar-control-surface: var(--app-theme-secondary);
+  --sidebar-row-hover: var(--app-theme-surface-raised);
+  --sidebar-row-active: var(--app-theme-surface-raised);
+  --sidebar-row-selected: var(--app-theme-surface-raised);
+  --sidebar-border: var(--app-theme-border);
+  --app-chrome-background: var(--app-theme-canvas);
+}
+
+html[data-theme-id] .chat-markdown pre,
+html[data-theme-id] .chat-markdown .chat-markdown-codeblock {
+  background-color: var(--app-theme-code-background);
+  color: var(--app-theme-code-foreground);
+}
+
+/* Sidebar version scopes define their own shadcn tokens. Rebind them here so
+   the legacy and v2 navigation implementations cannot fall back to neutral
+   zinc values when a palette is active. */
+html[data-theme-id] [data-sidebar-version="v1"],
+html[data-theme-id] [data-sidebar-version="v2"] {
+  --background: var(--app-theme-sidebar);
+  --foreground: var(--app-theme-sidebar-foreground);
+  --card: var(--app-theme-sidebar);
+  --card-foreground: var(--app-theme-sidebar-foreground);
+  --muted: var(--app-theme-muted);
+  --muted-foreground: var(--app-theme-muted-foreground);
+  --accent: var(--app-theme-secondary);
+  --accent-foreground: var(--app-theme-secondary-foreground);
+  --border: var(--app-theme-border);
+  --input: var(--app-theme-input);
+  --sidebar: var(--app-theme-sidebar);
+  --sidebar-foreground: var(--app-theme-sidebar-foreground);
+  --sidebar-muted-foreground: var(--app-theme-muted-foreground);
+  --sidebar-control-surface: var(--app-theme-secondary);
+  --sidebar-row-hover: var(--app-theme-surface-raised);
+  --sidebar-row-active: var(--app-theme-surface-raised);
+  --sidebar-row-selected: var(--app-theme-surface-raised);
+  --sidebar-border: var(--app-theme-border);
+}
