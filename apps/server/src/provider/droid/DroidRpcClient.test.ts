@@ -45,7 +45,7 @@ const withCapturedLogs = <A, E, R>(logs: CapturedLog[], effect: Effect.Effect<A,
   return effect.pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
 };
 
-const within = <A>(effect: Effect.Effect<A>, message: string | (() => string)) =>
+const within = <A, E, R>(effect: Effect.Effect<A, E, R>, message: string | (() => string)) =>
   effect.pipe(
     Effect.timeoutOption("5 seconds"),
     Effect.flatMap(
@@ -694,7 +694,7 @@ it.effect("preserves terminal notifications when tool progress delivery is satur
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), TestClock.withLive),
 );
 
-it.effect("backpressures text deltas without terminating the transport", () =>
+it.effect("buffers lossless text deltas without blocking transport responses", () =>
   Effect.gen(function* () {
     const script = `
       process.stdin.setEncoding("utf8");
@@ -725,7 +725,7 @@ it.effect("backpressures text deltas without terminating the transport", () =>
               jsonrpc: "2.0",
               type: "response",
               id: request.id,
-              result: { queueSaturated: true }
+              result: { notificationsBuffered: true }
             };
             process.stdout.write(
               [...notifications, response].map((message) => JSON.stringify(message)).join("\\n") + "\\n"
@@ -747,17 +747,15 @@ it.effect("backpressures text deltas without terminating the transport", () =>
       args: ["-e", script],
     });
 
-    const saturated = yield* Effect.result(
-      client.request("droid.list_models", {}, { timeoutMs: 50 }),
+    const buffered = yield* within(
+      client.request("droid.list_models", {}),
+      "buffered text deltas blocked the RPC response",
     );
-    assert.equal(saturated._tag, "Failure");
-    if (saturated._tag === "Failure") {
-      assert.equal(saturated.failure.kind, "timeout");
-    }
+    assert.deepStrictEqual(buffered, { notificationsBuffered: true });
 
     const notifications = yield* within(
       Stream.runCollect(client.notifications.pipe(Stream.take(65))),
-      "backpressured text deltas were not delivered",
+      "buffered text deltas were not delivered",
     );
     assert.equal(notifications.length, 65);
     assert.isTrue(
@@ -766,14 +764,17 @@ it.effect("backpressures text deltas without terminating the transport", () =>
       ),
     );
 
-    const result = yield* client.request("droid.list_models", {}, { timeoutMs: 500 });
+    const result = yield* within(
+      client.request("droid.list_models", {}),
+      "transport stopped responding after buffered text deltas",
+    );
     assert.deepStrictEqual(result, { transportAlive: true });
 
     yield* within(client.shutdown, "client shutdown did not complete");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), TestClock.withLive),
 );
 
-it.effect("backpressures server-request delivery without terminating the transport", () =>
+it.effect("buffers server requests without blocking transport responses", () =>
   Effect.gen(function* () {
     const script = `
       process.stdin.setEncoding("utf8");
@@ -807,7 +808,7 @@ it.effect("backpressures server-request delivery without terminating the transpo
               jsonrpc: "2.0",
               type: "response",
               id: request.id,
-              result: { queueSaturated: true }
+              result: { serverRequestsBuffered: true }
             };
             process.stdout.write(
               [...serverRequests, response].map((message) => JSON.stringify(message)).join("\\n") + "\\n"
@@ -829,22 +830,23 @@ it.effect("backpressures server-request delivery without terminating the transpo
       args: ["-e", script],
     });
 
-    const saturated = yield* Effect.result(
-      client.request("droid.list_models", {}, { timeoutMs: 50 }),
+    const buffered = yield* within(
+      client.request("droid.list_models", {}),
+      "buffered server requests blocked the RPC response",
     );
-    assert.equal(saturated._tag, "Failure");
-    if (saturated._tag === "Failure") {
-      assert.equal(saturated.failure.kind, "timeout");
-    }
+    assert.deepStrictEqual(buffered, { serverRequestsBuffered: true });
 
     const serverRequests = yield* within(
       Stream.runCollect(client.serverRequests.pipe(Stream.take(17))),
-      "backpressured server requests were not delivered",
+      "buffered server requests were not delivered",
     );
     assert.equal(serverRequests.length, 17);
     assert.isTrue(serverRequests.every((request) => request.method === "droid.ask_user"));
 
-    const result = yield* client.request("droid.list_models", {}, { timeoutMs: 500 });
+    const result = yield* within(
+      client.request("droid.list_models", {}),
+      "transport stopped responding after buffered server requests",
+    );
     assert.deepStrictEqual(result, { transportAlive: true });
 
     yield* within(client.shutdown, "client shutdown did not complete");
