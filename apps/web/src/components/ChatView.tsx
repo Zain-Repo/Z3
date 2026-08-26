@@ -5930,6 +5930,18 @@ function ChatViewContent(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            onOpenChanges={() => {
+              if (activeThreadRef) {
+                useDiffPanelStore.getState().selectGitScope(activeThreadRef, "unstaged");
+              }
+              onToggleDiff();
+            }}
+            onCompareBranch={() => {
+              if (activeThreadRef) {
+                useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
+              }
+              onToggleDiff();
+            }}
           />
         </header>
 
@@ -6078,7 +6090,7 @@ function ChatViewContent(props: ChatViewProps) {
                         showComposerContextStrip && "chat-composer-glass-shell-with-context",
                       )}
                     >
-                      <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
+                      <div className="chat-composer-glass-host relative z-10 w-full rounded-2xl">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
                             variant={isChatSurface ? "chat" : "code"}

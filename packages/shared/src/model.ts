@@ -19,9 +19,26 @@ export interface SelectableModelOption {
 
 export function createModelCapabilities(input: {
   optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
+  toolCalling?: ModelCapabilities["toolCalling"];
+  reasoning?: ModelCapabilities["reasoning"];
+  inputModalities?: ReadonlyArray<string>;
+  outputModalities?: ReadonlyArray<string>;
+  imageGeneration?: ModelCapabilities["imageGeneration"];
 }): ModelCapabilities {
   return {
     optionDescriptors: input.optionDescriptors.map(cloneDescriptor),
+    ...(input.toolCalling ? { toolCalling: { ...input.toolCalling } } : {}),
+    ...(input.reasoning ? { reasoning: { ...input.reasoning } } : {}),
+    ...(input.inputModalities ? { inputModalities: [...input.inputModalities] } : {}),
+    ...(input.outputModalities ? { outputModalities: [...input.outputModalities] } : {}),
+    ...(input.imageGeneration
+      ? {
+          imageGeneration: {
+            supportedParameters: [...input.imageGeneration.supportedParameters],
+            supportsStreaming: input.imageGeneration.supportsStreaming,
+          },
+        }
+      : {}),
   };
 }
 

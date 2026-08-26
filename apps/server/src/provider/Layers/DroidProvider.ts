@@ -267,6 +267,7 @@ const droidCliCommandMissingMessage = (droidSettings: DroidSettings) => {
   return [
     `Droid CLI command \`${command}\` was not found.`,
     `Install the Droid CLI, make sure \`${command}\` is on PATH, then restart T3 Code.`,
+    "Install it with: npm install -g @factory/cli.",
     "See https://docs.factory.ai/cli/getting-started/quickstart.",
   ].join(" ");
 };

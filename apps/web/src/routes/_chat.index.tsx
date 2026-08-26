@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { openCommandPalette } from "../commandPaletteBus";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
+import { ImageWorkspacePage } from "../components/ImageWorkspacePage";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -30,6 +31,10 @@ function ChatIndexRouteView() {
 
   if (authGateState.status === "hosted-static" && environments.length === 0) {
     return <HostedStaticOnboardingState />;
+  }
+
+  if (activeWorkspace.id === "image") {
+    return <ImageWorkspacePage />;
   }
 
   if (isElectron && activeWorkspace.id === "chat") {

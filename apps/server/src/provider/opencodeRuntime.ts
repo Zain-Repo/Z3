@@ -390,10 +390,15 @@ export function buildOpenCodePermissionRules(runtimeMode: RuntimeMode): Permissi
     return [{ permission: "*", pattern: "*", action: "allow" }];
   }
 
+  // Auto-accept edits approves only edits. OpenCode has no AI reviewer for the
+  // broader automatic mode, so that mode intentionally retains supervised
+  // prompts for every permission.
+  const editAction = runtimeMode === "auto-accept-edits" ? "allow" : "ask";
+
   return [
     { permission: "*", pattern: "*", action: "ask" },
     { permission: "bash", pattern: "*", action: "ask" },
-    { permission: "edit", pattern: "*", action: "ask" },
+    { permission: "edit", pattern: "*", action: editAction },
     { permission: "webfetch", pattern: "*", action: "ask" },
     { permission: "websearch", pattern: "*", action: "ask" },
     { permission: "codesearch", pattern: "*", action: "ask" },

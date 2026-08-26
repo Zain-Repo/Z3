@@ -211,6 +211,17 @@ export const GrokIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+export const ClineIcon: Icon = ({ className, ...props }) => (
+  <svg
+    {...props}
+    viewBox="0 0 24 24"
+    fill="none"
+    className={cn("fill-[#0F0F0F] dark:fill-[#F5F5F5]", className)}
+  >
+    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+  </svg>
+);
+
 export const DroidIcon: Icon = ({ className, ...props }) => (
   <svg
     {...props}

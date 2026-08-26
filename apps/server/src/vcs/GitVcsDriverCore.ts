@@ -1970,6 +1970,48 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.orElseSucceed(() => null),
     );
     if (currentUpstream) {
+      // A branch created from a differently named tracking ref treats that ref
+      // as its merge base, not as the destination for future feature commits.
+      // Bare `git push` rejects this under push.default=simple; mirror that safe
+      // behavior instead of updating the shared base branch.
+      const isAliasOfUpstreamHead =
+        branch === currentUpstream.branchName ||
+        (branch.endsWith(`/${currentUpstream.branchName}`) &&
+          currentUpstream.upstreamRef.endsWith(`/${branch}`));
+      if (!isAliasOfUpstreamHead) {
+        const publishRemoteName = yield* resolvePushRemoteName(cwd, branch).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        const remoteName = publishRemoteName ?? currentUpstream.remoteName;
+        const publishBranch = yield* resolvePublishBranchName(cwd, branch);
+        // Retargeting the upstream would otherwise lose the branch's base.
+        const configuredMergeBase = yield* runGitStdout(
+          "GitVcsDriver.pushCurrentBranch.readMergeBase",
+          cwd,
+          ["config", "--get", `branch.${branch}.gh-merge-base`],
+          true,
+        ).pipe(Effect.map((stdout) => stdout.trim()));
+        if (configuredMergeBase.length === 0) {
+          yield* runGit("GitVcsDriver.pushCurrentBranch.recordMergeBase", cwd, [
+            "config",
+            `branch.${branch}.gh-merge-base`,
+            currentUpstream.branchName,
+          ]);
+        }
+        yield* runGit("GitVcsDriver.pushCurrentBranch.pushOwnBranch", cwd, [
+          "push",
+          "-u",
+          remoteName,
+          `HEAD:refs/heads/${publishBranch}`,
+        ]);
+        return {
+          status: "pushed" as const,
+          branch,
+          upstreamBranch: `${remoteName}/${publishBranch}`,
+          setUpstream: true,
+        };
+      }
+
       yield* runGit("GitVcsDriver.pushCurrentBranch.pushUpstream", cwd, [
         "push",
         currentUpstream.remoteName,
@@ -2591,6 +2633,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       fallbackErrorDetail: "git worktree add failed",
     });
 
+    // Worktree creation leaves submodules empty. Populate them best-effort so
+    // submodule-backed source and agent tooling are available without making an
+    // unreachable private submodule fail the enclosing thread creation.
+    const hasSubmodules = yield* fileSystem
+      .exists(path.join(worktreePath, ".gitmodules"))
+      .pipe(Effect.orElseSucceed(() => false));
+    if (hasSubmodules) {
+      yield* runGit("GitVcsDriver.createWorktree.updateSubmodules", worktreePath, [
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+      ]).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("worktree submodule checkout failed; submodule paths are empty", {
+            worktreePath,
+            cause,
+          }),
+        ),
+      );
+    }
+
     if (input.newRefName && input.baseRefName) {
       const remoteNames = yield* listRemoteNames(input.cwd).pipe(Effect.orElseSucceed(() => []));
       const parsedBaseRef = parseRemoteRefWithRemoteNames(
@@ -2910,6 +2974,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       withListRefsInvalidation(input.cwd, fetchPullRequestBranch(input)),
     ensureRemote: (input) => withListRefsInvalidation(input.cwd, ensureRemote(input)),
     resolvePrimaryRemoteName,
+    resolveDefaultBranchName,
     fetchRemote: (input) => withListRefsInvalidation(input.cwd, fetchRemote(input)),
     resolveRemoteTrackingCommit,
     fetchRemoteBranch: (input) => withListRefsInvalidation(input.cwd, fetchRemoteBranch(input)),

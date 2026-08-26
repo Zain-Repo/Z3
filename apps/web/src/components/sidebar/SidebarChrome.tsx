@@ -83,7 +83,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           </Badge>
         ) : null}
       </SidebarHeader>
-      <WorkspaceContextRail />
+      {activeWorkspace.id === "chat" ? <WorkspaceContextRail /> : null}
     </>
   );
 });

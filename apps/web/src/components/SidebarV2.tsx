@@ -23,6 +23,7 @@ import {
   CircleDashedIcon,
   ClockIcon,
   CopyIcon,
+  Columns3Icon,
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
@@ -48,7 +49,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { useParams, useRouter } from "@tanstack/react-router";
+import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -158,7 +159,14 @@ import {
 import { Input } from "./ui/input";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
-import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -1179,6 +1187,7 @@ export default function SidebarV2() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells().filter(isProjectThread);
   const router = useRouter();
+  const pathname = useLocation({ select: (location) => location.pathname });
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
@@ -2771,6 +2780,21 @@ export default function SidebarV2() {
           </SidebarGroup>
         }
       >
+        <SidebarGroup className="px-[var(--sidebar-content-inset)] pb-2 pt-2">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                isActive={pathname === "/kanban"}
+                onClick={() => void router.navigate({ to: "/kanban" })}
+              >
+                <Columns3Icon />
+                <span>Kanban</span>
+                <span className="ml-auto text-[10px] font-normal text-sidebar-muted-foreground/55">Preview</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
         <SidebarGroup className="ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0">
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (

@@ -816,8 +816,22 @@ export default function ChatWorkspaceSidebar() {
           )}
         </SidebarGroup>
         <SidebarGroup className="gap-2 px-[var(--sidebar-content-inset)] py-3">
-          <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-muted-foreground/70">
-            Recent chats
+          <div className="flex items-center justify-between px-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-muted-foreground/70">
+              Recent chats
+            </div>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="size-6"
+              aria-label="New chat"
+              onClick={() => void handleNewChat()}
+              disabled={availableEnvironmentId === null}
+              title={availableEnvironmentId === null ? "Connect an environment first" : "New chat"}
+            >
+              <PlusIcon className="size-3.5" />
+            </Button>
           </div>
           <SidebarMenu className="gap-0.5">{renderThreadRows(unassignedRecentThreads)}</SidebarMenu>
           {unassignedRecentThreads.length === 0 && visiblePinnedThreads.length === 0 ? (

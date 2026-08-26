@@ -11,11 +11,11 @@ describe("workspace definitions", () => {
     expect(WORKSPACE_DEFINITIONS.map((workspace) => workspace.label)).toEqual([
       "Z3Code",
       "Z3Chat",
-      "Z3Image",
+      "ZImage",
     ]);
   });
 
-  it("keeps Z3Image disabled until its workspace is ready", () => {
-    expect(getWorkspaceDefinition("image").disabled).toBe(true);
+  it("keeps ZImage available for image generation", () => {
+    expect(getWorkspaceDefinition("image").disabled).toBeUndefined();
   });
 });

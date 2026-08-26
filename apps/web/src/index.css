@@ -430,7 +430,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     position: absolute;
     z-index: 0;
     inset: 0;
-    border-radius: 22px;
+    border-radius: 16px;
     background: color-mix(
       in srgb,
       var(--chat-composer-glass-surface) var(--glass-opacity),
@@ -448,28 +448,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   .chat-composer-glass-shell-with-context::before {
     border-radius: 0;
     /*
-     * One continuous glass layer: a 22px composer joined to a 16px strip,
+     * One continuous glass layer: a 16px composer joined to a 16px strip,
      * whose visible sides align with the composer's bottom tangents.
      */
     clip-path: shape(
-      from 0 22px,
-      curve to 22px 0 with 0 9.85px / 9.85px 0,
-      line to calc(100% - 22px) 0,
-      curve to 100% 22px with calc(100% - 9.85px) 0 / 100% 9.85px,
-      line to 100% calc(100% - var(--chat-composer-context-extension) - 22px),
-      curve to calc(100% - 22px) calc(100% - var(--chat-composer-context-extension)) with 100%
-        calc(100% - var(--chat-composer-context-extension) - 9.85px) / calc(100% - 9.85px)
+      from 0 16px,
+      curve to 16px 0 with 0 7.2px / 7.2px 0,
+      line to calc(100% - 16px) 0,
+      curve to 100% 16px with calc(100% - 7.2px) 0 / 100% 7.2px,
+      line to 100% calc(100% - var(--chat-composer-context-extension) - 16px),
+      curve to calc(100% - 16px) calc(100% - var(--chat-composer-context-extension)) with 100%
+        calc(100% - var(--chat-composer-context-extension) - 7.2px) / calc(100% - 7.2px)
         calc(100% - var(--chat-composer-context-extension)),
-      line to calc(100% - 22px) calc(100% - 16px),
-      curve to calc(100% - 38px) 100% with calc(100% - 22px) calc(100% - 7.16px) /
-        calc(100% - 29.16px) 100%,
-      line to 38px 100%,
-      curve to 22px calc(100% - 16px) with 29.16px 100% / 22px calc(100% - 7.16px),
-      line to 22px calc(100% - var(--chat-composer-context-extension)),
-      curve to 0 calc(100% - var(--chat-composer-context-extension) - 22px) with 9.85px
+      line to calc(100% - 16px) calc(100% - 16px),
+      curve to calc(100% - 32px) 100% with calc(100% - 16px) calc(100% - 5.16px) /
+        calc(100% - 26.16px) 100%,
+      line to 32px 100%,
+      curve to 16px calc(100% - 16px) with 26.16px 100% / 16px calc(100% - 5.16px),
+      line to 16px calc(100% - var(--chat-composer-context-extension)),
+      curve to 0 calc(100% - var(--chat-composer-context-extension) - 16px) with 7.2px
         calc(100% - var(--chat-composer-context-extension)) / 0
-        calc(100% - var(--chat-composer-context-extension) - 9.85px),
-      line to 0 22px,
+        calc(100% - var(--chat-composer-context-extension) - 7.2px),
+      line to 0 16px,
       close
     );
   }
@@ -502,10 +502,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       0 0,
       100% 0,
       100% 100%,
-      calc(100% - 22px) 100%,
-      calc(100% - 22px) calc(100% - 2px),
-      22px calc(100% - 2px),
-      22px 100%,
+      calc(100% - 16px) 100%,
+      calc(100% - 16px) calc(100% - 2px),
+      16px calc(100% - 2px),
+      16px 100%,
       0 100%
     );
   }
@@ -521,7 +521,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     inset: 0;
     border: 1px solid var(--chat-composer-outline);
     border-radius: 0 0 16px 16px;
-    /* Start the strip outline exactly where the composer's 22px curve reaches its tangent. */
+    /* Start the strip outline exactly where the composer's 16px curve reaches its tangent. */
     -webkit-mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
     mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
     box-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
@@ -558,7 +558,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   @supports not (clip-path: shape(from 0 0, line to 1px 1px)) {
     .chat-composer-glass-shell-with-context::before {
       inset-block-end: var(--chat-composer-context-extension);
-      border-radius: 22px;
+      border-radius: 16px;
       clip-path: none;
     }
 

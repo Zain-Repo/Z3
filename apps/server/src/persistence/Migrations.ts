@@ -51,6 +51,8 @@ import Migration0035 from "./Migrations/035_ProjectionThreadTitleRegeneration.ts
 import Migration0036 from "./Migrations/036_ProjectionThreadScope.ts";
 import Migration0037 from "./Migrations/037_ProjectionChatProjects.ts";
 import Migration0038 from "./Migrations/038_ProviderSessionRuntimeLease.ts";
+import Migration0039 from "./Migrations/039_ProjectionImageGenerations.ts";
+import Migration0040 from "./Migrations/040_ProjectionVideoGenerations.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -101,6 +103,8 @@ export const migrationEntries = [
   [36, "ProjectionThreadScope", Migration0036],
   [37, "ProjectionChatProjects", Migration0037],
   [38, "ProviderSessionRuntimeLease", Migration0038],
+  [39, "ProjectionImageGenerations", Migration0039],
+  [40, "ProjectionVideoGenerations", Migration0040],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

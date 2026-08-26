@@ -21,6 +21,7 @@ export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
+  threadPinnedById?: Record<string, boolean>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
@@ -37,6 +38,7 @@ export interface UiProjectState {
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
+  threadPinnedById: Record<string, boolean>;
 }
 
 export interface UiEndpointState {
@@ -50,6 +52,7 @@ const initialState: UiState = {
   projectOrder: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
+  threadPinnedById: {},
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -126,6 +129,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectExpandedById,
     projectOrder,
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
+    threadPinnedById: sanitizeBooleanRecord(parsed.threadPinnedById),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
@@ -204,6 +208,7 @@ export function persistState(state: UiState): void {
         projectExpandedById,
         projectOrder: state.projectOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
+        threadPinnedById: state.threadPinnedById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
@@ -290,6 +295,23 @@ export function setThreadChangedFilesExpanded(
         [turnId]: expanded,
       },
     },
+  };
+}
+
+/** Toggle a thread's pinned flag in the persisted sidebar UI state.
+    Pin membership is keyed by the same scoped thread key the sidebar uses
+    across the rest of the UI (environment + thread id), so a thread keeps
+    its pin regardless of renames or ordering changes. */
+export function toggleThreadPinned(state: UiState, threadKey: string): UiState {
+  const nextPinnedById = { ...state.threadPinnedById };
+  if (nextPinnedById[threadKey]) {
+    delete nextPinnedById[threadKey];
+  } else {
+    nextPinnedById[threadKey] = true;
+  }
+  return {
+    ...state,
+    threadPinnedById: nextPinnedById,
   };
 }
 
@@ -385,6 +407,7 @@ interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
+  toggleThreadPinned: (threadKey: string) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -402,6 +425,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
+  toggleThreadPinned: (threadKey) => set((state) => toggleThreadPinned(state, threadKey)),
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setProjectExpanded: (projectIds, expanded) =>

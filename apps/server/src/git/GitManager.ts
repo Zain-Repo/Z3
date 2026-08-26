@@ -1358,6 +1358,17 @@ export const make = Effect.gen(function* () {
       return defaultFromProvider;
     }
 
+    // Provider discovery can fail independently of Git. Prefer the remote's
+    // recorded HEAD before assuming a branch name so master-based repositories
+    // still generate pull-request content from a valid range.
+    const defaultFromRemote = yield* gitCore.resolvePrimaryRemoteName(cwd).pipe(
+      Effect.flatMap((remoteName) => gitCore.resolveDefaultBranchName(cwd, remoteName)),
+      Effect.orElseSucceed(() => null),
+    );
+    if (defaultFromRemote) {
+      return defaultFromRemote;
+    }
+
     return "main";
   });
 

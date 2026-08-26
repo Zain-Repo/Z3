@@ -162,7 +162,17 @@ const makeBinaryPathSetting = (fallback: string) =>
     Schema.withDecodingDefault(Effect.succeed(fallback)),
   );
 
-export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch";
+export type ProviderSettingsFormControl =
+  | "text"
+  | "password"
+  | "textarea"
+  | "switch"
+  | "select";
+
+export interface ProviderSettingsFormSelectOption {
+  readonly value: string;
+  readonly label: string;
+}
 
 export interface ProviderSettingsFormAnnotation {
   readonly control?: ProviderSettingsFormControl | undefined;
@@ -171,6 +181,8 @@ export interface ProviderSettingsFormAnnotation {
   readonly clearWhenEmpty?: "omit" | "persist" | undefined;
   /** Store this field in the provider instance's protected environment. */
   readonly environmentVariable?: string | undefined;
+  /** Options for a `select` control. */
+  readonly options?: ReadonlyArray<ProviderSettingsFormSelectOption> | undefined;
 }
 
 export interface ProviderSettingsFormSchemaAnnotation {
@@ -383,6 +395,70 @@ export const GrokSettings = makeProviderSettingsSchema(
   },
 );
 export type GrokSettings = typeof GrokSettings.Type;
+
+export const ClineAuthMethod = Schema.Literals(["cline", "cline-pass", "openai-codex"]);
+export type ClineAuthMethod = typeof ClineAuthMethod.Type;
+
+export const ClineSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("cline").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the Cline CLI binary.",
+        providerSettingsForm: { placeholder: "cline", clearWhenEmpty: "omit" },
+      }),
+    ),
+    apiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "API key",
+        description:
+          "Optional Cline API key. When set, Cline skips interactive sign-in for ACP sessions.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "sk-...",
+          clearWhenEmpty: "omit",
+          environmentVariable: "CLINE_API_KEY",
+        },
+      }),
+    ),
+    authMethod: ClineAuthMethod.pipe(
+      Schema.withDecodingDefault(Effect.succeed("cline")),
+      Schema.annotateKey({
+        title: "Authentication method",
+        description: "Which Cline sign-in to use when Cline authenticates an ACP session.",
+        providerSettingsForm: {
+          control: "select",
+          options: [
+            { value: "cline", label: "Cline" },
+            { value: "cline-pass", label: "ClinePass" },
+            { value: "openai-codex", label: "ChatGPT Subscription" },
+          ],
+        },
+      }),
+    ),
+    dataDir: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Data directory",
+        description: "Isolated Cline state directory, passed as --data-dir.",
+        providerSettingsForm: { placeholder: "~/.cline", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath", "apiKey", "authMethod", "dataDir"],
+  },
+);
+export type ClineSettings = typeof ClineSettings.Type;
 
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
@@ -653,6 +729,7 @@ export const ServerSettings = Schema.Struct({
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     droid: DroidSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    cline: ClineSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     deepseek: DeepSeekSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     openrouter: OpenRouterSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -757,6 +834,15 @@ const GrokSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const ClineSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  apiKey: Schema.optionalKey(TrimmedString),
+  authMethod: Schema.optionalKey(ClineAuthMethod),
+  dataDir: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const OpenCodeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -819,6 +905,7 @@ export const ServerSettingsPatch = Schema.Struct({
       cursor: Schema.optionalKey(CursorSettingsPatch),
       droid: Schema.optionalKey(DroidSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
+      cline: Schema.optionalKey(ClineSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
       deepseek: Schema.optionalKey(DeepSeekSettingsPatch),
       openrouter: Schema.optionalKey(OpenRouterSettingsPatch),

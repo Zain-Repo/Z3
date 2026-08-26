@@ -4,6 +4,7 @@ import {
   type ProviderInstanceId,
   type ServerProviderModel,
   type ServerProvider,
+  type ModelCapabilities,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
@@ -11,6 +12,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import { fetchOpenRouterModels, OpenRouterApiError, type OpenRouterModel } from "./OpenRouterApi.ts";
 import { buildServerProvider, providerModelsFromSettings, type ServerProviderDraft } from "../providerSnapshot.ts";
+import { createModelCapabilities } from "@t3tools/shared/model";
 
 const DRIVER_KIND = ProviderDriverKind.make("openrouter");
 
@@ -24,9 +26,33 @@ function modelsFromApi(
     name: model.name ?? model.id,
     isCustom: false,
     ...(model.id === defaultModel ? { isDefault: true } : {}),
-    capabilities: null,
+    capabilities: openRouterModelCapabilities(model),
   }));
   return providerModelsFromSettings(builtIn, settings.customModels, {});
+}
+
+export function openRouterModelCapabilities(model: OpenRouterModel): ModelCapabilities | null {
+  const supportedParameters = model.supportedParameters;
+  const hasMetadata =
+    supportedParameters !== undefined ||
+    model.reasoning !== undefined ||
+    model.inputModalities !== undefined ||
+    model.outputModalities !== undefined;
+  if (!hasMetadata) return null;
+  return createModelCapabilities({
+    optionDescriptors: [],
+    ...(supportedParameters !== undefined
+      ? {
+          toolCalling: {
+            tools: supportedParameters.includes("tools"),
+            toolChoice: supportedParameters.includes("tool_choice"),
+          },
+        }
+      : {}),
+    ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
+    ...(model.inputModalities !== undefined ? { inputModalities: model.inputModalities } : {}),
+    ...(model.outputModalities !== undefined ? { outputModalities: model.outputModalities } : {}),
+  });
 }
 
 function fallbackModels(settings: OpenRouterSettings): ReadonlyArray<ServerProviderModel> {

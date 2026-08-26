@@ -3,9 +3,10 @@ import {
   EventId,
   ProviderDriverKind,
   RuntimeItemId,
+  RuntimeRequestId,
   ThreadId,
   TurnId,
-  type ApprovalRequestId,
+  ApprovalRequestId,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
@@ -15,16 +16,24 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import {
+  fetchOpenRouterModels,
   streamOpenRouterCompletion,
   type OpenRouterCompletionChunk,
+  type OpenRouterCompletionMessage,
+  type OpenRouterMessageContentPart,
+  type OpenRouterModel,
   type OpenRouterToolCall,
   type OpenRouterToolDefinition,
+  normalizeOpenRouterImageMimeType,
 } from "./OpenRouterApi.ts";
 import {
   type ProviderAdapterError,
@@ -40,18 +49,13 @@ import type {
   ProviderThreadTurnSnapshot,
 } from "../Services/ProviderAdapter.ts";
 
-type CompatibleCompletionMessage = {
-  readonly role: "user" | "assistant" | "system" | "tool";
-  readonly content: string | null;
-  readonly tool_calls?: ReadonlyArray<OpenRouterToolCall>;
-  readonly tool_call_id?: string;
-  readonly name?: string;
-};
+type CompatibleCompletionMessage = OpenRouterCompletionMessage;
 
 type CompatibleCompletionChunk = {
   readonly delta: string;
   readonly done: boolean;
   readonly reasoningDelta?: string;
+  readonly reasoningDetails?: ReadonlyArray<unknown>;
   readonly model?: string;
   readonly usage?: unknown;
   readonly annotations?: ReadonlyArray<unknown>;
@@ -60,6 +64,7 @@ type CompatibleCompletionChunk = {
 
 export interface OpenRouterToolSupport {
   readonly definitions: ReadonlyArray<OpenRouterToolDefinition>;
+  readonly approvalKind: (name: string) => "none" | "command" | "file-change";
   readonly execute: (input: {
     readonly name: string;
     readonly arguments: unknown;
@@ -113,6 +118,52 @@ export const OPENROUTER_WORKSPACE_TOOL_DEFINITIONS: ReadonlyArray<OpenRouterTool
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "search_files",
+      description: "Search text content in workspace files.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "Text to search for." } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_patch",
+      description: "Apply a strict single-file unified diff to a workspace file.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Workspace-relative file path." },
+          patch: { type: "string", description: "Single-file unified diff." },
+        },
+        required: ["path", "patch"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_command",
+      description: "Run an executable with structured arguments in the workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Executable name or path." },
+          args: { type: "array", items: { type: "string" } },
+          timeoutSeconds: { type: "number", minimum: 1, maximum: 120 },
+        },
+        required: ["command"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 export interface OpenAICompatibleAdapterConfig {
@@ -124,7 +175,20 @@ export interface OpenAICompatibleAdapterConfig {
   readonly provider: ProviderDriverKind;
   readonly providerLabel: string;
   readonly idPrefix: string;
+  readonly attachmentsDisabledReason?: string;
+  readonly fileSystem?: FileSystem.FileSystem;
+  readonly attachmentsDir?: string;
+  /** Some OpenAI-compatible APIs support tools without advertising metadata. */
+  readonly supportsTools?: boolean;
+  /** DeepSeek calls this assistant message field `reasoning_content`. */
+  readonly reasoningMessageField?: "reasoning" | "reasoning_content";
   readonly toolSupport?: OpenRouterToolSupport;
+  readonly getModelCapabilities?: (
+    model: string,
+  ) => Effect.Effect<
+    Pick<OpenRouterModel, "supportedParameters" | "inputModalities"> | undefined,
+    Error
+  >;
   readonly streamCompletion: (input: {
     readonly httpClient: HttpClient.HttpClient;
     readonly baseUrl: string;
@@ -132,12 +196,23 @@ export interface OpenAICompatibleAdapterConfig {
     readonly model: string;
     readonly messages: ReadonlyArray<CompatibleCompletionMessage>;
     readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
+    readonly modelCapabilities?: Pick<OpenRouterModel, "supportedParameters">;
   }) => Effect.Effect<Stream.Stream<CompatibleCompletionChunk, Error>, Error>;
 }
 
 interface CompatibleSessionState {
   session: ProviderSession;
   messages: Array<CompatibleCompletionMessage>;
+  readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
+  readonly sessionAcceptedTools: Set<string>;
+}
+
+interface PendingApproval {
+  readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId;
+  readonly requestType: "file_change_approval" | "command_execution_approval";
+  readonly toolName: string;
 }
 
 const capabilities: ProviderAdapterCapabilities = { sessionModelSwitch: "in-session" };
@@ -145,6 +220,84 @@ const capabilities: ProviderAdapterCapabilities = { sessionModelSwitch: "in-sess
 function errorDetail(error: unknown, providerLabel: string): string {
   return error instanceof Error ? error.message : `${providerLabel} request failed.`;
 }
+
+function toolError(error: unknown): string {
+  return JSON.stringify({ error: error instanceof Error ? error.message : error });
+}
+
+function parseToolArguments(raw: string): { readonly value?: unknown; readonly error?: string } {
+  try {
+    return { value: JSON.parse(raw) as unknown };
+  } catch {
+    return { error: "The model returned malformed JSON tool arguments." };
+  }
+}
+
+const buildOpenRouterUserContent = Effect.fn("buildOpenRouterUserContent")(function* (
+  input: ProviderSendTurnInput,
+  dependencies: {
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly attachmentsDir: string;
+    readonly provider: ProviderDriverKind;
+  },
+) {
+  const content: Array<OpenRouterMessageContentPart> = [];
+  if (input.input) {
+    content.push({ type: "text", text: input.input });
+  }
+
+  for (const attachment of input.attachments ?? []) {
+    if (attachment.type !== "image") {
+      return yield* new ProviderAdapterValidationError({
+        provider: dependencies.provider,
+        operation: "sendTurn",
+        issue: "The direct OpenRouter driver supports image attachments only.",
+      });
+    }
+
+    const attachmentPath = resolveAttachmentPath({
+      attachmentsDir: dependencies.attachmentsDir,
+      attachment,
+    });
+    if (!attachmentPath) {
+      return yield* new ProviderAdapterRequestError({
+        provider: dependencies.provider,
+        method: "sendTurn",
+        detail: `Invalid attachment id '${attachment.id}'.`,
+      });
+    }
+
+    const mimeType = normalizeOpenRouterImageMimeType(attachment.mimeType);
+    if (!mimeType) {
+      return yield* new ProviderAdapterValidationError({
+        provider: dependencies.provider,
+        operation: "sendTurn",
+        issue:
+          "OpenRouter accepts PNG, JPEG, WEBP, and GIF image attachments only. Convert the image and try again.",
+      });
+    }
+
+    const bytes = yield* dependencies.fileSystem.readFile(attachmentPath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterRequestError({
+            provider: dependencies.provider,
+            method: "sendTurn",
+            detail: "Failed to read attachment file.",
+            cause,
+          }),
+      ),
+    );
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
+      },
+    });
+  }
+
+  return content;
+});
 
 export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfig) =>
   Effect.gen(function* () {
@@ -156,6 +309,10 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
     const adapterScope = yield* Effect.scope;
     const sessions = new Map<string, CompatibleSessionState>();
     const turnFibers = new Map<string, Fiber.Fiber<void, never>>();
+    const modelCapabilitiesCache = new Map<
+      string,
+      Pick<OpenRouterModel, "supportedParameters" | "inputModalities"> | null
+    >();
     let sequence = 0;
 
     const stamp = (createdAt: string) => ({
@@ -170,6 +327,94 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
     };
     const missingSession = (threadId: string) =>
       new ProviderAdapterSessionNotFoundError({ provider: config.provider, threadId });
+
+    const resolveModelCapabilities = (model: string) =>
+      Effect.gen(function* () {
+        if (modelCapabilitiesCache.has(model)) {
+          return modelCapabilitiesCache.get(model) ?? undefined;
+        }
+        if (!config.getModelCapabilities) return undefined;
+        const resolved = yield* config
+          .getModelCapabilities(model)
+          .pipe(Effect.orElseSucceed(() => undefined));
+        modelCapabilitiesCache.set(model, resolved ?? null);
+        return resolved;
+      });
+
+    const publishRequestResolved = (
+      state: CompatibleSessionState,
+      requestId: ApprovalRequestId,
+      pending: PendingApproval,
+      decision: ProviderApprovalDecision,
+    ) =>
+      Effect.gen(function* () {
+        const now = DateTime.formatIso(yield* DateTime.now);
+        yield* publish({
+          type: "request.resolved",
+          ...stamp(now),
+          provider: PROVIDER,
+          threadId: state.session.threadId,
+          turnId: pending.turnId,
+          requestId: RuntimeRequestId.make(String(requestId)),
+          payload: {
+            requestType: pending.requestType,
+            decision,
+            resolution: { tool: pending.toolName },
+          },
+        });
+      });
+
+    const cancelPendingApprovals = (state: CompatibleSessionState) =>
+      Effect.forEach(
+        [...state.pendingApprovals.entries()],
+        ([requestId, pending]) =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(pending.decision, "cancel").pipe(Effect.ignore);
+            state.pendingApprovals.delete(requestId);
+            yield* publishRequestResolved(state, requestId, pending, "cancel");
+          }),
+        { discard: true },
+      );
+
+    const requestApproval = (
+      state: CompatibleSessionState,
+      turnId: TurnId,
+      toolName: string,
+      kind: "command" | "file-change",
+      argumentsValue: unknown,
+    ) =>
+      Effect.gen(function* () {
+        const requestId = ApprovalRequestId.make(`${config.idPrefix}-approval-${sequence++}`);
+        const requestType =
+          kind === "command" ? "command_execution_approval" : "file_change_approval";
+        const decision = yield* Deferred.make<ProviderApprovalDecision>();
+        const pending: PendingApproval = {
+          decision,
+          threadId: state.session.threadId,
+          turnId,
+          requestType,
+          toolName,
+        };
+        state.pendingApprovals.set(requestId, pending);
+        const now = DateTime.formatIso(yield* DateTime.now);
+        yield* publish({
+          type: "request.opened",
+          ...stamp(now),
+          provider: PROVIDER,
+          threadId: state.session.threadId,
+          turnId,
+          requestId: RuntimeRequestId.make(String(requestId)),
+          payload: {
+            requestType,
+            supportedDecisions: ["accept", "acceptForSession", "decline", "cancel"],
+            detail: `${config.providerLabel} requests permission to run ${toolName}.`,
+            args: argumentsValue,
+          },
+        });
+        const resolved = yield* Deferred.await(decision);
+        state.pendingApprovals.delete(requestId);
+        return resolved;
+      });
 
     const completeTurn: (
       state: CompatibleSessionState,
@@ -191,7 +436,15 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
           });
         }
         const model = turnInput.modelSelection?.model ?? state.session.model ?? config.defaultModel;
+        const modelCapabilities = yield* resolveModelCapabilities(model);
+        const localTools =
+          config.toolSupport &&
+          (config.supportsTools === true || modelCapabilities?.supportedParameters?.includes("tools"))
+            ? config.toolSupport.definitions
+            : undefined;
         let content = "";
+        let reasoning = "";
+        let reasoningDetails: ReadonlyArray<unknown> | undefined;
         let resolvedModel: string | undefined;
         let usage: unknown;
         let annotations: ReadonlyArray<unknown> | undefined;
@@ -207,7 +460,8 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             model,
             messages: state.messages,
             httpClient: config.httpClient,
-            ...(config.toolSupport ? { tools: config.toolSupport.definitions } : {}),
+            ...(localTools ? { tools: localTools } : {}),
+            ...(modelCapabilities ? { modelCapabilities } : {}),
           })
           .pipe(
             Effect.flatMap((stream) =>
@@ -215,6 +469,7 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
                 Stream.runForEach((chunk) =>
                   Effect.gen(function* () {
                     if (chunk.reasoningDelta && chunk.reasoningDelta.length > 0) {
+                      reasoning += chunk.reasoningDelta;
                       const createdAt = DateTime.formatIso(yield* DateTime.now);
                       yield* publish({
                         type: "content.delta",
@@ -226,6 +481,7 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
                         payload: { streamKind: "reasoning_text", delta: chunk.reasoningDelta },
                       });
                     }
+                    if (chunk.reasoningDetails !== undefined) reasoningDetails = chunk.reasoningDetails;
                     content += chunk.delta;
                     resolvedModel ??= chunk.model;
                     if (chunk.usage !== undefined) usage = chunk.usage;
@@ -289,6 +545,26 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             role: "assistant",
             content: content || null,
             tool_calls: toolCalls,
+            ...(reasoning
+              ? {
+                  [config.reasoningMessageField ?? "reasoning"]: reasoning,
+                }
+              : {}),
+            ...(reasoningDetails ? { reasoning_details: reasoningDetails } : {}),
+          });
+          const assistantCompletedAt = DateTime.formatIso(yield* DateTime.now);
+          yield* publish({
+            type: "item.completed",
+            ...stamp(assistantCompletedAt),
+            provider: PROVIDER,
+            threadId: state.session.threadId,
+            turnId,
+            itemId,
+            payload: {
+              itemType: "assistant_message",
+              status: "completed",
+              data: { content, ...(reasoning ? { reasoning } : {}) },
+            },
           });
           for (const toolCall of toolCalls) {
             const toolItemId = RuntimeItemId.make(`${config.idPrefix}-${toolCall.id}`);
@@ -306,20 +582,34 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
                 data: { name: toolCall.function.name, arguments: toolCall.function.arguments },
               },
             });
-            let toolArguments: unknown;
-            try {
-              toolArguments = JSON.parse(toolCall.function.arguments) as unknown;
-            } catch {
-              toolArguments = {};
-            }
-            const result = config.toolSupport
-              ? yield* config.toolSupport.execute({
+            const parsedArguments = parseToolArguments(toolCall.function.arguments);
+            const toolArguments = parsedArguments.value;
+            const argumentError = parsedArguments.error;
+            let result = argumentError ? toolError(argumentError) : toolError("Workspace tools are unavailable.");
+            if (!argumentError && config.toolSupport && localTools) {
+              const kind = config.toolSupport.approvalKind(toolCall.function.name);
+              const requiresApproval =
+                kind !== "none" &&
+                !state.sessionAcceptedTools.has(toolCall.function.name) &&
+                state.session.runtimeMode !== "full-access" &&
+                !(state.session.runtimeMode === "auto-accept-edits" && kind === "file-change");
+              let decision: ProviderApprovalDecision | undefined;
+              if (requiresApproval) decision = yield* requestApproval(state, turnId, toolCall.function.name, kind, toolArguments);
+              if (!decision || decision === "accept" || decision === "acceptForSession") {
+                if (decision === "acceptForSession") state.sessionAcceptedTools.add(toolCall.function.name);
+                result = yield* config.toolSupport.execute({
                   name: toolCall.function.name,
                   arguments: toolArguments,
                   cwd: state.session.cwd,
                   runtimeMode: state.session.runtimeMode,
-                })
-              : JSON.stringify({ error: "Workspace tools are unavailable." });
+                });
+              } else {
+                result = toolError({
+                  error: `Tool '${toolCall.function.name}' was ${decision === "cancel" ? "cancelled" : "declined"}.`,
+                  decision,
+                });
+              }
+            }
             state.messages.push({
               role: "tool",
               content: result,
@@ -354,7 +644,16 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             detail: `${config.providerLabel} returned no assistant content.`,
           });
         }
-        state.messages.push({ role: "assistant", content });
+        state.messages.push({
+          role: "assistant",
+          content,
+          ...(reasoning
+            ? {
+                [config.reasoningMessageField ?? "reasoning"]: reasoning,
+              }
+            : {}),
+          ...(reasoningDetails ? { reasoning_details: reasoningDetails } : {}),
+        });
         const completedAt = DateTime.formatIso(yield* DateTime.now);
         yield* publish({
           type: "item.completed",
@@ -453,7 +752,12 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             createdAt: now,
             updatedAt: now,
           };
-          sessions.set(input.threadId, { session, messages: [] });
+          sessions.set(input.threadId, {
+            session,
+            messages: [],
+            pendingApprovals: new Map(),
+            sessionAcceptedTools: new Set(),
+          });
           yield* publish({
             type: "session.started",
             ...stamp(now),
@@ -495,16 +799,50 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
               operation: "sendTurn",
               issue: `${config.providerLabel} requires text input.`,
             });
-          if ((input.attachments?.length ?? 0) > 0)
+          const model = input.modelSelection?.model ?? state.session.model ?? config.defaultModel;
+          const modelCapabilities =
+            (input.attachments?.length ?? 0) > 0
+              ? yield* resolveModelCapabilities(model)
+              : undefined;
+          if ((input.attachments?.length ?? 0) > 0 && config.attachmentsDisabledReason) {
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "sendTurn",
-              issue: `The direct ${config.providerLabel} driver currently accepts text turns only.`,
+              issue: config.attachmentsDisabledReason,
             });
+          }
+          if (
+            (input.attachments?.length ?? 0) > 0 &&
+            (config.fileSystem === undefined || config.attachmentsDir === undefined)
+          ) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: `${config.providerLabel} does not support attachments.`,
+            });
+          }
+          if (
+            (input.attachments ?? []).some((attachment) => attachment.type === "image") &&
+            modelCapabilities?.inputModalities !== undefined &&
+            !modelCapabilities.inputModalities.some((modality) => modality.toLowerCase() === "image")
+          ) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: `${config.providerLabel} model '${model}' does not accept image input.`,
+            });
+          }
+          const userContent =
+            (input.attachments?.length ?? 0) > 0
+              ? yield* buildOpenRouterUserContent(input, {
+                  fileSystem: config.fileSystem!,
+                  attachmentsDir: config.attachmentsDir!,
+                  provider: PROVIDER,
+                })
+              : input.input;
           const now = DateTime.formatIso(yield* DateTime.now);
           const turnId = TurnId.make(`${config.idPrefix}-turn-${sequence++}`);
-          state.messages.push({ role: "user", content: input.input });
-          const model = input.modelSelection?.model ?? state.session.model ?? config.defaultModel;
+          state.messages.push({ role: "user", content: userContent });
           state.session = {
             ...state.session,
             status: "running",
@@ -543,6 +881,7 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
           if (!state) return yield* missingSession(threadId);
           const activeTurnId = turnId ?? state.session.activeTurnId;
           if (activeTurnId) {
+            yield* cancelPendingApprovals(state);
             const fiber = turnFibers.get(String(activeTurnId));
             if (fiber) {
               yield* Fiber.interrupt(fiber);
@@ -565,18 +904,23 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             });
           }
         }),
-      respondToRequest: (
-        _threadId: ThreadId,
-        _requestId: ApprovalRequestId,
-        _decision: ProviderApprovalDecision,
-      ) =>
-        Effect.fail(
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "respondToRequest",
-            detail: `${config.providerLabel} does not expose approval requests.`,
-          }),
-        ),
+      respondToRequest: (threadId, requestId, decision) =>
+        Effect.gen(function* () {
+          const state = sessionFor(threadId);
+          if (!state) return yield* missingSession(threadId);
+          const pending = state.pendingApprovals.get(requestId);
+          if (!pending) {
+            return yield* new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "respondToRequest",
+              detail: `Unknown pending approval request: ${requestId}`,
+            });
+          }
+          if (decision === "acceptForSession") state.sessionAcceptedTools.add(pending.toolName);
+          yield* Deferred.succeed(pending.decision, decision).pipe(Effect.ignore);
+          state.pendingApprovals.delete(requestId);
+          yield* publishRequestResolved(state, requestId, pending, decision);
+        }),
       respondToUserInput: (
         _threadId: ThreadId,
         _requestId: ApprovalRequestId,
@@ -595,6 +939,7 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
           if (!state) return yield* missingSession(threadId);
           const activeTurnId = state.session.activeTurnId;
           if (activeTurnId) {
+            yield* cancelPendingApprovals(state);
             const fiber = turnFibers.get(String(activeTurnId));
             if (fiber) yield* Fiber.interrupt(fiber);
           }
@@ -653,6 +998,8 @@ export const makeOpenRouterAdapter = (config: {
   readonly apiKey: string;
   readonly defaultModel: string;
   readonly instanceId: string;
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly attachmentsDir: string;
   readonly toolSupport: OpenRouterToolSupport;
 }) =>
   makeOpenAICompatibleAdapter({
@@ -661,5 +1008,9 @@ export const makeOpenRouterAdapter = (config: {
     providerLabel: "OpenRouter",
     idPrefix: "openrouter",
     toolSupport: config.toolSupport,
+    getModelCapabilities: (model) =>
+      fetchOpenRouterModels(config.httpClient, config.baseUrl, config.apiKey).pipe(
+        Effect.map((models) => models.find((candidate) => candidate.id === model)),
+      ),
     streamCompletion: (input) => streamOpenRouterCompletion(input),
   });

@@ -14,6 +14,7 @@ import {
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
+  toggleThreadPinned,
   type UiState,
 } from "./uiStateStore";
 
@@ -23,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    threadPinnedById: {},
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -135,6 +137,16 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("toggles a thread's pinned flag without disturbing sibling pins", () => {
+    const state = makeUiState();
+    const pinned = toggleThreadPinned(state, "env:thread-1");
+    expect(pinned.threadPinnedById).toEqual({ "env:thread-1": true });
+    expect(pinned.threadPinnedById).not.toHaveProperty("env:thread-2");
+
+    const unpinned = toggleThreadPinned(pinned, "env:thread-1");
+    expect(unpinned.threadPinnedById).toEqual({});
+  });
+
   it("stores the endpoint preference by stable key", () => {
     const next = setDefaultAdvertisedEndpointKey(makeUiState(), "desktop-core:lan:http");
 
@@ -158,6 +170,10 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
       },
+      threadPinnedById: {
+        "environment:thread-1": true,
+        invalid: "yes" as unknown as boolean,
+      },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
@@ -175,6 +191,9 @@ describe("parsePersistedState", () => {
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
+      },
+      threadPinnedById: {
+        "environment:thread-1": true,
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
@@ -273,6 +292,9 @@ describe("uiStateStore persistence", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
+      threadPinnedById: {
+        "environment:thread-1": true,
+      },
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -294,6 +316,9 @@ describe("uiStateStore persistence", () => {
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
+      },
+      threadPinnedById: {
+        "environment:thread-1": true,
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,

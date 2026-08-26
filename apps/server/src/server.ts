@@ -108,6 +108,10 @@ import {
   persistServerRuntimeState,
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
+import { imageAssetRouteLayer, imageGenerationHttpApiLayer } from "./imageGeneration/http.ts";
+import * as ImageGenerationService from "./imageGeneration/ImageGenerationService.ts";
+import { videoAssetRouteLayer, videoGenerationHttpApiLayer } from "./videoGeneration/http.ts";
+import * as VideoGenerationService from "./videoGeneration/VideoGenerationService.ts";
 import * as TurnStartBootstrap from "./orchestration/TurnStartBootstrap.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
@@ -352,7 +356,9 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),
-  Layer.provideMerge(Keybindings.layer),
+  Layer.provideMerge(
+    Layer.mergeAll(ImageGenerationService.layer, VideoGenerationService.layer, Keybindings.layer),
+  ),
   Layer.provideMerge(ProviderRegistryLive),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`
@@ -372,7 +378,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // no longer transitively provides it. Exposing it at the runtime level
   // keeps a single Live for all opencode consumers.
   Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-  Layer.provideMerge(WorkspaceLayerLive),
+  Layer.provideMerge(Layer.mergeAll(WorkspaceLayerLive, ProcessRunner.layer)),
   Layer.provideMerge(ProjectFaviconResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
   Layer.provideMerge(ServerEnvironment.layer),
@@ -414,11 +420,15 @@ export const makeRoutesLayer = Layer.mergeAll(
       Layer.provide(authHttpApiLayer),
       Layer.provide(connectHttpApiLayer),
       Layer.provide(orchestrationHttpApiLayer),
+      Layer.provide(imageGenerationHttpApiLayer),
+      Layer.provide(videoGenerationHttpApiLayer),
       Layer.provide(serverEnvironmentHttpApiLayer),
       Layer.provide(environmentAuthenticatedAuthLayer),
     ),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
+    imageAssetRouteLayer,
+    videoAssetRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),

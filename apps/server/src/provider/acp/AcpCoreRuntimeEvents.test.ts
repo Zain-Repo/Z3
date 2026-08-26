@@ -135,6 +135,24 @@ describe("AcpCoreRuntimeEvents", () => {
     });
 
     expect(
+      makeAcpContentDeltaEvent({
+        stamp,
+        provider: ProviderDriverKind.make("cursor"),
+        threadId: "thread-1" as never,
+        turnId,
+        text: "thinking",
+        streamKind: "reasoning_text",
+        rawPayload: { sessionId: "session-1" },
+      }),
+    ).toMatchObject({
+      type: "content.delta",
+      payload: {
+        delta: "thinking",
+        streamKind: "reasoning_text",
+      },
+    });
+
+    expect(
       makeAcpAssistantItemEvent({
         stamp,
         provider: ProviderDriverKind.make("cursor"),

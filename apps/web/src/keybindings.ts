@@ -71,9 +71,13 @@ function normalizeEventKey(key: string): string {
 }
 
 function resolveEventKeys(event: ShortcutEventLike): Set<string> {
-  const keys = new Set([normalizeEventKey(event.key)]);
+  const layoutKey = normalizeEventKey(event.key);
+  const keys = new Set([layoutKey]);
+  // Physical-position fallback is only for non-Latin layout output and
+  // Option-modified symbols. A Latin remapped layout must follow the letter it
+  // produces or shortcuts can shadow unrelated system commands.
   const letterCode = event.code?.match(/^Key([A-Z])$/)?.[1];
-  if (letterCode) {
+  if (letterCode && !/^[a-z]$/.test(layoutKey)) {
     keys.add(letterCode.toLowerCase());
   }
   const aliases = event.code ? EVENT_CODE_KEY_ALIASES[event.code] : undefined;

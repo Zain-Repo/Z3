@@ -124,6 +124,26 @@ function canonicalSelectionsToLegacyObject(
 
 export const ModelCapabilities = Schema.Struct({
   optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
+  toolCalling: Schema.optional(
+    Schema.Struct({
+      tools: Schema.Boolean,
+      toolChoice: Schema.Boolean,
+    }),
+  ),
+  reasoning: Schema.optional(
+    Schema.Struct({
+      supported: Schema.Boolean,
+      maxTokens: Schema.optional(Schema.Int),
+    }),
+  ),
+  inputModalities: Schema.optional(Schema.Array(Schema.String)),
+  outputModalities: Schema.optional(Schema.Array(Schema.String)),
+  imageGeneration: Schema.optional(
+    Schema.Struct({
+      supportedParameters: Schema.Array(Schema.String),
+      supportsStreaming: Schema.Boolean,
+    }),
+  ),
 });
 export type ModelCapabilities = typeof ModelCapabilities.Type;
 
@@ -131,6 +151,7 @@ const CODEX_DRIVER_KIND = ProviderDriverKind.make("codex");
 const CLAUDE_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const CURSOR_DRIVER_KIND = ProviderDriverKind.make("cursor");
 const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
+const CLINE_DRIVER_KIND = ProviderDriverKind.make("cline");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 const DEEPSEEK_DRIVER_KIND = ProviderDriverKind.make("deepseek");
 const OPENROUTER_DRIVER_KIND = ProviderDriverKind.make("openrouter");
@@ -228,6 +249,7 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [CLAUDE_DRIVER_KIND]: "Claude",
   [CURSOR_DRIVER_KIND]: "Cursor",
   [GROK_DRIVER_KIND]: "Grok",
+  [CLINE_DRIVER_KIND]: "Cline",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
   [DEEPSEEK_DRIVER_KIND]: "DeepSeek",
   [OPENROUTER_DRIVER_KIND]: "OpenRouter",

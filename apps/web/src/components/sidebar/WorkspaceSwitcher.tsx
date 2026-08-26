@@ -28,7 +28,7 @@ export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
         className="min-w-0 max-w-[11rem] justify-start gap-1.5 px-2 text-foreground/90 hover:bg-foreground/8 hover:text-foreground focus-visible:ring-2"
       >
         <ActiveIcon aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
-        <span className="min-w-0 truncate text-xs font-semibold tracking-tight">
+        <span className="min-w-0 truncate text-sm font-semibold tracking-tight">
           {activeWorkspace.label}
         </span>
         <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
@@ -41,7 +41,12 @@ export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
             onValueChange={(value) => {
               if (isWorkspaceId(value)) {
                 setWorkspace(value);
-                if (value === "chat" || activeWorkspace.id === "chat") {
+                if (
+                  value === "chat" ||
+                  value === "image" ||
+                  activeWorkspace.id === "chat" ||
+                  activeWorkspace.id === "image"
+                ) {
                   void navigate({ to: "/" });
                 }
               }

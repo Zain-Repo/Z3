@@ -29,6 +29,7 @@ import {
   InfoIcon,
   LockIcon,
   GlobeIcon,
+  SlidersHorizontalIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
@@ -90,11 +91,14 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
+import { EnvironmentSheet } from "./chat/EnvironmentSheet";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
+  onOpenChanges?: () => void;
+  onCompareBranch?: () => void;
 }
 
 interface PendingDefaultBranchAction {
@@ -971,6 +975,8 @@ export default function GitActionsControl({
   gitCwd,
   activeThreadRef,
   draftId,
+  onOpenChanges,
+  onCompareBranch,
 }: GitActionsControlProps) {
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
@@ -1002,6 +1008,7 @@ export default function GitActionsControl({
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [isEnvironmentSheetOpen, setIsEnvironmentSheetOpen] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
@@ -1587,6 +1594,30 @@ export default function GitActionsControl({
     }
   };
 
+  const openEnvironmentChanges = useCallback(() => {
+    setIsEnvironmentSheetOpen(false);
+    onOpenChanges?.();
+  }, [onOpenChanges]);
+
+  const compareEnvironmentBranch = useCallback(() => {
+    setIsEnvironmentSheetOpen(false);
+    onCompareBranch?.();
+  }, [onCompareBranch]);
+
+  const runEnvironmentCommitOrPush = useCallback(() => {
+    setIsEnvironmentSheetOpen(false);
+    if (gitStatusForActions?.hasWorkingTreeChanges) {
+      setIsEditingFiles(false);
+      setIsCommitDialogOpen(true);
+      return;
+    }
+    if ((gitStatusForActions?.aheadCount ?? 0) > 0) {
+      void runGitActionWithToast({ action: "push" });
+      return;
+    }
+    runQuickAction();
+  }, [gitStatusForActions, runGitActionWithToast]);
+
   const openDialogForMenuItem = (item: GitActionMenuItem) => {
     if (item.disabled) return;
     if (item.kind === "open_pr") {
@@ -1656,6 +1687,30 @@ export default function GitActionsControl({
 
   return (
     <>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-label="Open environment panel"
+              aria-pressed={isEnvironmentSheetOpen}
+              size="icon-xs"
+              variant={isEnvironmentSheetOpen ? "secondary" : "outline"}
+              onClick={() => setIsEnvironmentSheetOpen((open) => !open)}
+            />
+          }
+        >
+          <SlidersHorizontalIcon aria-hidden="true" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">Environment</TooltipPopup>
+      </Tooltip>
+      <EnvironmentSheet
+        open={isEnvironmentSheetOpen}
+        onOpenChange={setIsEnvironmentSheetOpen}
+        gitStatus={gitStatusForActions}
+        onOpenChanges={openEnvironmentChanges}
+        onCommitOrPush={runEnvironmentCommitOrPush}
+        onCompareBranch={compareEnvironmentBranch}
+      />
       {!isRepo ? (
         <Button
           variant="outline"

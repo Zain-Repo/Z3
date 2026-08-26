@@ -31,6 +31,9 @@ import {
   parseWslDistroFromInstanceId,
   providerUpdateNotificationKey,
   resolveEnvironmentUpdateRowStatus,
+  settlePrimaryProviderUpdateToast,
+  shouldShowPrimaryProviderUpdateToast,
+  startPrimaryProviderUpdateToast,
   type LocalEnvironmentProvidersInput,
   type LocalEnvironmentUpdateGroup,
   type LocalProviderUpdateOutcome,
@@ -325,6 +328,88 @@ describe("provider update launch notification logic", () => {
       type: "loading",
       title: "Updating provider",
     });
+    expect(shouldShowPrimaryProviderUpdateToast(view)).toBe(false);
+  });
+
+  it("keeps initial prompts and terminal provider outcomes visible as toasts", () => {
+    expect(
+      shouldShowPrimaryProviderUpdateToast(
+        getProviderUpdateInitialToastView({
+          updateProviders: [updateCandidate({ driver: driver("codex") })],
+          oneClickProviders: [updateCandidate({ driver: driver("codex") })],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldShowPrimaryProviderUpdateToast(getProviderUpdateRejectedToastView(1, "boom")),
+    ).toBe(true);
+  });
+
+  it("closes the prompt without creating a running toast", () => {
+    const transition = startPrimaryProviderUpdateToast({
+      activeToast: { kind: "prompt", key: "codex:1.1.0", toastId: "prompt-toast" },
+      key: "codex:1.1.0",
+      providerInstanceIds: new Set([instanceId("codex")]),
+      providerCount: 1,
+    });
+
+    expect(transition.closeToastId).toBe("prompt-toast");
+    expect(transition.activeToast).toMatchObject({
+      kind: "update",
+      key: "codex:1.1.0",
+      providerCount: 1,
+    });
+    expect(transition).not.toHaveProperty("showView");
+  });
+
+  it("shows one terminal toast and ignores stale completion paths", () => {
+    const started = startPrimaryProviderUpdateToast({
+      activeToast: { kind: "prompt", key: "codex:1.1.0", toastId: "prompt-toast" },
+      key: "codex:1.1.0",
+      providerInstanceIds: new Set([instanceId("codex")]),
+      providerCount: 1,
+    });
+    expect(started.activeToast?.kind).toBe("update");
+    if (started.activeToast?.kind !== "update") {
+      throw new Error("Expected the prompt to transition into an update.");
+    }
+
+    const running = settlePrimaryProviderUpdateToast({
+      activeToast: started.activeToast,
+      updateToast: started.activeToast,
+      view: getProviderUpdateProgressToastView({
+        providers: [
+          provider({
+            driver: driver("codex"),
+            updateState: {
+              status: "running",
+              startedAt: checkedAt,
+              finishedAt: null,
+              message: "Updating provider.",
+              output: null,
+            },
+          }),
+        ],
+        providerCount: 1,
+      }),
+    });
+    expect(running.activeToast).toBe(started.activeToast);
+    expect(running.showView).toBeUndefined();
+
+    const terminalView = getProviderUpdateRejectedToastView(1, "boom");
+    const completed = settlePrimaryProviderUpdateToast({
+      activeToast: running.activeToast,
+      updateToast: started.activeToast,
+      view: terminalView,
+    });
+    expect(completed).toEqual({ activeToast: null, showView: terminalView });
+
+    const staleCompletion = settlePrimaryProviderUpdateToast({
+      activeToast: completed.activeToast,
+      updateToast: started.activeToast,
+      view: terminalView,
+    });
+    expect(staleCompletion).toEqual({ activeToast: null });
   });
 
   it("uses server failure state for failed progress", () => {

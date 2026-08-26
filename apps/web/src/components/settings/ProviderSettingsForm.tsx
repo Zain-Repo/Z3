@@ -8,6 +8,7 @@ import type {
   ProviderSettingsFormAnnotation,
   ProviderSettingsFormControl,
   ProviderSettingsFormSchemaAnnotation,
+  ProviderSettingsFormSelectOption,
 } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
@@ -26,6 +27,7 @@ export interface ProviderSettingsFieldModel {
   readonly clearWhenEmpty: "omit" | "persist";
   readonly environmentVariable?: string | undefined;
   readonly defaultBooleanValue?: boolean | undefined;
+  readonly options?: ReadonlyArray<ProviderSettingsFormSelectOption> | undefined;
 }
 
 function titleizeFieldKey(key: string): string {
@@ -107,6 +109,9 @@ export function deriveProviderSettingsFields(
           clearWhenEmpty: formAnnotation.clearWhenEmpty ?? "omit",
           ...(formAnnotation.environmentVariable !== undefined
             ? { environmentVariable: formAnnotation.environmentVariable }
+            : {}),
+          ...(formAnnotation.options !== undefined
+            ? { options: formAnnotation.options }
             : {}),
           ...(formAnnotation.control === "switch"
             ? { defaultBooleanValue: readFieldBooleanDefault(fieldSchema) }
@@ -293,6 +298,35 @@ function ProviderSettingsFieldRow({
             aria-label={field.label}
           />
         </div>
+      </FieldFrame>
+    );
+  }
+
+  if (field.control === "select") {
+    const selectValue = fieldValue || field.options?.[0]?.value || "";
+    return (
+      <FieldFrame variant={variant}>
+        <label htmlFor={inputId} className={cn(variant === "card" && "block")}>
+          {label}
+          <select
+            id={inputId}
+            value={selectValue}
+            onChange={(event) => updateFieldValue(event.target.value)}
+            aria-label={field.label}
+            className={cn(
+              "block w-full rounded-lg border border-input bg-background text-foreground text-sm outline-none",
+              "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24",
+              variant === "card" ? "mt-1.5 px-[calc(--spacing(3)-1px)] py-1.5" : "mt-1 px-2 py-1",
+            )}
+          >
+            {field.options?.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {description}
+        </label>
       </FieldFrame>
     );
   }

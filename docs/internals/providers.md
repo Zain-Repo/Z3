@@ -7,24 +7,18 @@ orchestration layer does not know which one is behind a thread.
 
 ## Built-in drivers
 
-[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with seven entries:
+[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with nine entries:
 
 | Driver kind   | Driver source                               |
 | ------------- | ------------------------------------------- |
 | `codex`       | [`Drivers/CodexDriver.ts`][codex]           |
 | `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]         |
 | `cursor`      | [`Drivers/CursorDriver.ts`][cursor]         |
+| `cline`       | [`Drivers/ClineDriver.ts`][cline]           |
 | `droid`       | [`Drivers/DroidDriver.ts`][droid]           |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]             |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode]     |
-| Driver kind   | Driver source                           |
-| ------------- | --------------------------------------- |
-| `codex`       | [`Drivers/CodexDriver.ts`][codex]       |
-| `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]     |
-| `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
-| `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
-| `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
-| `deepseek`    | [`Drivers/DeepSeekDriver.ts`][deepseek] |
+| `deepseek`    | [`Drivers/DeepSeekDriver.ts`][deepseek]     |
 | `openrouter`  | [`Drivers/OpenRouterDriver.ts`][openrouter] |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
@@ -45,6 +39,12 @@ Two registries separate configuration from live processes:
 
 [`ProviderService`][service] sits on top. It combines the adapter registry with the provider session
 directory to route session and turn operations for a thread, so callers name a thread, not an agent.
+
+OpenCode uses its native ACP transport for local sessions: `OpenCodeDriver` launches `opencode acp`
+over stdio and maps ACP permissions, MCP servers, model/effort/mode selection, tool-call updates,
+plans, assistant text, reasoning, attachments, cancellation, and session resume into the canonical
+provider runtime. An explicitly configured remote OpenCode `serverUrl` continues to use the SDK
+adapter because that server is not a child stdio ACP process.
 
 Adding a CLI or ACP driver means writing the driver plus adapter and adding it to
 `BUILT_IN_DRIVERS`. DeepSeek and OpenRouter are direct HTTP drivers: their adapters translate
@@ -91,6 +91,7 @@ when a request opens (approval) or user input is requested, via
 [codex]: ../../apps/server/src/provider/Drivers/CodexDriver.ts
 [claude]: ../../apps/server/src/provider/Drivers/ClaudeDriver.ts
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
+[cline]: ../../apps/server/src/provider/Drivers/ClineDriver.ts
 [droid]: ../../apps/server/src/provider/Drivers/DroidDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts

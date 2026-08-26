@@ -42,6 +42,20 @@ import {
   RelayEnvironmentMintResponse,
   RelayLinkProofRequest,
 } from "./relay.ts";
+import {
+  ImageGenerationInput,
+  ImageGenerationAssetContent,
+  ImageGenerationList,
+  ImageGenerationModelCatalog,
+  ImageGenerationModelEndpoints,
+  ImageGenerationRecord,
+} from "./imageGeneration.ts";
+import {
+  VideoGenerationInput,
+  VideoGenerationList,
+  VideoGenerationModelCatalog,
+  VideoGenerationRecord,
+} from "./videoGeneration.ts";
 
 const OptionalBearerHeaders = Schema.Struct({
   authorization: Schema.optionalKey(Schema.String),
@@ -322,6 +336,91 @@ export class EnvironmentAuthenticatedAuth extends HttpApiMiddleware.Service<
   error: EnvironmentAuthenticationErrors,
 }) {}
 
+const ImageGenerationModelParams = Schema.Struct({
+  author: TrimmedNonEmptyString,
+  slug: TrimmedNonEmptyString,
+});
+
+export class EnvironmentImageGenerationHttpApi extends HttpApiGroup.make("imageGeneration")
+  .add(
+    HttpApiEndpoint.get("models", "/api/images/models", {
+      headers: OptionalBearerHeaders,
+      success: ImageGenerationModelCatalog,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("modelEndpoints", "/api/images/models/:author/:slug/endpoints", {
+      headers: OptionalBearerHeaders,
+      params: ImageGenerationModelParams,
+      success: ImageGenerationModelEndpoints,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("generations", "/api/images/generations", {
+      headers: OptionalBearerHeaders,
+      success: ImageGenerationList,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("generate", "/api/images/generations", {
+      headers: OptionalBearerHeaders,
+      payload: ImageGenerationInput,
+      success: ImageGenerationRecord,
+      error: [EnvironmentRequestInvalidError, ...EnvironmentScopedOperationErrors],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("assetContent", "/api/images/assets/:id/content", {
+      headers: OptionalBearerHeaders,
+      params: Schema.Struct({ id: TrimmedNonEmptyString }),
+      success: ImageGenerationAssetContent,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("deleteGeneration", "/api/images/generations/:id/delete", {
+      headers: OptionalBearerHeaders,
+      params: Schema.Struct({ id: TrimmedNonEmptyString }),
+      success: Schema.Struct({ deleted: Schema.Boolean }),
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  ) {}
+
+export class EnvironmentVideoGenerationHttpApi extends HttpApiGroup.make("videoGeneration")
+  .add(
+    HttpApiEndpoint.get("models", "/api/videos/models", {
+      headers: OptionalBearerHeaders,
+      success: VideoGenerationModelCatalog,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("generations", "/api/videos/generations", {
+      headers: OptionalBearerHeaders,
+      success: VideoGenerationList,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("generate", "/api/videos/generations", {
+      headers: OptionalBearerHeaders,
+      payload: VideoGenerationInput,
+      success: VideoGenerationRecord,
+      error: [EnvironmentRequestInvalidError, ...EnvironmentScopedOperationErrors],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("deleteGeneration", "/api/videos/generations/:id/delete", {
+      headers: OptionalBearerHeaders,
+      params: Schema.Struct({ id: TrimmedNonEmptyString }),
+      success: Schema.Struct({ deleted: Schema.Boolean }),
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  ) {}
+
 const EnvironmentHttpCloudErrors = [
   EnvironmentHttpBadRequestError,
   EnvironmentHttpUnauthorizedError,
@@ -554,4 +653,6 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
+  .add(EnvironmentImageGenerationHttpApi)
+  .add(EnvironmentVideoGenerationHttpApi)
   .add(EnvironmentConnectHttpApi) {}

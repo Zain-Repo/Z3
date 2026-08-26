@@ -43,18 +43,17 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
   },
   {
     id: "image",
-    label: "Z3Image",
+    label: "ZImage",
     description: "Create with image models",
     sidebarTitle: "Generations",
     sidebarDescription: "Your image workspace",
     icon: ImageIcon,
     topbarClassName: "bg-fuchsia-500/[0.08]",
     sidebarClassName: "[&_[data-workspace-context]]:text-fuchsia-500",
-    disabled: true,
   },
 ];
 const BROWSER_WORKSPACE_DEFINITIONS = WORKSPACE_DEFINITIONS.filter(
-  (workspace) => workspace.id === "code",
+  (workspace) => workspace.id === "code" || workspace.id === "image",
 );
 
 export const WORKSPACE_ID_SCHEMA = Schema.Literals(["code", "chat", "image"]);

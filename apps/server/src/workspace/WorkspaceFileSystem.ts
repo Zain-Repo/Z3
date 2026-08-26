@@ -267,6 +267,61 @@ export const make = Effect.gen(function* () {
       relativePath: input.relativePath,
     });
 
+    const realWorkspaceRoot = yield* Effect.tryPromise({
+      try: () => NodeFSP.realpath(input.cwd),
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: target.absolutePath,
+          operationPath: input.cwd,
+          operation: "realpath-workspace-root",
+          cause,
+        }),
+    });
+    const validatedParent = yield* Effect.tryPromise({
+      try: async () => {
+        let parentPath = path.dirname(target.absolutePath);
+        while (true) {
+          try {
+            const realParent = await NodeFSP.realpath(parentPath);
+            const relativeParent = path.relative(realWorkspaceRoot, realParent);
+            if (
+              relativeParent === ".." ||
+              relativeParent.startsWith(`..${path.sep}`) ||
+              path.isAbsolute(relativeParent)
+            ) {
+              return null;
+            }
+            return realParent;
+          } catch (cause) {
+            const code = (cause as NodeJS.ErrnoException).code;
+            if (code !== "ENOENT") throw cause;
+            const nextParent = path.dirname(parentPath);
+            if (nextParent === parentPath) throw cause;
+            parentPath = nextParent;
+          }
+        }
+      },
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: target.absolutePath,
+          operationPath: path.dirname(target.absolutePath),
+          operation: "realpath-target",
+          cause,
+        }),
+    });
+    if (validatedParent === null) {
+      return yield* new WorkspaceFilePathEscapeError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedWorkspaceRoot: realWorkspaceRoot,
+        resolvedPath: target.absolutePath,
+      });
+    }
+
     yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
       Effect.mapError(
         (cause) =>
@@ -280,19 +335,27 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    yield* fileSystem.writeFileString(target.absolutePath, input.contents).pipe(
-      Effect.mapError(
-        (cause) =>
-          new WorkspaceFileSystemOperationError({
-            workspaceRoot: input.cwd,
-            relativePath: input.relativePath,
-            resolvedPath: target.absolutePath,
-            operationPath: target.absolutePath,
-            operation: "write-file",
-            cause,
-          }),
-      ),
-    );
+    yield* Effect.tryPromise({
+      try: async () => {
+        const temporaryDirectory = await NodeFSP.mkdtemp(`${path.dirname(target.absolutePath)}.t3-write-`);
+        const temporaryPath = path.join(temporaryDirectory, "contents");
+        try {
+          await NodeFSP.writeFile(temporaryPath, input.contents, "utf8");
+          await NodeFSP.rename(temporaryPath, target.absolutePath);
+        } finally {
+          await NodeFSP.rm(temporaryDirectory, { recursive: true, force: true });
+        }
+      },
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: target.absolutePath,
+          operationPath: target.absolutePath,
+          operation: "write-file",
+          cause,
+        }),
+    });
     yield* workspaceEntries.refresh(input.cwd);
     return { relativePath: target.relativePath };
   });

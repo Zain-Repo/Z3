@@ -27,6 +27,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeOpenCodeAdapter } from "../Layers/OpenCodeAdapter.ts";
+import { makeOpenCodeAcpAdapter } from "../Layers/OpenCodeAcpAdapter.ts";
 import {
   checkOpenCodeProviderStatus,
   makePendingOpenCodeProvider,
@@ -136,11 +137,30 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         env: processEnv,
       });
 
-      const adapter = yield* makeOpenCodeAdapter(effectiveConfig, {
-        instanceId,
-        environment: processEnv,
-        ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
-      });
+      // The ACP CLI is the native local OpenCode integration. Keep the SDK
+      // adapter for explicitly configured remote servers, which cannot be
+      // reached through a local stdio ACP process.
+      const adapter =
+        effectiveConfig.serverUrl.trim().length > 0
+          ? yield* makeOpenCodeAdapter(effectiveConfig, {
+              instanceId,
+              environment: processEnv,
+              ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
+            })
+          : yield* makeOpenCodeAcpAdapter(effectiveConfig, {
+              instanceId,
+              environment: processEnv,
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderDriverError({
+                    driver: DRIVER_KIND,
+                    instanceId,
+                    detail: `Failed to build OpenCode ACP adapter: ${cause.message ?? String(cause)}`,
+                    cause,
+                  }),
+              ),
+            );
       const textGeneration = yield* makeOpenCodeTextGeneration(effectiveConfig, processEnv);
 
       const checkProvider = checkOpenCodeProviderStatus(

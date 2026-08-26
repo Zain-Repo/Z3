@@ -23,9 +23,11 @@ Z3 refreshes the model list from DeepSeek. The current API exposes `deepseek-v4-
 ## Current boundary
 
 The direct driver supports text chat turns and canonical runtime event delivery through the normal
-Z3 session path. It does not currently expose workspace tools, ACP approval requests, image
-attachments, or source-control text-generation helpers. Those operations report an explicit
-unsupported error rather than pretending they succeeded.
+Z3 session path. DeepSeek's direct V4 API is text-only, so image attachments are rejected with an
+explicit explanation before a request is sent. To analyze images with a DeepSeek model, configure
+OpenRouter and select `deepseek/deepseek-v4-flash-vision-exp`. The direct driver also does not
+currently expose workspace tools, ACP approval requests, or source-control text-generation
+helpers.
 
 If the provider is shown with a warning, check the instance API key and endpoint. A 401 means the
 key was rejected, and 429 means the account is rate-limited.

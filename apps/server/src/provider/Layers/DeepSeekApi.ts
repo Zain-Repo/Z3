@@ -4,6 +4,12 @@ import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 
+import type {
+  OpenRouterMessageContentPart,
+  OpenRouterToolCallDelta,
+  OpenRouterToolDefinition,
+} from "./OpenRouterApi.ts";
+
 export interface DeepSeekModel {
   readonly id: string;
   readonly name?: string;
@@ -11,7 +17,7 @@ export interface DeepSeekModel {
 
 export interface DeepSeekCompletionMessage {
   readonly role: "user" | "assistant" | "system" | "tool";
-  readonly content: string | null;
+  readonly content: string | ReadonlyArray<OpenRouterMessageContentPart> | null;
   readonly tool_calls?: ReadonlyArray<{
     readonly id: string;
     readonly type: "function";
@@ -19,12 +25,14 @@ export interface DeepSeekCompletionMessage {
   }>;
   readonly tool_call_id?: string;
   readonly name?: string;
+  readonly reasoning_content?: string | null;
 }
 
 export interface DeepSeekCompletionChunk {
   readonly delta: string;
   readonly done: boolean;
   readonly reasoningDelta?: string;
+  readonly toolCallDeltas?: ReadonlyArray<OpenRouterToolCallDelta>;
   readonly model?: string;
   readonly usage?: unknown;
 }
@@ -121,6 +129,30 @@ function parseDeepSeekCompletionSseLine(line: string): DeepSeekCompletionChunk |
   const content = delta && Predicate.isString(delta.content) ? delta.content : "";
   const reasoningContent =
     delta && Predicate.isString(delta.reasoning_content) ? delta.reasoning_content : undefined;
+  const toolCallDeltas =
+    delta && Array.isArray(delta.tool_calls)
+      ? delta.tool_calls.flatMap((toolCall, index): ReadonlyArray<OpenRouterToolCallDelta> => {
+          if (!Predicate.isObject(toolCall)) return [];
+          const functionValue = Predicate.isObject(toolCall.function)
+            ? toolCall.function
+            : undefined;
+          if (!functionValue) return [];
+          const callIndex = typeof toolCall.index === "number" ? toolCall.index : index;
+          const id = stringValue(toolCall.id);
+          const name = stringValue(functionValue.name);
+          const argumentsDelta = Predicate.isString(functionValue.arguments)
+            ? functionValue.arguments
+            : undefined;
+          return [
+            {
+              index: callIndex,
+              ...(id !== undefined ? { id } : {}),
+              ...(name !== undefined ? { name } : {}),
+              ...(argumentsDelta !== undefined ? { argumentsDelta } : {}),
+            },
+          ];
+        })
+      : undefined;
   const model = stringValue(payload.model);
 
   return {
@@ -129,6 +161,7 @@ function parseDeepSeekCompletionSseLine(line: string): DeepSeekCompletionChunk |
     ...(reasoningContent !== undefined && reasoningContent.length > 0
       ? { reasoningDelta: reasoningContent }
       : {}),
+    ...(toolCallDeltas !== undefined && toolCallDeltas.length > 0 ? { toolCallDeltas } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(payload.usage !== undefined ? { usage: payload.usage } : {}),
   };
@@ -140,6 +173,7 @@ export const streamDeepSeekCompletion = Effect.fn("streamDeepSeekCompletion")(fu
   readonly apiKey: string;
   readonly model: string;
   readonly messages: ReadonlyArray<DeepSeekCompletionMessage>;
+  readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
 }): Effect.fn.Return<Stream.Stream<DeepSeekCompletionChunk, DeepSeekApiError>, DeepSeekApiError> {
   const response = yield* input.httpClient
     .execute(
@@ -151,6 +185,9 @@ export const streamDeepSeekCompletion = Effect.fn("streamDeepSeekCompletion")(fu
           model: input.model,
           messages: input.messages,
           stream: true,
+          ...(input.tools && input.tools.length > 0
+            ? { tools: input.tools, tool_choice: "auto" }
+            : {}),
         }),
       ),
     )

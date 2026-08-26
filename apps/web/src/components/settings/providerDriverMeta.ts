@@ -2,6 +2,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
+  ClineSettings,
   DroidSettings,
   DeepSeekSettings,
   GrokSettings,
@@ -13,6 +14,7 @@ import type * as Schema from "effect/Schema";
 import {
   ClaudeAI,
   CursorIcon,
+  ClineIcon,
   DroidIcon,
   DeepSeekIcon,
   GrokIcon,
@@ -66,6 +68,13 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     icon: CursorIcon,
     badgeLabel: "Early Access",
     settingsSchema: CursorSettings,
+  },
+  {
+    value: ProviderDriverKind.make("cline"),
+    label: "Cline",
+    icon: ClineIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: ClineSettings,
   },
   {
     value: ProviderDriverKind.make("droid"),

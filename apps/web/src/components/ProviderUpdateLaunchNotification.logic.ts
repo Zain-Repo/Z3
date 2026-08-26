@@ -231,6 +231,69 @@ export function getProviderUpdateInitialToastView(input: {
   };
 }
 
+export function shouldShowPrimaryProviderUpdateToast(view: ProviderUpdateToastView): boolean {
+  return view.phase !== "running";
+}
+
+export type ActivePrimaryProviderUpdateToast<ToastId> =
+  | { readonly kind: "prompt"; readonly key: string; readonly toastId: ToastId }
+  | {
+      readonly kind: "update";
+      readonly key: string;
+      readonly providerInstanceIds: ReadonlySet<ProviderInstanceId>;
+      readonly providerCount: number;
+    };
+
+/**
+ * Move the primary notification from its prompt into an in-flight update.
+ * Closing the prompt instead of mutating it prevents a duplicate running toast.
+ */
+export function startPrimaryProviderUpdateToast<ToastId>(input: {
+  readonly activeToast: ActivePrimaryProviderUpdateToast<ToastId> | null;
+  readonly key: string;
+  readonly providerInstanceIds: ReadonlySet<ProviderInstanceId>;
+  readonly providerCount: number;
+}): {
+  readonly activeToast: ActivePrimaryProviderUpdateToast<ToastId> | null;
+  readonly closeToastId?: ToastId;
+} {
+  if (input.activeToast?.kind !== "prompt" || input.activeToast.key !== input.key) {
+    return { activeToast: input.activeToast };
+  }
+
+  return {
+    activeToast: {
+      kind: "update",
+      key: input.key,
+      providerInstanceIds: input.providerInstanceIds,
+      providerCount: input.providerCount,
+    },
+    closeToastId: input.activeToast.toastId,
+  };
+}
+
+/**
+ * Consume one terminal update result. Identity matching makes late async results
+ * harmless after live provider state has already presented the outcome.
+ */
+export function settlePrimaryProviderUpdateToast<ToastId>(input: {
+  readonly activeToast: ActivePrimaryProviderUpdateToast<ToastId> | null;
+  readonly updateToast: ActivePrimaryProviderUpdateToast<ToastId> & { readonly kind: "update" };
+  readonly view: ProviderUpdateToastView;
+}): {
+  readonly activeToast: ActivePrimaryProviderUpdateToast<ToastId> | null;
+  readonly showView?: ProviderUpdateToastView;
+} {
+  if (
+    input.activeToast !== input.updateToast ||
+    !shouldShowPrimaryProviderUpdateToast(input.view)
+  ) {
+    return { activeToast: input.activeToast };
+  }
+
+  return { activeToast: null, showView: input.view };
+}
+
 export function getProviderUpdateRunningToastView(providerCount: number): ProviderUpdateToastView {
   return {
     phase: "running",

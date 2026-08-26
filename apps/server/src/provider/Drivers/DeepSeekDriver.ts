@@ -23,6 +23,7 @@ import {
 } from "../ProviderDriver.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import { makeWorkspaceToolSupport } from "../workspaceToolSupport.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("deepseek");
 const decodeDeepSeekSettings = Schema.decodeSync(DeepSeekSettings);
@@ -55,12 +56,14 @@ export const DeepSeekDriver: ProviderDriver<DeepSeekSettings, DeepSeekDriverEnv>
       // API keys are owned by the protected provider environment. Keep the
       // decoded config value blank so provider snapshots never expose secrets.
       const effectiveConfig = { ...config, apiKey: "", enabled } satisfies DeepSeekSettings;
+      const toolSupport = makeWorkspaceToolSupport();
       const adapter = yield* makeDeepSeekAdapter({
         httpClient,
         baseUrl: effectiveConfig.apiEndpoint,
         apiKey: apiKey ?? "",
         defaultModel: effectiveConfig.defaultModel,
         instanceId,
+        toolSupport,
       });
       const textGeneration = yield* makeDeepSeekTextGeneration();
       const checkProvider = checkDeepSeekProvider(effectiveConfig, enabled, apiKey, httpClient).pipe(

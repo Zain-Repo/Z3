@@ -19,6 +19,7 @@ import { useWorkspace } from "../workspace";
 import ThreadSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
 import ChatWorkspaceSidebar from "./ChatWorkspaceSidebar";
+import { ImageWorkspaceSidebar } from "./ImageWorkspaceSidebar";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   resolveInitialThreadSidebarWidth,
@@ -128,7 +129,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const useSidebarV2 = sidebarV2Enabled && !isOnSettings;
   const useChatSidebar = activeWorkspace.id === "chat" && !isOnSettings;
-  const useSidebarV2Theme = useSidebarV2 || useChatSidebar || isOnSettings;
+  const useImageSidebar = activeWorkspace.id === "image" && !isOnSettings;
+  const useSidebarV2Theme = useSidebarV2 || useChatSidebar || useImageSidebar || isOnSettings;
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -208,7 +210,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           onResize: setSidebarWidth,
         }}
       >
-        {useChatSidebar ? (
+        {useImageSidebar ? (
+          <ImageWorkspaceSidebar />
+        ) : useChatSidebar ? (
           <ChatWorkspaceSidebar />
         ) : useSidebarV2 ? (
           <ThreadSidebarV2 />

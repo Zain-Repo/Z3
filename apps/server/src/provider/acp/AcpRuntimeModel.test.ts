@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 import {
+  decideToolCallUpdateEmission,
   extractModelConfigId,
   mergeToolCallState,
   parsePermissionRequest,
@@ -10,6 +11,7 @@ import {
   parseSessionUpdateEvent,
   sessionUpdateIsReplay,
   syntheticLoadSessionResponseFromInitialize,
+  type AcpToolCallState,
 } from "./AcpRuntimeModel.ts";
 
 describe("AcpRuntimeModel", () => {
@@ -81,6 +83,112 @@ describe("AcpRuntimeModel", () => {
         },
       } satisfies EffectAcpSchema.SessionNotification),
     ).toBe(false);
+  });
+
+  it("preserves ACP thought chunks as reasoning text", () => {
+    const parsed = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "Inspecting the workspace" },
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(parsed.events).toEqual([
+      {
+        _tag: "ContentDelta",
+        text: "Inspecting the workspace",
+        streamKind: "reasoning_text",
+        rawPayload: {
+          sessionId: "session-1",
+          update: {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "Inspecting the workspace" },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("bounds cumulative tool output in both normalized state and raw payload", () => {
+    const hugeText = Array.from({ length: 2_000 }, (_, index) =>
+      `line ${index}: ${"x".repeat(50)}`,
+    ).join("\n");
+
+    const parsed = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        kind: "other",
+        status: "in_progress",
+        content: [{ type: "content", content: { type: "text", text: hugeText } }],
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    const event = parsed.events[0];
+    if (event?._tag !== "ToolCallUpdated") {
+      throw new Error("expected a ToolCallUpdated event");
+    }
+    expect(event.toolCall.detail).toHaveLength(8_028);
+    expect(event.toolCall.detail?.startsWith("[Earlier output truncated]")).toBe(true);
+    expect(event.toolCall.detail?.endsWith(hugeText.slice(-100))).toBe(true);
+    expect(JSON.stringify(event.rawPayload).length).toBeLessThan(hugeText.length);
+  });
+
+  describe("decideToolCallUpdateEmission", () => {
+    const toolCall = (detail: string | undefined, status?: AcpToolCallState["status"]) =>
+      ({
+        toolCallId: "tool-1",
+        title: "Grok Tool",
+        ...(status ? { status } : {}),
+        ...(detail ? { detail } : {}),
+        data: {},
+      }) satisfies AcpToolCallState;
+
+    it("always emits terminal state and skips identical detail", () => {
+      expect(
+        decideToolCallUpdateEmission({
+          previous: toolCall("same", "inProgress"),
+          next: toolCall("same", "completed"),
+          lastEmittedDetailLength: 4,
+          skippedSinceEmit: 3,
+        }),
+      ).toEqual({ emit: true, skippedSinceEmit: 0 });
+      expect(
+        decideToolCallUpdateEmission({
+          previous: toolCall("same", "inProgress"),
+          next: toolCall("same", "inProgress"),
+          lastEmittedDetailLength: 4,
+          skippedSinceEmit: 0,
+        }),
+      ).toEqual({ emit: false, skippedSinceEmit: 0 });
+    });
+
+    it("coalesces small replacements and periodically emits the newest state", () => {
+      let previous: AcpToolCallState | undefined;
+      let lastEmittedDetailLength: number | undefined = 0;
+      let skippedSinceEmit = 0;
+      const emittedIndices: Array<number> = [];
+
+      for (let index = 1; index <= 12; index += 1) {
+        const next = toolCall("x".repeat(index), "inProgress");
+        const decision = decideToolCallUpdateEmission({
+          previous,
+          next,
+          lastEmittedDetailLength,
+          skippedSinceEmit,
+        });
+        if (decision.emit) {
+          emittedIndices.push(index);
+          lastEmittedDetailLength = next.detail?.length;
+        }
+        skippedSinceEmit = decision.skippedSinceEmit;
+        previous = next;
+      }
+
+      expect(emittedIndices).toEqual([1, 11]);
+    });
   });
 
   it("builds a synthetic load response from initialize model state", () => {

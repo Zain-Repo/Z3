@@ -1221,6 +1221,83 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("checks out submodules in a new worktree", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const previousAllowedProtocol = process.env.GIT_ALLOW_PROTOCOL;
+        process.env.GIT_ALLOW_PROTOCOL = "file";
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previousAllowedProtocol === undefined) {
+              delete process.env.GIT_ALLOW_PROTOCOL;
+            } else {
+              process.env.GIT_ALLOW_PROTOCOL = previousAllowedProtocol;
+            }
+          }),
+        );
+
+        const submoduleRepo = yield* makeTmpDir("git-submodule-");
+        yield* initRepoWithCommit(submoduleRepo);
+        yield* writeTextFile(submoduleRepo, "SHARED.md", "# shared\n");
+        yield* git(submoduleRepo, ["add", "."]);
+        yield* git(submoduleRepo, ["commit", "-m", "shared"]);
+
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["submodule", "add", submoduleRepo, "shared"]);
+        yield* git(cwd, ["commit", "-m", "add submodule"]);
+
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "submodule-worktree",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/submodules",
+        });
+
+        assert.equal(
+          yield* fileSystem.exists(pathService.join(worktreePath, "shared", "SHARED.md")),
+          true,
+        );
+      }),
+    );
+
+    it.effect("keeps the worktree when submodule checkout fails", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(
+          cwd,
+          ".gitmodules",
+          '[submodule "missing"]\n\tpath = missing\n\turl = /nonexistent/repo.git\n',
+        );
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "add unreachable submodule"]);
+
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "broken-submodule-worktree",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const created = yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/broken-submodules",
+        });
+
+        assert.equal(created.worktree.path, worktreePath);
+        assert.equal(yield* fileSystem.exists(worktreePath), true);
+      }),
+    );
+
     it.effect("creates and removes a worktree for a new refName", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -1495,6 +1572,42 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           });
           assert.notEqual(badBranch.exitCode, 0);
         }),
+    );
+
+    it.effect("publishes a branch tracking its base under its own name", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-remote-");
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", "main"]);
+        yield* git(cwd, ["checkout", "-b", "dev"]);
+        yield* git(cwd, ["push", "-u", "origin", "dev"]);
+        const devSha = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["checkout", "-b", "feature/x", "origin/dev"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* driver.prepareCommitContext(cwd);
+        yield* driver.commit(cwd, "Add feature", "");
+
+        const pushed = yield* driver.pushCurrentBranch(cwd, null);
+
+        assert.deepInclude(pushed, {
+          status: "pushed",
+          branch: "feature/x",
+          upstreamBranch: "origin/feature/x",
+          setUpstream: true,
+        });
+        assert.equal(yield* git(remote, ["log", "-1", "--pretty=%s", "feature/x"]), "Add feature");
+        assert.equal(yield* git(remote, ["rev-parse", "dev"]), devSha);
+        assert.equal(
+          yield* git(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"]),
+          "origin/feature/x",
+        );
+        assert.equal(yield* driver.readConfigValue(cwd, "branch.feature/x.gh-merge-base"), "dev");
+      }),
     );
 
     it.effect("pushes to the requested remote instead of the primary remote", () =>

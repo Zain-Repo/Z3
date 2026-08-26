@@ -3,7 +3,11 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { OpenRouterSettings } from "@t3tools/contracts";
-import { checkOpenRouterProvider, makePendingOpenRouterProvider } from "./OpenRouterProvider.ts";
+import {
+  checkOpenRouterProvider,
+  makePendingOpenRouterProvider,
+  openRouterModelCapabilities,
+} from "./OpenRouterProvider.ts";
 
 const settings = Schema.decodeSync(OpenRouterSettings)({});
 
@@ -26,4 +30,21 @@ describe("OpenRouterProvider", () => {
       expect(snapshot.models[0]?.slug).toBe("openai/gpt-4o-mini");
     }),
   );
+
+  it("maps OpenRouter supported parameters into model capabilities", () => {
+    expect(
+      openRouterModelCapabilities({
+        id: "tool/model",
+        supportedParameters: ["tools"],
+        reasoning: { supported: true },
+        inputModalities: ["text", "image"],
+      }),
+    ).toEqual({
+      optionDescriptors: [],
+      toolCalling: { tools: true, toolChoice: false },
+      reasoning: { supported: true },
+      inputModalities: ["text", "image"],
+    });
+    expect(openRouterModelCapabilities({ id: "unknown/model" })).toBeNull();
+  });
 });

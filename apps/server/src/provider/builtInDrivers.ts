@@ -23,6 +23,7 @@
 import { ClaudeDriver, type ClaudeDriverEnv } from "./Drivers/ClaudeDriver.ts";
 import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
 import { CursorDriver, type CursorDriverEnv } from "./Drivers/CursorDriver.ts";
+import { ClineDriver, type ClineDriverEnv } from "./Drivers/ClineDriver.ts";
 import { DroidDriver, type DroidDriverEnv } from "./Drivers/DroidDriver.ts";
 import { DeepSeekDriver, type DeepSeekDriverEnv } from "./Drivers/DeepSeekDriver.ts";
 import { GrokDriver, type GrokDriverEnv } from "./Drivers/GrokDriver.ts";
@@ -39,6 +40,7 @@ export type BuiltInDriversEnv =
   | ClaudeDriverEnv
   | CodexDriverEnv
   | CursorDriverEnv
+  | ClineDriverEnv
   | DroidDriverEnv
   | DeepSeekDriverEnv
   | GrokDriverEnv
@@ -54,6 +56,7 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   CodexDriver,
   ClaudeDriver,
   CursorDriver,
+  ClineDriver,
   DroidDriver,
   DeepSeekDriver,
   GrokDriver,

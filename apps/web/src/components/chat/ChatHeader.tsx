@@ -42,6 +42,8 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  onOpenChanges?: () => void;
+  onCompareBranch?: () => void;
 }
 
 export function shouldShowOpenInPicker(input: {
@@ -75,6 +77,8 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onOpenChanges,
+  onCompareBranch,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const fileScripts = useT3ProjectFileScripts(
@@ -165,6 +169,8 @@ export const ChatHeader = memo(function ChatHeader({
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             {...(draftId ? { draftId } : {})}
+            {...(onOpenChanges ? { onOpenChanges } : {})}
+            {...(onCompareBranch ? { onCompareBranch } : {})}
           />
         )}
       </div>

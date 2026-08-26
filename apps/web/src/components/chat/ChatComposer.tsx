@@ -15,7 +15,6 @@ import type {
 import {
   ProviderDriverKind,
   ProviderInstanceId,
-  isSupportedChatTextFile,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -68,6 +67,7 @@ import {
 } from "../../promptStashStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
+import { ComposerFileDropZone } from "./ComposerFileDropZone";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
@@ -193,8 +193,6 @@ function formatAttachmentSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const CHAT_ATTACHMENT_ACCEPT =
-  "image/*,text/*,.c,.cc,.conf,.cpp,.cs,.css,.csv,.env,.go,.graphql,.h,.hpp,.html,.ini,.java,.js,.json,.jsonl,.jsx,.kt,.log,.lua,.md,.mdx,.mjs,.php,.properties,.py,.rb,.rs,.scss,.sh,.sql,.svelte,.swift,.toml,.ts,.tsx,.vue,.xml,.yaml,.yml";
 import { proposedPlanTitle } from "../../proposedPlan";
 import { getProviderDisplayName, getProviderInteractionModeToggle } from "../../providerModels";
 import {
@@ -991,6 +989,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     null,
   );
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
+  const [isFileDragOverComposer, setIsFileDragOverComposer] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
@@ -2457,10 +2456,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     let error: string | null = null;
     for (const file of files) {
       const mimeType = file.type || "text/plain";
-      if (!isSupportedChatTextFile({ name: file.name, mimeType })) {
-        error = `Unsupported file type for '${file.name}'. Attach a text or code file.`;
-        continue;
-      }
       if (file.size === 0 || file.size > PROVIDER_SEND_TURN_MAX_FILE_BYTES) {
         error = `'${file.name}' must be between 1 byte and ${Math.floor(PROVIDER_SEND_TURN_MAX_FILE_BYTES / (1024 * 1024))} MB.`;
         continue;
@@ -2510,6 +2505,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     event.preventDefault();
     dragDepthRef.current += 1;
     setIsDragOverComposer(true);
+    setIsFileDragOverComposer(true);
   };
 
   const onComposerDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -2517,6 +2513,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setIsDragOverComposer(true);
+    setIsFileDragOverComposer(true);
   };
 
   const onComposerDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
@@ -2527,6 +2524,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) {
       setIsDragOverComposer(false);
+      setIsFileDragOverComposer(false);
     }
   };
 
@@ -2535,6 +2533,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     event.preventDefault();
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
+    setIsFileDragOverComposer(false);
     const files = Array.from(event.dataTransfer.files);
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     const textFiles = isSimpleChat ? files.filter((file) => !file.type.startsWith("image/")) : [];
@@ -2598,6 +2597,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const onWindowDragEnd = () => {
       dragDepthRef.current = 0;
       setIsDragOverComposer(false);
+      setIsFileDragOverComposer(false);
     };
     window.addEventListener("dragend", onWindowDragEnd);
     return () => window.removeEventListener("dragend", onWindowDragEnd);
@@ -2787,7 +2787,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     >
       <div
         className={cn(
-          "group rounded-[22px] p-px transition-colors duration-200",
+          "group rounded-2xl p-px transition-colors duration-200",
           composerProviderState.composerFrameClassName,
         )}
         onDragEnter={onComposerDragEnter}
@@ -2799,11 +2799,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onDragLeaveCapture={onComposerMentionDragLeaveCapture}
         onDropCapture={composerMentionDragHandlers.onDrop}
       >
-        <div
-          ref={composerSurfaceRef}
+        <ComposerFileDropZone active={isFileDragOverComposer}>
+          <div
+            ref={composerSurfaceRef}
           data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
           className={cn(
-            "rounded-[20px] transition-[background-color] duration-200",
+            "rounded-[15px] transition-[background-color] duration-200",
             isSimpleChat && "flex flex-nowrap items-center max-sm:flex-wrap",
             isDragOverComposer ? "bg-accent/45 ring-1 ring-primary/70" : null,
             projectSelectionRequired ? "opacity-75" : null,
@@ -2992,8 +2993,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               isSimpleChat
                 ? "min-w-0 flex-1 px-3 py-1 sm:px-3"
                 : hasComposerHeader
-                  ? "pt-2.5 sm:pt-3"
-                  : "pt-3.5 sm:pt-4",
+                  ? "pt-2 sm:pt-2.5"
+                  : "pt-2.5 sm:pt-3",
               isComposerCollapsedMobile && "hidden",
             )}
           >
@@ -3307,7 +3308,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 "flex min-w-0 flex-nowrap items-center justify-between overflow-visible",
                 isSimpleChat
                   ? "w-auto shrink-0 flex-none gap-1 px-2 py-1"
-                  : "gap-2 px-3 pb-3 sm:px-4 sm:pb-4",
+                : "gap-2 px-3 pb-2 sm:px-4 sm:pb-3",
                 pendingUserInputs.length > 0 && "pt-2",
                 isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 showMobilePendingAnswerActions && "hidden sm:flex",
@@ -3324,7 +3325,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     <input
                       ref={imageInputRef}
                       type="file"
-                      accept={CHAT_ATTACHMENT_ACCEPT}
                       multiple
                       className="sr-only"
                       tabIndex={-1}
@@ -3452,7 +3452,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             </div>
           )}
-        </div>
+          </div>
+        </ComposerFileDropZone>
       </div>
     </form>
   );
