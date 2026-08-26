@@ -1,4 +1,4 @@
-import { ImageIcon, LoaderCircleIcon, RefreshCwIcon, SparklesIcon, Trash2Icon } from "lucide-react";
+import { ImageIcon, LoaderCircleIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Effect from "effect/Effect";
 
@@ -14,10 +14,10 @@ import { runPrimaryHttp } from "../lib/runtime";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
+import { GenerationCard, type ImageContent, PendingGenerationCard } from "./ImageGenerationGallery";
 import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDropzone";
 import { VideoWorkspacePanel } from "./VideoWorkspacePanel";
 
-type ImageContent = { readonly mediaType: string; readonly data: string };
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
 type ImageQuality = "auto" | "low" | "medium" | "high";
 type ImageBackground = "auto" | "transparent" | "opaque";
@@ -66,6 +66,7 @@ export function ImageWorkspacePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingEndpoints, setIsLoadingEndpoints] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationAnnouncement, setGenerationAnnouncement] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const selectedModel = useMemo(
@@ -243,6 +244,9 @@ export function ImageWorkspacePage() {
     }
 
     setIsGenerating(true);
+    setGenerationAnnouncement(
+      `Generating ${count} image${count === 1 ? "" : "s"}. This may take a moment.`,
+    );
     setError(null);
     const input: ImageGenerationInput = {
       model: modelId,
@@ -274,8 +278,12 @@ export function ImageWorkspacePage() {
         ),
       );
       setGenerations((current) => [result, ...current]);
+      setGenerationAnnouncement(
+        `${result.assets.length} image${result.assets.length === 1 ? " is" : "s are"} ready.`,
+      );
       setPrompt("");
     } catch (cause) {
+      setGenerationAnnouncement("");
       setError(cause instanceof Error ? cause.message : "Image generation failed.");
     } finally {
       setIsGenerating(false);
@@ -577,6 +585,9 @@ export function ImageWorkspacePage() {
         </section>
 
         <section>
+          <p className="sr-only" role="status">
+            {generationAnnouncement}
+          </p>
           <div className="flex items-baseline justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold">Your generations</h2>
@@ -592,7 +603,7 @@ export function ImageWorkspacePage() {
               <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
               Loading image workspace...
             </div>
-          ) : generations.length === 0 ? (
+          ) : generations.length === 0 && !isGenerating ? (
             <div className="flex flex-col items-center justify-center border-y border-border/60 py-16 text-center">
               <ImageIcon className="size-8 text-muted-foreground/50" aria-hidden="true" />
               <p className="mt-3 text-sm font-medium">No generations yet</p>
@@ -602,52 +613,16 @@ export function ImageWorkspacePage() {
             </div>
           ) : (
             <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {isGenerating ? (
+                <PendingGenerationCard count={count} prompt={prompt} />
+              ) : null}
               {generations.map((generation) => (
-                <div
+                <GenerationCard
                   key={generation.id}
-                  className="group min-w-0 border border-border/70 bg-card/30"
-                >
-                  <div
-                    className={cn(
-                      "grid aspect-square overflow-hidden bg-muted/35",
-                      generation.assets.length > 1 ? "grid-cols-2" : "grid-cols-1",
-                    )}
-                  >
-                    {generation.assets.map((asset) => {
-                      const content = contentByAssetId[asset.id];
-                      return content ? (
-                        <img
-                          key={asset.id}
-                          src={`data:${content.mediaType};base64,${content.data}`}
-                          alt={asset.revisedPrompt ?? generation.prompt}
-                          loading="lazy"
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          key={asset.id}
-                          className="flex size-full items-center justify-center text-muted-foreground"
-                        >
-                          <LoaderCircleIcon className="size-5 animate-spin" aria-hidden="true" />
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex items-start justify-between gap-2 border-t border-border/60 p-2.5">
-                    <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                      {generation.prompt}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => void deleteGeneration(generation.id)}
-                      aria-label="Delete generation"
-                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                    >
-                      <Trash2Icon className="size-3.5" aria-hidden="true" />
-                    </Button>
-                  </div>
-                </div>
+                  contentByAssetId={contentByAssetId}
+                  generation={generation}
+                  onDelete={deleteGeneration}
+                />
               ))}
             </div>
           )}

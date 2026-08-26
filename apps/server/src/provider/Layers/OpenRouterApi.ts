@@ -754,10 +754,12 @@ function validateReferenceUrl(
   }
   if (trimmed.startsWith("data:") && options.allowDataUrl !== false) {
     const match = /^data:([^;,]+);base64,([a-z0-9+/=]+)$/i.exec(trimmed);
+    const mimeType = match?.[1];
+    const base64Payload = match?.[2];
     if (
-      !match ||
-      !match[2] ||
-      !match[1].toLowerCase().startsWith(options.expectedDataMimePrefix ?? "")
+      !mimeType ||
+      !base64Payload ||
+      !mimeType.toLowerCase().startsWith(options.expectedDataMimePrefix ?? "")
     ) {
       throw new OpenRouterApiError(`${field} must be a valid base64 image reference.`);
     }

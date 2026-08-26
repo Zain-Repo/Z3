@@ -496,6 +496,7 @@ it.layer(NodeServices.layer)("checkDroidProviderStatus", (it) => {
           [
             `Droid CLI command \`${binaryPath}\` was not found.`,
             `Install the Droid CLI, make sure \`${binaryPath}\` is on PATH, then restart T3 Code.`,
+            "Install it with: npm install -g @factory/cli.",
             "See https://docs.factory.ai/cli/getting-started/quickstart.",
           ].join(" "),
         );
