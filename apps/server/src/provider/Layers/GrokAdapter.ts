@@ -845,6 +845,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                         threadId: ctx.threadId,
                         turnId: notificationTurnId,
                         ...(event.itemId ? { itemId: event.itemId } : {}),
+                        ...(event.streamKind ? { streamKind: event.streamKind } : {}),
                         text: event.text,
                         rawPayload: event.rawPayload,
                       }),
@@ -857,7 +858,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             Effect.catch((cause) =>
               Effect.logError("Failed to process Grok runtime notification.", { cause }),
             ),
-            Effect.forkChild,
+            Effect.forkIn(ctx.scope),
           );
 
           ctx.notificationFiber = nf;

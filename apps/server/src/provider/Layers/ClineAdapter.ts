@@ -710,6 +710,7 @@ export function makeClineAdapter(clineSettings: ClineSettings, options?: ClineAd
                         threadId: ctx.threadId,
                         turnId: ctx.activeTurnId,
                         ...(event.itemId ? { itemId: event.itemId } : {}),
+                        ...(event.streamKind ? { streamKind: event.streamKind } : {}),
                         text: event.text,
                         rawPayload: event.rawPayload,
                       }),
@@ -722,7 +723,7 @@ export function makeClineAdapter(clineSettings: ClineSettings, options?: ClineAd
             Effect.catch((cause) =>
               Effect.logError("Failed to process Cline runtime notification.", { cause }),
             ),
-            Effect.forkChild,
+            Effect.forkIn(ctx.scope),
           );
 
           ctx.notificationFiber = nf;
@@ -1024,4 +1025,3 @@ export function makeClineAdapter(clineSettings: ClineSettings, options?: ClineAd
     } satisfies ClineAdapterShape;
   });
 }
-

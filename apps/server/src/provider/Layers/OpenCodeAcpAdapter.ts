@@ -543,7 +543,7 @@ export function makeOpenCodeAcpAdapter(
             ),
           ).pipe(
             Effect.catch(() => Effect.void),
-            Effect.forkChild,
+            Effect.forkIn(context.scope),
           );
           sessions.set(input.threadId, context);
           transferred = true;

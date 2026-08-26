@@ -862,6 +862,7 @@ export function makeCursorAdapter(
                         threadId: ctx.threadId,
                         turnId: ctx.activeTurnId,
                         ...(event.itemId ? { itemId: event.itemId } : {}),
+                        ...(event.streamKind ? { streamKind: event.streamKind } : {}),
                         text: event.text,
                         rawPayload: event.rawPayload,
                       }),
@@ -874,7 +875,7 @@ export function makeCursorAdapter(
             Effect.catch((cause) =>
               Effect.logError("Failed to process Cursor runtime notification.", { cause }),
             ),
-            Effect.forkChild,
+            Effect.forkIn(ctx.scope),
           );
 
           ctx.notificationFiber = nf;
