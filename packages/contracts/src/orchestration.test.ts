@@ -267,6 +267,7 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
         text: "hello",
         attachments: [],
       },
+      providerText: "Project context\n\n<user-request>\nhello\n</user-request>",
       modelSelection: {
         provider: "codex",
         model: "gpt-5.4",
@@ -275,6 +276,7 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.modelSelection?.instanceId, "codex");
+    assert.strictEqual(parsed.providerText, "Project context\n\n<user-request>\nhello\n</user-request>");
     assert.strictEqual(parsed.runtimeMode, "full-access");
     assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
   }),
@@ -745,8 +747,10 @@ it.effect(
       const parsed = yield* decodeThreadTurnStartRequestedPayload({
         threadId: "thread-1",
         messageId: "msg-1",
+        providerText: "Project context",
         createdAt: "2026-01-01T00:00:00.000Z",
       });
+      assert.strictEqual(parsed.providerText, "Project context");
       assert.strictEqual(parsed.modelSelection, undefined);
       assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
       assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);

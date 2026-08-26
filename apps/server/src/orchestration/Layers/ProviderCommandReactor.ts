@@ -1288,7 +1288,9 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      // Project context is carried separately from the rendered user message so the
+      // provider receives it while chat history continues to show the user's request.
+      messageText: event.payload.providerText ?? message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

@@ -1,6 +1,6 @@
 import { ChevronDownIcon } from "lucide-react";
 import { memo } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -14,10 +14,12 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { isWorkspaceId, useWorkspace } from "../../workspace";
+import { shouldResetWorkspaceRoute } from "./WorkspaceSwitcher.logic";
 
 export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
   const { activeWorkspace, setWorkspace, workspaces } = useWorkspace();
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
   const ActiveIcon = activeWorkspace.icon;
 
   return (
@@ -39,16 +41,18 @@ export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
           <MenuRadioGroup
             value={activeWorkspace.id}
             onValueChange={(value) => {
-              if (isWorkspaceId(value)) {
-                setWorkspace(value);
-                if (
-                  value === "chat" ||
-                  value === "image" ||
-                  activeWorkspace.id === "chat" ||
-                  activeWorkspace.id === "image"
-                ) {
-                  void navigate({ to: "/" });
-                }
+              if (!isWorkspaceId(value) || value === activeWorkspace.id) {
+                return;
+              }
+
+              const shouldResetRoute = shouldResetWorkspaceRoute(
+                pathname,
+                activeWorkspace.id,
+                value,
+              );
+              setWorkspace(value);
+              if (shouldResetRoute) {
+                void navigate({ to: "/" });
               }
             }}
           >

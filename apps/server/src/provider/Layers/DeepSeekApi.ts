@@ -15,6 +15,27 @@ export interface DeepSeekModel {
   readonly name?: string;
 }
 
+/** Official DeepSeek model that accepts image content in Chat Completions. */
+export const DEEPSEEK_VISION_MODEL = "deepseek-v4-flash-vision-exp";
+
+const DEEPSEEK_SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+export function isDeepSeekVisionModel(model: string): boolean {
+  return model.trim() === DEEPSEEK_VISION_MODEL;
+}
+
+export function normalizeDeepSeekImageMimeType(mimeType: string): string | undefined {
+  const normalized = mimeType.split(";", 1)[0]?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "image/jpg") return "image/jpeg";
+  return DEEPSEEK_SUPPORTED_IMAGE_MIME_TYPES.has(normalized) ? normalized : undefined;
+}
+
 export interface DeepSeekCompletionMessage {
   readonly role: "user" | "assistant" | "system" | "tool";
   readonly content: string | ReadonlyArray<OpenRouterMessageContentPart> | null;
@@ -73,6 +94,18 @@ function errorDetail(status: number): string {
   return `DeepSeek request failed with HTTP ${status}.`;
 }
 
+function upstreamErrorDetail(status: number, payload: unknown): string {
+  if (Predicate.isObject(payload) && Predicate.isObject(payload.error)) {
+    const message = stringValue(payload.error.message);
+    if (message) {
+      // Keep provider errors useful without allowing an upstream response to
+      // turn into an unbounded public error message.
+      return `DeepSeek request failed with HTTP ${status}: ${message.slice(0, 500)}`;
+    }
+  }
+  return errorDetail(status);
+}
+
 const requestJson = Effect.fn("deepSeekRequestJson")(function* (input: {
   readonly httpClient: HttpClient.HttpClient;
   readonly request: HttpClientRequest.HttpClientRequest;
@@ -83,7 +116,11 @@ const requestJson = Effect.fn("deepSeekRequestJson")(function* (input: {
       Effect.mapError((cause) => new DeepSeekApiError(`DeepSeek request failed: ${String(cause)}`)),
     );
   if (response.status < 200 || response.status >= 300) {
-    return yield* Effect.fail(new DeepSeekApiError(errorDetail(response.status), response.status));
+    const detail = yield* response.json.pipe(
+      Effect.map((payload) => upstreamErrorDetail(response.status, payload)),
+      Effect.orElseSucceed(() => errorDetail(response.status)),
+    );
+    return yield* Effect.fail(new DeepSeekApiError(detail, response.status));
   }
   return yield* response.json.pipe(
     Effect.mapError(
@@ -196,7 +233,11 @@ export const streamDeepSeekCompletion = Effect.fn("streamDeepSeekCompletion")(fu
     );
 
   if (response.status < 200 || response.status >= 300) {
-    return yield* Effect.fail(new DeepSeekApiError(errorDetail(response.status), response.status));
+    const detail = yield* response.json.pipe(
+      Effect.map((payload) => upstreamErrorDetail(response.status, payload)),
+      Effect.orElseSucceed(() => errorDetail(response.status)),
+    );
+    return yield* Effect.fail(new DeepSeekApiError(detail, response.status));
   }
 
   return response.stream.pipe(

@@ -1,5 +1,6 @@
 import {
   DeepSeekSettings,
+  type ModelCapabilities,
   ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProvider,
@@ -11,9 +12,12 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import {
   DeepSeekApiError,
+  DEEPSEEK_VISION_MODEL,
   fetchDeepSeekModels,
+  isDeepSeekVisionModel,
   type DeepSeekModel,
 } from "./DeepSeekApi.ts";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import {
   buildServerProvider,
   providerModelsFromSettings,
@@ -21,6 +25,26 @@ import {
 } from "../providerSnapshot.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("deepseek");
+
+const KNOWN_DEEPSEEK_MODELS = new Set([
+  "deepseek-chat",
+  "deepseek-reasoner",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  DEEPSEEK_VISION_MODEL,
+]);
+
+export function deepSeekModelCapabilities(model: string): ModelCapabilities | null {
+  const normalized = model.trim();
+  if (!KNOWN_DEEPSEEK_MODELS.has(normalized)) return null;
+  return createModelCapabilities({
+    optionDescriptors: [],
+    toolCalling: { tools: true, toolChoice: true },
+    reasoning: { supported: true },
+    inputModalities: isDeepSeekVisionModel(normalized) ? ["text", "image"] : ["text"],
+    outputModalities: ["text"],
+  });
+}
 
 function modelsFromApi(
   models: ReadonlyArray<DeepSeekModel>,
@@ -32,13 +56,32 @@ function modelsFromApi(
     name: model.name ?? model.id,
     isCustom: false,
     ...(model.id === defaultModel ? { isDefault: true } : {}),
-    capabilities: null,
+    capabilities: deepSeekModelCapabilities(model.id),
   }));
-  return providerModelsFromSettings(builtIn, settings.customModels, {});
+  if (!builtIn.some((model) => model.slug === DEEPSEEK_VISION_MODEL)) {
+    builtIn.push({
+      slug: DEEPSEEK_VISION_MODEL,
+      name: "DeepSeek V4 Flash Vision (Experimental)",
+      isCustom: false,
+      ...(DEEPSEEK_VISION_MODEL === defaultModel ? { isDefault: true } : {}),
+      capabilities: deepSeekModelCapabilities(DEEPSEEK_VISION_MODEL),
+    });
+  }
+  return providerModelsFromSettings(builtIn, settings.customModels, {}).map((model) => ({
+    ...model,
+    capabilities: model.capabilities ?? deepSeekModelCapabilities(model.slug),
+  }));
 }
 
 function fallbackModels(settings: DeepSeekSettings): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings([], [settings.defaultModel, ...settings.customModels], {});
+  return providerModelsFromSettings(
+    [],
+    [settings.defaultModel, DEEPSEEK_VISION_MODEL, ...settings.customModels],
+    {},
+  ).map((model) => ({
+    ...model,
+    capabilities: deepSeekModelCapabilities(model.slug),
+  }));
 }
 
 function snapshot(input: {

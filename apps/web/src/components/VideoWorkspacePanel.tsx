@@ -6,7 +6,7 @@ import {
   SparklesIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
 
 import type {
@@ -24,10 +24,13 @@ import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDro
 
 const DEFAULT_ASPECT_RATIOS = ["16:9", "9:16", "1:1"];
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
+const GENERATION_WINDOW_SIZE = 24;
+const defaultOptionLabel = (option: string) => option;
 
 export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: () => void }) {
   const [models, setModels] = useState<ReadonlyArray<VideoGenerationModel>>([]);
   const [generations, setGenerations] = useState<ReadonlyArray<VideoGenerationRecord>>([]);
+  const [visibleGenerationCount, setVisibleGenerationCount] = useState(GENERATION_WINDOW_SIZE);
   const [modelId, setModelId] = useState("");
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState("");
@@ -55,6 +58,10 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
   const aspectRatioOptions = selectedModel?.supportedAspectRatios.length
     ? selectedModel.supportedAspectRatios
     : DEFAULT_ASPECT_RATIOS;
+  const visibleGenerations = useMemo(
+    () => generations.slice(0, visibleGenerationCount),
+    [generations, visibleGenerationCount],
+  );
 
   const loadGenerations = useCallback(async () => {
     const result = await runPrimaryHttp(
@@ -70,7 +77,7 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     setIsLoading(true);
     setError(null);
     try {
-      const [modelResult, generationResult] = await Promise.all([
+      const [modelResult] = await Promise.all([
         runPrimaryHttp(
           PrimaryEnvironmentHttpClient.pipe(
             Effect.flatMap((client) => client.videoGeneration.models({ headers: {} })),
@@ -80,7 +87,6 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
       ]);
       setModels(modelResult.models);
       setModelId((current) => current || modelResult.models[0]?.id || "");
-      setGenerations(generationResult);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load the video workspace.");
     } finally {
@@ -196,7 +202,7 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     }
   };
 
-  const deleteGeneration = async (id: string) => {
+  const deleteGeneration = useCallback(async (id: string) => {
     try {
       await runPrimaryHttp(
         PrimaryEnvironmentHttpClient.pipe(
@@ -209,7 +215,21 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not delete the generation.");
     }
-  };
+  }, []);
+
+  const observeGenerationSentinel = useCallback((sentinel: HTMLDivElement | null) => {
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE);
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground">
@@ -433,60 +453,114 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
             </div>
           ) : (
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              {generations.map((generation) => (
-                <div
+              {visibleGenerations.map((generation) => (
+                <VideoGenerationCard
                   key={generation.id}
-                  className="group min-w-0 border border-border/70 bg-card/30"
-                >
-                  {generation.assets[0] ? (
-                    <video
-                      src={generation.assets[0].url}
-                      controls
-                      preload="metadata"
-                      className="aspect-video w-full bg-muted/35 object-contain"
-                    />
-                  ) : (
-                    <div className="flex aspect-video items-center justify-center bg-muted/35">
-                      {TERMINAL_STATUSES.has(generation.status) ? (
-                        <p className="px-4 text-center text-xs text-destructive">
-                          {generation.error ?? `Generation ${generation.status}.`}
-                        </p>
-                      ) : (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
-                          {generation.status === "pending" ? "Queued" : "Rendering"}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-start justify-between gap-2 border-t border-border/60 p-2.5">
-                    <div className="min-w-0">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-                        {generation.status} · {generation.model}
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                        {generation.prompt ?? "Reference-guided video"}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => void deleteGeneration(generation.id)}
-                      aria-label="Delete video generation"
-                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                    >
-                      <Trash2Icon className="size-3.5" aria-hidden="true" />
-                    </Button>
-                  </div>
-                </div>
+                  generation={generation}
+                  onDelete={deleteGeneration}
+                />
               ))}
             </div>
           )}
+          {generations.length > visibleGenerationCount ? (
+            <div ref={observeGenerationSentinel} className="flex justify-center py-5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE)
+                }
+              >
+                Load more videos
+              </Button>
+            </div>
+          ) : null}
         </section>
       </div>
     </main>
   );
 }
+
+const VideoGenerationCard = memo(function VideoGenerationCard({
+  generation,
+  onDelete,
+}: {
+  readonly generation: VideoGenerationRecord;
+  readonly onDelete: (id: string) => Promise<void>;
+}) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [isNearViewport, setIsNearViewport] = useState(false);
+  const asset = generation.assets[0];
+
+  useEffect(() => {
+    if (!asset || isNearViewport) return;
+    const target = previewRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setIsNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setIsNearViewport(true);
+        observer.disconnect();
+      },
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [asset, isNearViewport]);
+
+  return (
+    <article className="group min-w-0 border border-border/70 bg-card/30 [content-visibility:auto] [contain-intrinsic-size:auto_300px]">
+      <div ref={previewRef}>
+        {asset && isNearViewport ? (
+          <video
+            src={asset.url}
+            controls
+            preload="metadata"
+            className="aspect-video w-full bg-muted/35 object-contain"
+          />
+        ) : (
+          <div className="flex aspect-video items-center justify-center bg-muted/35">
+            {asset ? (
+              <FilmIcon className="size-6 text-muted-foreground/35" aria-hidden="true" />
+            ) : TERMINAL_STATUSES.has(generation.status) ? (
+              <p className="px-4 text-center text-xs text-destructive">
+                {generation.error ?? `Generation ${generation.status}.`}
+              </p>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
+                {generation.status === "pending" ? "Queued" : "Rendering"}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex items-start justify-between gap-2 border-t border-border/60 p-2.5">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+            {generation.status} · {generation.model}
+          </p>
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            {generation.prompt ?? "Reference-guided video"}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => void onDelete(generation.id)}
+          aria-label="Delete video generation"
+          className="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        >
+          <Trash2Icon className="size-3.5" aria-hidden="true" />
+        </Button>
+      </div>
+    </article>
+  );
+});
 
 function UrlField({
   label,
@@ -521,7 +595,7 @@ function SelectField({
   options,
   onChange,
   disabled,
-  optionLabel = (option) => option,
+  optionLabel = defaultOptionLabel,
 }: {
   readonly label: string;
   readonly value: string;

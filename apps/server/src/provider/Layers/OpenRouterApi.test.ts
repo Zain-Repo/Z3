@@ -268,6 +268,43 @@ describe("parseOpenRouterModels", () => {
   });
 });
 
+describe("OpenRouter chat completion routing", () => {
+  it.effect("sorts eligible providers by price for the selected model", () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const client = HttpClient.make((request) => {
+      const body = request.body as { readonly body?: Uint8Array };
+      if (body.body) {
+        requestBody = JSON.parse(new TextDecoder().decode(body.body)) as Record<string, unknown>;
+      }
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response("data: [DONE]\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        ),
+      );
+    });
+
+    return streamOpenRouterCompletion({
+      httpClient: client,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "test-key",
+      model: "anthropic/claude-3.7-sonnet",
+      messages: [{ role: "user", content: "Hello" }],
+    }).pipe(
+      Effect.flatMap(Stream.runCollect),
+      Effect.map(() => {
+        expect(requestBody).toMatchObject({
+          model: "anthropic/claude-3.7-sonnet",
+          provider: { sort: "price" },
+        });
+      }),
+    );
+  });
+});
+
 describe("OpenRouter video generation", () => {
   it("parses video model capabilities from the video catalog", () => {
     expect(
@@ -718,7 +755,7 @@ describe("streamOpenRouterCompletion", () => {
       Effect.flatMap((stream) => Stream.runDrain(stream)),
       Effect.map(() => {
         expect(requestBody?.tool_choice).toBeUndefined();
-        expect(requestBody?.provider).toBeUndefined();
+        expect(requestBody?.provider).toEqual({ sort: "price" });
         expect(requestBody?.tools).toEqual([
           { type: "openrouter:web_search" },
           { type: "openrouter:web_fetch" },

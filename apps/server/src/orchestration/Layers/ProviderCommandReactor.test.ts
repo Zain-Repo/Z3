@@ -523,6 +523,7 @@ describe("ProviderCommandReactor", () => {
           text: "hello reactor",
           attachments: [],
         },
+        providerText: "hidden project context\n\nhello reactor",
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
@@ -531,6 +532,11 @@ describe("ProviderCommandReactor", () => {
 
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const providerRequest = harness.sendTurn.mock.calls[0]?.[0] as
+      | ProviderSendTurnInput
+      | undefined;
+    expect(providerRequest?.input).toContain("hidden project context");
+    expect(providerRequest?.input).toContain("hello reactor");
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.make("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       cwd: "/tmp/provider-project",
@@ -546,6 +552,9 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+    expect(thread?.messages.find((message) => message.id === "user-message-1")?.text).toBe(
+      "hello reactor",
+    );
   });
 
   effectIt.effect(

@@ -11,12 +11,12 @@ import type {
 
 import { PrimaryEnvironmentHttpClient } from "../environments/primary/httpClient";
 import { runPrimaryHttp } from "../lib/runtime";
-import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
-import { GenerationCard, type ImageContent, PendingGenerationCard } from "./ImageGenerationGallery";
+import { GenerationCard, PendingGenerationCard } from "./ImageGenerationGallery";
 import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDropzone";
 import { VideoWorkspacePanel } from "./VideoWorkspacePanel";
+import { createImageContentLoader } from "./imageContentLoader";
 
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
 type ImageQuality = "auto" | "low" | "medium" | "high";
@@ -25,6 +25,8 @@ type ImageBackground = "auto" | "transparent" | "opaque";
 const DEFAULT_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"];
 const DEFAULT_QUALITIES: ReadonlyArray<ImageQuality> = ["auto", "low", "medium", "high"];
 const DEFAULT_BACKGROUNDS: ReadonlyArray<ImageBackground> = ["auto", "transparent", "opaque"];
+const GENERATION_WINDOW_SIZE = 24;
+const defaultOptionLabel = (option: string) => option;
 
 function modelSupports(
   supportedParameters: ImageGenerationModel["supportedParameters"],
@@ -46,7 +48,7 @@ export function ImageWorkspacePage() {
   const [mode, setMode] = useState<"image" | "video">("image");
   const [models, setModels] = useState<ReadonlyArray<ImageGenerationModel>>([]);
   const [generations, setGenerations] = useState<ReadonlyArray<ImageGenerationRecord>>([]);
-  const [contentByAssetId, setContentByAssetId] = useState<Record<string, ImageContent>>({});
+  const [visibleGenerationCount, setVisibleGenerationCount] = useState(GENERATION_WINDOW_SIZE);
   const [modelId, setModelId] = useState("");
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
@@ -77,6 +79,10 @@ export function ImageWorkspacePage() {
     if (!modelEndpoints || selectedEndpointIndex === "") return null;
     return modelEndpoints.endpoints[Number(selectedEndpointIndex)] ?? null;
   }, [modelEndpoints, selectedEndpointIndex]);
+  const visibleGenerations = useMemo(
+    () => generations.slice(0, visibleGenerationCount),
+    [generations, visibleGenerationCount],
+  );
   const supportedParameters =
     selectedEndpoint?.supportedParameters ?? selectedModel?.supportedParameters ?? {};
   const supportsStreaming =
@@ -98,11 +104,25 @@ export function ImageWorkspacePage() {
     return result.generations;
   }, []);
 
+  const imageContentLoader = useMemo(
+    () =>
+      createImageContentLoader((assetId) =>
+        runPrimaryHttp(
+          PrimaryEnvironmentHttpClient.pipe(
+            Effect.flatMap((client) =>
+              client.imageGeneration.assetContent({ params: { id: assetId }, headers: {} }),
+            ),
+          ),
+        ),
+      ),
+    [],
+  );
+
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [modelResult, generationResult] = await Promise.all([
+      const [modelResult] = await Promise.all([
         runPrimaryHttp(
           PrimaryEnvironmentHttpClient.pipe(
             Effect.flatMap((client) => client.imageGeneration.models({ headers: {} })),
@@ -112,7 +132,6 @@ export function ImageWorkspacePage() {
       ]);
       setModels(modelResult.models);
       setModelId((current) => current || modelResult.models[0]?.id || "");
-      setGenerations(generationResult);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load the image workspace.");
     } finally {
@@ -165,42 +184,6 @@ export function ImageWorkspacePage() {
     };
   }, [selectedModel]);
 
-  useEffect(() => {
-    const assets = generations.flatMap((generation) => generation.assets);
-    if (assets.length === 0) return;
-
-    let cancelled = false;
-    void Promise.all(
-      assets.map(async (asset) => {
-        if (contentByAssetId[asset.id]) return null;
-        const content = await runPrimaryHttp(
-          PrimaryEnvironmentHttpClient.pipe(
-            Effect.flatMap((client) =>
-              client.imageGeneration.assetContent({ params: { id: asset.id }, headers: {} }),
-            ),
-          ),
-        );
-        return [asset.id, content] as const;
-      }),
-    )
-      .then((entries) => {
-        if (cancelled) return;
-        setContentByAssetId((current) => ({
-          ...current,
-          ...Object.fromEntries(
-            entries.filter((entry): entry is readonly [string, ImageContent] => entry !== null),
-          ),
-        }));
-      })
-      .catch(() => {
-        // Keep generation metadata visible when an individual preview cannot be loaded.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [contentByAssetId, generations]);
-
   const generate = async () => {
     if (!modelId || prompt.trim().length === 0) {
       setError("Choose an image model and enter a prompt.");
@@ -238,7 +221,7 @@ export function ImageWorkspacePage() {
         return;
       }
       provider = {
-        ...(provider ?? {}),
+        ...provider,
         options: { [providerKey]: options },
       };
     }
@@ -290,20 +273,43 @@ export function ImageWorkspacePage() {
     }
   };
 
-  const deleteGeneration = async (id: string) => {
-    try {
-      await runPrimaryHttp(
-        PrimaryEnvironmentHttpClient.pipe(
-          Effect.flatMap((client) =>
-            client.imageGeneration.deleteGeneration({ params: { id }, headers: {} }),
+  const deleteGeneration = useCallback(
+    async (id: string) => {
+      try {
+        await runPrimaryHttp(
+          PrimaryEnvironmentHttpClient.pipe(
+            Effect.flatMap((client) =>
+              client.imageGeneration.deleteGeneration({ params: { id }, headers: {} }),
+            ),
           ),
-        ),
-      );
-      setGenerations((current) => current.filter((generation) => generation.id !== id));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not delete the generation.");
-    }
-  };
+        );
+        setGenerations((current) => {
+          const deletedGeneration = current.find((generation) => generation.id === id);
+          for (const asset of deletedGeneration?.assets ?? []) {
+            imageContentLoader.delete(asset.id);
+          }
+          return current.filter((generation) => generation.id !== id);
+        });
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Could not delete the generation.");
+      }
+    },
+    [imageContentLoader],
+  );
+
+  const observeGenerationSentinel = useCallback((sentinel: HTMLDivElement | null) => {
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE);
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   const aspectRatios = modelEnumValues(supportedParameters, "aspect_ratio", DEFAULT_ASPECT_RATIOS);
   const resolutions = modelEnumValues(supportedParameters, "resolution", ["512", "1K", "2K", "4K"]);
@@ -613,19 +619,30 @@ export function ImageWorkspacePage() {
             </div>
           ) : (
             <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {isGenerating ? (
-                <PendingGenerationCard count={count} prompt={prompt} />
-              ) : null}
-              {generations.map((generation) => (
+              {isGenerating ? <PendingGenerationCard count={count} prompt={prompt} /> : null}
+              {visibleGenerations.map((generation) => (
                 <GenerationCard
                   key={generation.id}
-                  contentByAssetId={contentByAssetId}
                   generation={generation}
+                  loadImageContent={imageContentLoader.load}
                   onDelete={deleteGeneration}
                 />
               ))}
             </div>
           )}
+          {generations.length > visibleGenerationCount ? (
+            <div ref={observeGenerationSentinel} className="flex justify-center py-5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE)
+                }
+              >
+                Load more generations
+              </Button>
+            </div>
+          ) : null}
         </section>
       </div>
     </main>
@@ -638,7 +655,7 @@ function SelectField({
   options,
   onChange,
   disabled,
-  optionLabel = (option) => option,
+  optionLabel = defaultOptionLabel,
 }: {
   readonly label: string;
   readonly value: string;

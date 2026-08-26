@@ -1,15 +1,20 @@
 import { ProviderDriverKind } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 
-import { streamDeepSeekCompletion } from "./DeepSeekApi.ts";
+import {
+  isDeepSeekVisionModel,
+  normalizeDeepSeekImageMimeType,
+  streamDeepSeekCompletion,
+} from "./DeepSeekApi.ts";
 import {
   makeOpenAICompatibleAdapter,
+  type OpenAICompatibleAdapterConfig,
   type OpenRouterToolSupport,
 } from "./OpenRouterAdapter.ts";
 
-// DeepSeek's direct API does not expose a vision input modality, so image data
-// must not be forwarded as if the text-only endpoint could interpret it.
 export const DEEPSEEK_DIRECT_IMAGE_SUPPORT_MESSAGE =
-  "The direct DeepSeek API currently accepts text input only and does not process image attachments. Select an image-capable model through OpenRouter, such as deepseek/deepseek-v4-flash-vision-exp.";
+  "DeepSeek image attachments require the deepseek-v4-flash-vision-exp model. Select that model and try again.";
 
 /**
  * Build the per-instance DeepSeek session adapter on the shared
@@ -23,6 +28,9 @@ export const makeDeepSeekAdapter = (config: {
   readonly apiKey: string;
   readonly defaultModel: string;
   readonly instanceId: string;
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly attachmentsDir: string;
+  readonly streamCompletion?: OpenAICompatibleAdapterConfig["streamCompletion"];
   readonly toolSupport?: OpenRouterToolSupport;
 }) =>
   makeOpenAICompatibleAdapter({
@@ -30,9 +38,16 @@ export const makeDeepSeekAdapter = (config: {
     provider: ProviderDriverKind.make("deepseek"),
     providerLabel: "DeepSeek",
     idPrefix: "deepseek",
-    attachmentsDisabledReason: DEEPSEEK_DIRECT_IMAGE_SUPPORT_MESSAGE,
+    fileSystem: config.fileSystem,
+    attachmentsDir: config.attachmentsDir,
+    attachmentModelUnsupportedReason: () => DEEPSEEK_DIRECT_IMAGE_SUPPORT_MESSAGE,
+    attachmentMimeTypeNormalizer: normalizeDeepSeekImageMimeType,
+    getModelCapabilities: (model) =>
+      Effect.succeed({
+        inputModalities: isDeepSeekVisionModel(model) ? ["text", "image"] : ["text"],
+      }),
     supportsTools: true,
     reasoningMessageField: "reasoning_content",
     ...(config.toolSupport ? { toolSupport: config.toolSupport } : {}),
-    streamCompletion: (input) => streamDeepSeekCompletion(input),
+    streamCompletion: config.streamCompletion ?? ((input) => streamDeepSeekCompletion(input)),
   });

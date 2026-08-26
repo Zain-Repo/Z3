@@ -1,14 +1,12 @@
 import type { ImageGenerationRecord } from "@t3tools/contracts";
 import { Maximize2Icon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
-import { memo, useMemo, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Skeleton } from "./ui/skeleton";
-
-export type ImageContent = { readonly mediaType: string; readonly data: string };
+import type { ImageContent, LoadImageContent } from "./imageContentLoader";
 
 export function PendingGenerationCard({
   count,
@@ -38,48 +36,37 @@ export function PendingGenerationCard({
           <span className="size-2 rounded-full bg-fuchsia-500" aria-hidden="true" />
           Generating {count} image{count === 1 ? "" : "s"}
         </div>
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {prompt}
-        </p>
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{prompt}</p>
       </div>
     </article>
   );
 }
 
-export function GenerationCard({
+export const GenerationCard = memo(function GenerationCard({
   generation,
-  contentByAssetId,
+  loadImageContent,
   onDelete,
 }: {
   readonly generation: ImageGenerationRecord;
-  readonly contentByAssetId: Record<string, ImageContent>;
+  readonly loadImageContent: LoadImageContent;
   readonly onDelete: (id: string) => Promise<void>;
 }) {
-  const isLoadingPreview = generation.assets.some((asset) => !contentByAssetId[asset.id]);
-
   return (
-    <article
-      aria-busy={isLoadingPreview}
-      className="group min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card/30 shadow-sm/5"
-    >
+    <article className="group min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card/30 shadow-sm/5 [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
       <div
         className={cn(
           "grid aspect-square overflow-hidden bg-muted/35",
           generation.assets.length > 1 ? "grid-cols-2" : "grid-cols-1",
         )}
       >
-        {generation.assets.map((asset) => {
-          const content = contentByAssetId[asset.id];
-          return content ? (
-            <GeneratedImageTile
-              key={asset.id}
-              alt={asset.revisedPrompt ?? generation.prompt}
-              content={content}
-            />
-          ) : (
-            <ImageSkeletonTile key={asset.id} />
-          );
-        })}
+        {generation.assets.map((asset) => (
+          <LazyGeneratedImageTile
+            key={asset.id}
+            assetId={asset.id}
+            alt={asset.revisedPrompt ?? generation.prompt}
+            loadImageContent={loadImageContent}
+          />
+        ))}
       </div>
       <div className="flex items-start justify-between gap-2 border-t border-border/60 p-2.5">
         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
@@ -97,7 +84,7 @@ export function GenerationCard({
       </div>
     </article>
   );
-}
+});
 
 function ImageSkeletonTile() {
   return (
@@ -112,6 +99,83 @@ function ImageSkeletonTile() {
   );
 }
 
+function LazyGeneratedImageTile({
+  assetId,
+  alt,
+  loadImageContent,
+}: {
+  readonly assetId: string;
+  readonly alt: string;
+  readonly loadImageContent: LoadImageContent;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [content, setContent] = useState<ImageContent | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [requestVersion, setRequestVersion] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let observer: IntersectionObserver | null = null;
+
+    const load = () => {
+      void loadImageContent(assetId)
+        .then((nextContent) => {
+          if (active) setContent(nextContent);
+        })
+        .catch(() => {
+          if (active) setLoadFailed(true);
+        });
+    };
+
+    const target = containerRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      load();
+    } else {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          observer?.disconnect();
+          load();
+        },
+        { rootMargin: "800px 0px" },
+      );
+      observer.observe(target);
+    }
+
+    return () => {
+      active = false;
+      observer?.disconnect();
+    };
+  }, [assetId, loadImageContent, requestVersion]);
+
+  if (content) {
+    return <GeneratedImageTile alt={alt} content={content} />;
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative size-full overflow-hidden bg-muted/35"
+      aria-busy={!loadFailed}
+    >
+      {loadFailed ? (
+        <button
+          type="button"
+          className="flex size-full items-center justify-center px-3 text-center text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            setLoadFailed(false);
+            setRequestVersion((current) => current + 1);
+          }}
+        >
+          Preview unavailable. Retry
+        </button>
+      ) : (
+        <ImageSkeletonTile />
+      )}
+    </div>
+  );
+}
+
 const GeneratedImageTile = memo(function GeneratedImageTile({
   alt,
   content,
@@ -120,7 +184,6 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
   readonly content: ImageContent;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
-  const isReducedMotion = useReducedMotion() ?? false;
   const source = useMemo(
     () => `data:${content.mediaType};base64,${content.data}`,
     [content.data, content.mediaType],
@@ -145,24 +208,18 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
             isLoaded ? "opacity-0" : "opacity-100",
           )}
         />
-        <motion.img
+        <img
           src={source}
           alt=""
           draggable={false}
           loading="lazy"
-          initial={false}
-          animate={{
-            opacity: isLoaded ? 1 : 0,
-            scale: isLoaded || isReducedMotion ? 1 : 0.985,
-            filter: isLoaded || isReducedMotion ? "blur(0px)" : "blur(6px)",
-          }}
-          transition={
-            isReducedMotion
-              ? { duration: 0.15, ease: "easeOut" }
-              : { duration: 0.42, ease: [0.2, 0, 0, 1] }
-          }
+          decoding="async"
+          fetchPriority="low"
           onLoad={() => setIsLoaded(true)}
-          className="size-full object-cover outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
+          className={cn(
+            "size-full object-cover opacity-0 outline outline-1 -outline-offset-1 outline-black/10 transition-opacity duration-150 motion-reduce:transition-none dark:outline-white/10",
+            isLoaded && "opacity-100",
+          )}
         />
         <span
           aria-hidden="true"
@@ -202,6 +259,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
             src={source}
             alt={alt}
             draggable={false}
+            decoding="async"
             className="max-h-full max-w-full rounded-lg object-contain outline outline-1 -outline-offset-1 outline-white/10"
           />
         </div>

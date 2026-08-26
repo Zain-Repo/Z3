@@ -1,12 +1,14 @@
 import { DeepSeekSettings, ProviderDriverKind } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
+import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
 import { makeDeepSeekTextGeneration } from "../../textGeneration/DeepSeekTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeDeepSeekAdapter } from "../Layers/DeepSeekAdapter.ts";
@@ -30,7 +32,9 @@ const decodeDeepSeekSettings = Schema.decodeSync(DeepSeekSettings);
 
 export type DeepSeekDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
+  | FileSystem.FileSystem
   | HttpClient.HttpClient
+  | ServerConfig
   | ServerSettingsService;
 
 export const DeepSeekDriver: ProviderDriver<DeepSeekSettings, DeepSeekDriverEnv> = {
@@ -42,6 +46,8 @@ export const DeepSeekDriver: ProviderDriver<DeepSeekSettings, DeepSeekDriverEnv>
     Effect.gen(function* () {
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const httpClient = yield* HttpClient.HttpClient;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverConfig = yield* ServerConfig;
       const apiKey = processEnv.DEEPSEEK_API_KEY?.trim() || undefined;
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -63,12 +69,17 @@ export const DeepSeekDriver: ProviderDriver<DeepSeekSettings, DeepSeekDriverEnv>
         apiKey: apiKey ?? "",
         defaultModel: effectiveConfig.defaultModel,
         instanceId,
+        fileSystem,
+        attachmentsDir: serverConfig.attachmentsDir,
         toolSupport,
       });
       const textGeneration = yield* makeDeepSeekTextGeneration();
-      const checkProvider = checkDeepSeekProvider(effectiveConfig, enabled, apiKey, httpClient).pipe(
-        Effect.map(identity),
-      );
+      const checkProvider = checkDeepSeekProvider(
+        effectiveConfig,
+        enabled,
+        apiKey,
+        httpClient,
+      ).pipe(Effect.map(identity));
       const snapshot = yield* makeManagedServerProvider<DeepSeekSettings>({
         maintenanceCapabilities: makeManualOnlyProviderMaintenanceCapabilities({
           provider: DRIVER_KIND,

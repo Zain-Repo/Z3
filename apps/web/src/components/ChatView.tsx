@@ -168,7 +168,7 @@ import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
-import { useWorkspace } from "../workspace";
+import { getWorkspaceDefinition } from "../workspace";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
@@ -327,6 +327,7 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_CHAT_PROJECTS: readonly ChatProject[] = [];
+const CODE_WORKSPACE_TOPBAR_CLASS_NAME = getWorkspaceDefinition("code").topbarClassName;
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
   const transitionGroupRef = useRef<HTMLDivElement | null>(null);
   const composerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -1171,8 +1172,6 @@ function chatActionErrorMessage(error: unknown): string {
 }
 
 function ChatViewContent(props: ChatViewProps) {
-  const { activeWorkspace } = useWorkspace();
-  const isChatWorkspace = activeWorkspace.id === "chat";
   const {
     environmentId,
     threadId,
@@ -1493,7 +1492,9 @@ function ChatViewContent(props: ChatViewProps) {
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
   const isChatThread = routeKind === "chat-draft" || activeThread?.scope === "chat";
-  const isChatSurface = isChatWorkspace || isChatThread;
+  // Durable thread scope identifies the rendered surface without subscribing
+  // this large component to transient workspace-switcher updates.
+  const isChatSurface = isChatThread;
   const chatProjects = useChatProjectsStore(
     (state) => state.projectsByEnvironment[environmentId] ?? EMPTY_CHAT_PROJECTS,
   );
@@ -1519,8 +1520,7 @@ function ChatViewContent(props: ChatViewProps) {
           thread.archivedAt === null &&
           chatProject.threadIds.includes(thread.id),
       )
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 6);
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }, [chatProject, chatThreadShells]);
   const selectRecentChatProjectThread = useCallback(
     (nextEnvironmentId: EnvironmentId, nextThreadId: ThreadId) => {
@@ -4842,6 +4842,10 @@ function ChatViewContent(props: ChatViewProps) {
       effort: ctxSelectedPromptEffort,
       text: messageTextWithProjectContext || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
+    const visibleMessageText =
+      isChatThread && chatProject
+        ? messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT
+        : outgoingMessageText;
     const turnAttachmentsPromise = Promise.all([
       ...composerImagesSnapshot.map(async (image) => ({
         type: "image" as const,
@@ -4894,7 +4898,7 @@ function ChatViewContent(props: ChatViewProps) {
       {
         id: messageIdForSend,
         role: "user",
-        text: outgoingMessageText,
+        text: visibleMessageText,
         ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
         turnId: null,
         createdAt: messageCreatedAt,
@@ -5025,9 +5029,10 @@ function ChatViewContent(props: ChatViewProps) {
           message: {
             messageId: messageIdForSend,
             role: "user",
-            text: outgoingMessageText,
+            text: visibleMessageText,
             attachments: turnAttachmentsResult.value,
           },
+          ...(isChatThread && chatProject ? { providerText: outgoingMessageText } : {}),
           modelSelection: ctxSelectedModelSelection,
           titleSeed: title,
           runtimeMode,
@@ -5895,7 +5900,7 @@ function ChatViewContent(props: ChatViewProps) {
           data-chat-header
           className={cn(
             "bg-background transition-[background-color,padding-left] duration-200 ease-linear motion-reduce:transition-none",
-            activeWorkspace.topbarClassName,
+            CODE_WORKSPACE_TOPBAR_CLASS_NAME,
             isChatSurface && "hidden",
             isElectron
               ? cn(

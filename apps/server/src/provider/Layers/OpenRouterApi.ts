@@ -1113,7 +1113,13 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
             ...(input.modelCapabilities?.supportedParameters?.includes("tool_choice")
               ? { tool_choice: "auto" }
               : {}),
-            ...(localTools.length > 0 ? { provider: { require_parameters: true } } : {}),
+            // OpenRouter's default routing is price-weighted load balancing. Use
+            // explicit price sorting so the selected model consistently starts
+            // with its cheapest eligible provider while retaining tool support.
+            provider: {
+              sort: "price",
+              ...(localTools.length > 0 ? { require_parameters: true } : {}),
+            },
             parallel_tool_calls: true,
             max_tool_calls: 5,
           }),

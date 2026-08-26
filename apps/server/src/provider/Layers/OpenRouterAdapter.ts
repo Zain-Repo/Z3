@@ -176,6 +176,8 @@ export interface OpenAICompatibleAdapterConfig {
   readonly providerLabel: string;
   readonly idPrefix: string;
   readonly attachmentsDisabledReason?: string;
+  readonly attachmentModelUnsupportedReason?: (model: string) => string | undefined;
+  readonly attachmentMimeTypeNormalizer?: (mimeType: string) => string | undefined;
   readonly fileSystem?: FileSystem.FileSystem;
   readonly attachmentsDir?: string;
   /** Some OpenAI-compatible APIs support tools without advertising metadata. */
@@ -233,12 +235,14 @@ function parseToolArguments(raw: string): { readonly value?: unknown; readonly e
   }
 }
 
-const buildOpenRouterUserContent = Effect.fn("buildOpenRouterUserContent")(function* (
+const buildOpenAICompatibleUserContent = Effect.fn("buildOpenAICompatibleUserContent")(function* (
   input: ProviderSendTurnInput,
   dependencies: {
     readonly fileSystem: FileSystem.FileSystem;
     readonly attachmentsDir: string;
     readonly provider: ProviderDriverKind;
+    readonly providerLabel: string;
+    readonly normalizeMimeType: (mimeType: string) => string | undefined;
   },
 ) {
   const content: Array<OpenRouterMessageContentPart> = [];
@@ -267,13 +271,13 @@ const buildOpenRouterUserContent = Effect.fn("buildOpenRouterUserContent")(funct
       });
     }
 
-    const mimeType = normalizeOpenRouterImageMimeType(attachment.mimeType);
+    const mimeType = dependencies.normalizeMimeType(attachment.mimeType);
     if (!mimeType) {
       return yield* new ProviderAdapterValidationError({
         provider: dependencies.provider,
         operation: "sendTurn",
         issue:
-          "OpenRouter accepts PNG, JPEG, WEBP, and GIF image attachments only. Convert the image and try again.",
+          `${dependencies.providerLabel} accepts PNG, JPEG, WEBP, and GIF image attachments only. Convert the image and try again.`,
       });
     }
 
@@ -829,15 +833,20 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "sendTurn",
-              issue: `${config.providerLabel} model '${model}' does not accept image input.`,
+              issue:
+                config.attachmentModelUnsupportedReason?.(model) ??
+                `${config.providerLabel} model '${model}' does not accept image input.`,
             });
           }
           const userContent =
             (input.attachments?.length ?? 0) > 0
-              ? yield* buildOpenRouterUserContent(input, {
+              ? yield* buildOpenAICompatibleUserContent(input, {
                   fileSystem: config.fileSystem!,
                   attachmentsDir: config.attachmentsDir!,
                   provider: PROVIDER,
+                  providerLabel: config.providerLabel,
+                  normalizeMimeType:
+                    config.attachmentMimeTypeNormalizer ?? normalizeOpenRouterImageMimeType,
                 })
               : input.input;
           const now = DateTime.formatIso(yield* DateTime.now);
