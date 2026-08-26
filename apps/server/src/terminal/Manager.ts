@@ -1129,8 +1129,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const fetchProcessTableSnapshot = (
     platform === "win32"
       ? windowsProcessTableSnapshot()
-      : posixProcessTableSnapshot(yield* resolvePosixPsCommand())
-  ).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner));
+      : resolvePosixPsCommand().pipe(Effect.flatMap(posixProcessTableSnapshot))
+  ).pipe(
+    Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
+    Effect.provideService(FileSystem.FileSystem, fileSystem),
+  );
   const customSubprocessInspector = options.subprocessInspector;
   const acquireSubprocessInspector: Effect.Effect<
     TerminalSubprocessInspector,
