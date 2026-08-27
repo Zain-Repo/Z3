@@ -1,11 +1,26 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { FolderIcon, MoreHorizontalIcon, PinIcon, PinOffIcon, Settings2Icon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  FilesIcon,
+  FileTextIcon,
+  FolderIcon,
+  LoaderCircleIcon,
+  MessageSquareTextIcon,
+  MoreHorizontalIcon,
+  PinIcon,
+  PinOffIcon,
+  RefreshCwIcon,
+  Settings2Icon,
+  Trash2Icon,
+} from "lucide-react";
 import { useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
 import type { ThreadShell } from "../types";
-import type { ChatProject } from "../lib/chatProjects";
+import type { ChatProject, ChatProjectSource } from "../lib/chatProjects";
 import { ChatProjectDialog } from "./ChatProjectDialog";
+import { ChatProjectSourceDropzone } from "./ChatProjectSourceDropzone";
+import { Button } from "./ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,16 +28,38 @@ import {
   DropdownMenuTrigger,
 } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "./ui/tabs";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-const RECENT_CHAT_VISIBLE_ROW_COUNT = 5;
-const RECENT_CHAT_ROW_HEIGHT_REM = 4;
+const PROJECT_CONTENT_VISIBLE_ROW_COUNT = 5;
+const PROJECT_CONTENT_ROW_HEIGHT_REM = 3;
 
 interface ChatProjectHeroProps {
   readonly environmentId: EnvironmentId;
   readonly project: ChatProject;
-  readonly recentThreads: readonly ThreadShell[];
   readonly onTogglePin: () => void;
+}
+
+export interface ChatProjectSourceActionHandlers {
+  /** Rebuild the index entry for a source and reject when the operation fails. */
+  readonly onReindexSource?: (source: ChatProjectSource) => void | Promise<void>;
+  /** Remove a source and reject when the operation fails. */
+  readonly onDeleteSource?: (source: ChatProjectSource) => void | Promise<void>;
+}
+
+interface ChatProjectContentTabsProps extends ChatProjectSourceActionHandlers {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: string;
+  readonly recentThreads: readonly ThreadShell[];
+  readonly sources: readonly ChatProjectSource[];
   readonly onSelectThread: (environmentId: EnvironmentId, threadId: ThreadId) => void;
+}
+
+type ChatProjectSourceAction = "reindex" | "delete";
+
+interface PendingSourceAction {
+  readonly sourceId: string;
+  readonly action: ChatProjectSourceAction;
 }
 
 function formatRecentDate(value: string): string {
@@ -31,20 +68,20 @@ function formatRecentDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-export function ChatProjectHero({
-  environmentId,
-  project,
-  recentThreads,
-  onTogglePin,
-  onSelectThread,
-}: ChatProjectHeroProps) {
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function ChatProjectHero({ environmentId, project, onTogglePin }: ChatProjectHeroProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const isReducedMotion = useReducedMotion() ?? false;
 
   return (
     <>
       <div className="mx-auto w-full max-w-3xl px-1 sm:px-2">
-        <div className="mb-7 flex items-center justify-between gap-4 px-1 sm:px-2">
+        <div className="flex items-center justify-between gap-4 px-1 sm:px-2">
           <motion.div
             className="flex min-w-0 items-center gap-3"
             initial={isReducedMotion ? false : { opacity: 0, y: 6 }}
@@ -75,41 +112,6 @@ export function ChatProjectHero({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        {recentThreads.length > 0 ? (
-          <section aria-labelledby="recent-project-chats-heading" className="px-1 sm:px-2">
-            <h2
-              id="recent-project-chats-heading"
-              className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground/70"
-            >
-              Recent chats
-            </h2>
-            <ScrollArea
-              className="border-y border-border/70"
-              style={{
-                maxHeight: `${RECENT_CHAT_VISIBLE_ROW_COUNT * RECENT_CHAT_ROW_HEIGHT_REM}rem`,
-              }}
-            >
-              <div className="divide-y divide-border/70">
-                {recentThreads.map((thread) => (
-                  <button
-                    key={`${environmentId}:${thread.id}`}
-                    type="button"
-                    className="flex h-16 w-full items-center gap-3 py-3 text-left outline-none transition-colors hover:text-foreground focus-visible:bg-accent/55 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    onClick={() => onSelectThread(environmentId, thread.id)}
-                  >
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
-                      {thread.title || "New chat"}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatRecentDate(thread.updatedAt)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-          </section>
-        ) : null}
       </div>
       <ChatProjectDialog
         environmentId={environmentId}
@@ -119,5 +121,240 @@ export function ChatProjectHero({
         project={project}
       />
     </>
+  );
+}
+
+export function ChatProjectContentTabs({
+  environmentId,
+  projectId,
+  recentThreads,
+  sources,
+  onSelectThread,
+  onReindexSource,
+  onDeleteSource,
+}: ChatProjectContentTabsProps) {
+  const [pendingSourceAction, setPendingSourceAction] = useState<PendingSourceAction | null>(null);
+  const [sourceActionErrors, setSourceActionErrors] = useState<Readonly<Record<string, string>>>(
+    {},
+  );
+  const contentMaxHeight = `${PROJECT_CONTENT_VISIBLE_ROW_COUNT * PROJECT_CONTENT_ROW_HEIGHT_REM}rem`;
+
+  const handleSourceAction = async (
+    source: ChatProjectSource,
+    action: ChatProjectSourceAction,
+  ): Promise<void> => {
+    const callback = action === "reindex" ? onReindexSource : onDeleteSource;
+    if (!callback || pendingSourceAction) return;
+
+    setPendingSourceAction({ action, sourceId: source.id });
+    setSourceActionErrors((current) => {
+      if (!(source.id in current)) return current;
+      const next = { ...current };
+      delete next[source.id];
+      return next;
+    });
+
+    try {
+      await callback(source);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Please try again.";
+      setSourceActionErrors((current) => ({ ...current, [source.id]: message }));
+    } finally {
+      setPendingSourceAction(null);
+    }
+  };
+
+  return (
+    <section className="mx-auto mt-5 w-full max-w-3xl px-2" aria-label="Project content">
+      <Tabs defaultValue="recent" className="gap-0">
+        <div className="border-b border-border/70">
+          <TabsList variant="underline" size="sm" aria-label="Project content views">
+            <TabsTab value="recent" className="gap-1.5 px-2.5 text-xs">
+              <MessageSquareTextIcon aria-hidden="true" />
+              Recent chats
+              <span className="tabular-nums text-[10px] text-muted-foreground/65">
+                {recentThreads.length}
+              </span>
+            </TabsTab>
+            <TabsTab value="sources" className="gap-1.5 px-2.5 text-xs">
+              <FilesIcon aria-hidden="true" />
+              Sources
+              <span className="tabular-nums text-[10px] text-muted-foreground/65">
+                {sources.length}
+              </span>
+            </TabsTab>
+          </TabsList>
+        </div>
+        <TabsPanel value="recent">
+          {recentThreads.length > 0 ? (
+            <ScrollArea
+              className="border-b border-border/70"
+              style={{ maxHeight: contentMaxHeight }}
+            >
+              <div className="divide-y divide-border/70">
+                {recentThreads.map((thread) => (
+                  <button
+                    key={`${environmentId}:${thread.id}`}
+                    type="button"
+                    className="flex h-12 w-full items-center gap-3 px-1 text-left outline-none transition-colors hover:bg-accent/35 hover:text-foreground focus-visible:bg-accent/55 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-2"
+                    onClick={() => onSelectThread(environmentId, thread.id)}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                      {thread.title || "New chat"}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {formatRecentDate(thread.updatedAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : (
+            <div className="flex h-24 items-center justify-center border-b border-border/70 px-4 text-center text-xs text-muted-foreground">
+              No chats in this project yet.
+            </div>
+          )}
+        </TabsPanel>
+        <TabsPanel value="sources">
+          <div className="border-b border-border/70 p-2">
+            <ChatProjectSourceDropzone environmentId={environmentId} projectId={projectId} />
+          </div>
+          {sources.length > 0 ? (
+            <ScrollArea
+              className="border-b border-border/70"
+              style={{ maxHeight: contentMaxHeight }}
+            >
+              <div className="divide-y divide-border/70">
+                {sources.map((source) => (
+                  <div
+                    key={source.id}
+                    className="group flex min-h-12 min-w-0 items-center gap-3 px-1 py-1 sm:px-2"
+                    aria-busy={pendingSourceAction?.sourceId === source.id}
+                  >
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/55 text-muted-foreground">
+                      <FileTextIcon className="size-4" strokeWidth={1.7} aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className="block truncate text-sm text-foreground/90"
+                        title={source.name}
+                      >
+                        {source.name}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {formatBytes(source.sizeBytes)} · Added {formatRecentDate(source.createdAt)}
+                      </span>
+                      {sourceActionErrors[source.id] ? (
+                        <span
+                          id={`chat-project-source-error-${source.id}`}
+                          className="flex min-w-0 items-center gap-1 break-words text-[11px] text-destructive"
+                          role="alert"
+                        >
+                          <AlertCircleIcon className="size-3 shrink-0" aria-hidden="true" />
+                          <span>{sourceActionErrors[source.id]}</span>
+                        </span>
+                      ) : null}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={
+                                pendingSourceAction?.sourceId === source.id &&
+                                pendingSourceAction.action === "reindex"
+                                  ? "Re-indexing source…"
+                                  : onReindexSource
+                                    ? "Re-index source"
+                                    : "Re-index source unavailable"
+                              }
+                              title={
+                                onReindexSource ? "Re-index source" : "Re-index source unavailable"
+                              }
+                              disabled={Boolean(pendingSourceAction) || !onReindexSource}
+                              aria-describedby={
+                                sourceActionErrors[source.id]
+                                  ? `chat-project-source-error-${source.id}`
+                                  : undefined
+                              }
+                              onClick={() => void handleSourceAction(source, "reindex")}
+                            >
+                              {pendingSourceAction?.sourceId === source.id &&
+                              pendingSourceAction.action === "reindex" ? (
+                                <LoaderCircleIcon
+                                  className="animate-spin motion-reduce:animate-none"
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                <RefreshCwIcon aria-hidden="true" />
+                              )}
+                            </Button>
+                          }
+                        />
+                        <TooltipPopup side="top">
+                          {pendingSourceAction?.sourceId === source.id &&
+                          pendingSourceAction.action === "reindex"
+                            ? "Re-indexing source…"
+                            : onReindexSource
+                              ? "Re-index source"
+                              : "Re-index source unavailable"}
+                        </TooltipPopup>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-destructive hover:text-destructive"
+                              aria-label={
+                                pendingSourceAction?.sourceId === source.id &&
+                                pendingSourceAction.action === "delete"
+                                  ? "Deleting source…"
+                                  : onDeleteSource
+                                    ? "Delete source"
+                                    : "Delete source unavailable"
+                              }
+                              title={onDeleteSource ? "Delete source" : "Delete source unavailable"}
+                              disabled={Boolean(pendingSourceAction) || !onDeleteSource}
+                              aria-describedby={
+                                sourceActionErrors[source.id]
+                                  ? `chat-project-source-error-${source.id}`
+                                  : undefined
+                              }
+                              onClick={() => void handleSourceAction(source, "delete")}
+                            >
+                              {pendingSourceAction?.sourceId === source.id &&
+                              pendingSourceAction.action === "delete" ? (
+                                <LoaderCircleIcon
+                                  className="animate-spin motion-reduce:animate-none"
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                <Trash2Icon aria-hidden="true" />
+                              )}
+                            </Button>
+                          }
+                        />
+                        <TooltipPopup side="top">
+                          {pendingSourceAction?.sourceId === source.id &&
+                          pendingSourceAction.action === "delete"
+                            ? "Deleting source…"
+                            : onDeleteSource
+                              ? "Delete source"
+                              : "Delete source unavailable"}
+                        </TooltipPopup>
+                      </Tooltip>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : null}
+        </TabsPanel>
+      </Tabs>
+    </section>
   );
 }
