@@ -6,7 +6,7 @@ import {
   Settings2Icon,
   SparklesIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
 
 import {
@@ -21,25 +21,35 @@ import {
 import { PrimaryEnvironmentHttpClient } from "../environments/primary/httpClient";
 import { runPrimaryHttp } from "../lib/runtime";
 import { Button } from "./ui/button";
-import { Textarea } from "./ui/textarea";
-import { GenerationCard, PendingGenerationCard } from "./ImageGenerationGallery";
-import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDropzone";
+import type { ReferenceImage } from "./ReferenceImageDropzone";
 import { VideoWorkspacePanel } from "./VideoWorkspacePanel";
 import { createImageContentLoader } from "./imageContentLoader";
 import {
   parseImageGenerationPayload,
   serializeImageGenerationPayload,
 } from "../lib/imageGenerationPayload";
+import {
+  clampEnumValue,
+  clampNumberValue,
+  countOptionsFor,
+  referenceImageBounds,
+} from "../lib/imageModelCapabilities";
+import {
+  clearPromptHistory,
+  loadPromptHistory,
+  persistPromptHistory,
+  pickStarterPrompt,
+  pushPromptHistory,
+} from "../lib/imageStudioPrefs";
+import { PromptPanel } from "./imageStudio/PromptPanel";
+import { SettingsPanel } from "./imageStudio/SettingsPanel";
+import { GalleryPanel } from "./imageStudio/GalleryPanel";
 
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
 type ImageQuality = "auto" | "low" | "medium" | "high";
 type ImageBackground = "auto" | "transparent" | "opaque";
 
-const DEFAULT_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"];
-const DEFAULT_QUALITIES: ReadonlyArray<ImageQuality> = ["auto", "low", "medium", "high"];
-const DEFAULT_BACKGROUNDS: ReadonlyArray<ImageBackground> = ["auto", "transparent", "opaque"];
 const GENERATION_WINDOW_SIZE = 24;
-const defaultOptionLabel = (option: string) => option;
 
 function modelSupports(
   supportedParameters: ImageGenerationModel["supportedParameters"],
@@ -47,14 +57,19 @@ function modelSupports(
 ): boolean {
   return supportedParameters[parameter] !== undefined;
 }
+function referenceImageFromUrl(url: string, index: number): ReferenceImage {
+  const mediaType = url.startsWith("data:")
+    ? url.slice(5, url.indexOf(";") > 0 ? url.indexOf(";") : url.indexOf(",")) || "image/png"
+    : "image/*";
+  const encodedData = url.startsWith("data:") ? url.slice(url.indexOf(",") + 1) : "";
 
-function modelEnumValues(
-  supportedParameters: ImageGenerationModel["supportedParameters"],
-  parameter: string,
-  fallback: ReadonlyArray<string>,
-): ReadonlyArray<string> {
-  const descriptor = supportedParameters[parameter];
-  return descriptor?.type === "enum" && descriptor.values.length > 0 ? descriptor.values : fallback;
+  return {
+    id: `json-reference-${index}`,
+    name: `Reference ${index + 1}`,
+    mediaType,
+    dataUrl: url,
+    sizeBytes: Math.floor((encodedData.length * 3) / 4),
+  };
 }
 
 export function ImageWorkspacePage() {
@@ -82,11 +97,18 @@ export function ImageWorkspacePage() {
   const [editorMode, setEditorMode] = useState<"form" | "json">("form");
   const [jsonText, setJsonText] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [promptHistory, setPromptHistory] = useState<ReadonlyArray<string>>(() =>
+    loadPromptHistory(),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingEndpoints, setIsLoadingEndpoints] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [pendingGenerationInput, setPendingGenerationInput] = useState<ImageGenerationInput | null>(
+    null,
+  );
   const [generationAnnouncement, setGenerationAnnouncement] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const activeGenerationRef = useRef<AbortController | null>(null);
 
   const selectedModel = useMemo(
     () => models.find((model) => model.id === modelId) ?? models[0] ?? null,
@@ -96,21 +118,16 @@ export function ImageWorkspacePage() {
     if (!modelEndpoints || selectedEndpointIndex === "") return null;
     return modelEndpoints.endpoints[Number(selectedEndpointIndex)] ?? null;
   }, [modelEndpoints, selectedEndpointIndex]);
-  const visibleGenerations = useMemo(
-    () => generations.slice(0, visibleGenerationCount),
-    [generations, visibleGenerationCount],
-  );
   const supportedParameters =
     selectedEndpoint?.supportedParameters ?? selectedModel?.supportedParameters ?? {};
   const isGptImage2Model = modelId === OPENROUTER_GPT_IMAGE_2_MODEL;
   const supportsStreaming =
     selectedEndpoint?.supportsStreaming ?? selectedModel?.supportsStreaming ?? false;
-  const maxReferenceImages = (() => {
-    const descriptor = supportedParameters.input_references;
-    return descriptor?.type === "range" && Number.isFinite(descriptor.max)
-      ? Math.max(1, Math.floor(descriptor.max))
-      : 4;
-  })();
+  const { min: minReferenceImages, max: maxReferenceImages } = referenceImageBounds(
+    supportedParameters.input_references,
+  );
+  const noAvailableEndpoints = modelEndpoints !== null && modelEndpoints.endpoints.length === 0;
+  const countOptions = countOptionsFor(supportedParameters.n);
 
   const buildImageGenerationInput = useCallback(() => {
     let provider: Record<string, unknown> | undefined = isGptImage2Model
@@ -154,7 +171,7 @@ export function ImageWorkspacePage() {
     const input: ImageGenerationInput = {
       model: modelId,
       prompt: prompt.trim(),
-      n: count,
+      ...(modelSupports(supportedParameters, "n") ? { n: count } : {}),
       ...(supportsStreaming && useStreaming ? { stream: true } : {}),
       ...(modelSupports(supportedParameters, "aspect_ratio") ? { aspectRatio } : {}),
       ...(resolution && modelSupports(supportedParameters, "resolution") ? { resolution } : {}),
@@ -279,45 +296,138 @@ export function ImageWorkspacePage() {
     };
   }, [selectedModel]);
 
-  const generate = async () => {
-    if (!modelId || prompt.trim().length === 0) {
-      setError("Choose an image model and enter a prompt.");
-      return;
-    }
-
-    const inputResult = buildImageGenerationInput();
-    if ("error" in inputResult) {
-      setError(inputResult.error);
-      return;
-    }
-
-    setIsGenerating(true);
-    setGenerationAnnouncement(
-      `Generating ${count} image${count === 1 ? "" : "s"}. This may take a moment.`,
+  // Keep the form in sync with the selected model's capabilities. Switching
+  // models can leave values behind that the new model rejects, so clamp every
+  // parameter to what the model's endpoints actually accept.
+  useEffect(() => {
+    if (!selectedModel) return;
+    setQuality((current) => clampEnumValue(supportedParameters.quality, current) as ImageQuality);
+    setOutputFormat(
+      (current) => clampEnumValue(supportedParameters.output_format, current) as ImageOutputFormat,
     );
-    setError(null);
-    const { input } = inputResult;
+    setBackground(
+      (current) => clampEnumValue(supportedParameters.background, current) as ImageBackground,
+    );
+    setAspectRatio((current) => clampEnumValue(supportedParameters.aspect_ratio, current));
+    setCount((current) => clampNumberValue(supportedParameters.n, current, 1, 10));
+    setOutputCompression((current) =>
+      clampNumberValue(supportedParameters.output_compression, current, 0, 100),
+    );
+    setReferenceImages((current) =>
+      current.length > maxReferenceImages ? current.slice(0, maxReferenceImages) : current,
+    );
+  }, [selectedModel, supportedParameters, maxReferenceImages]);
 
-    try {
-      const result = await runPrimaryHttp(
-        PrimaryEnvironmentHttpClient.pipe(
-          Effect.flatMap((client) =>
-            client.imageGeneration.generate({ payload: input, headers: {} }),
-          ),
-        ),
-      );
-      setGenerations((current) => [result, ...current]);
+  const cancelGeneration = useCallback(() => {
+    const controller = activeGenerationRef.current;
+    if (!controller) return;
+
+    activeGenerationRef.current = null;
+    controller.abort();
+    setIsGenerating(false);
+    setPendingGenerationInput(null);
+    setGenerationAnnouncement("Image generation cancelled.");
+  }, []);
+
+  useEffect(
+    () => () => {
+      const controller = activeGenerationRef.current;
+      if (!controller) return;
+
+      activeGenerationRef.current = null;
+      controller.abort();
+    },
+    [],
+  );
+
+  const generate = useCallback(
+    async (inputOverride?: ImageGenerationInput) => {
+      if (activeGenerationRef.current) return;
+
+      let input: ImageGenerationInput;
+      if (inputOverride) {
+        input = inputOverride;
+      } else {
+        if (!modelId || prompt.trim().length === 0) {
+          setError("Choose an image model and enter a prompt.");
+          return;
+        }
+        if (referenceImages.length < minReferenceImages) {
+          setError(
+            `This model requires at least ${minReferenceImages} reference image${
+              minReferenceImages === 1 ? "" : "s"
+            }.`,
+          );
+          return;
+        }
+        const inputResult = buildImageGenerationInput();
+        if ("error" in inputResult) {
+          setError(inputResult.error);
+          return;
+        }
+        input = inputResult.input;
+      }
+
+      const controller = new AbortController();
+      activeGenerationRef.current = controller;
+      setPendingGenerationInput(input);
+      setIsGenerating(true);
       setGenerationAnnouncement(
-        `${result.assets.length} image${result.assets.length === 1 ? " is" : "s are"} ready.`,
+        `Generating ${input.n ?? 1} image${(input.n ?? 1) === 1 ? "" : "s"}. This may take a moment.`,
       );
-      setPrompt("");
-    } catch (cause) {
-      setGenerationAnnouncement("");
-      setError(cause instanceof Error ? cause.message : "Image generation failed.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+      setError(null);
+
+      try {
+        const result = await runPrimaryHttp(
+          PrimaryEnvironmentHttpClient.pipe(
+            Effect.flatMap((client) =>
+              client.imageGeneration.generate({ payload: input, headers: {} }),
+            ),
+          ),
+          { signal: controller.signal },
+        );
+        if (activeGenerationRef.current !== controller || controller.signal.aborted) return;
+
+        setGenerations((current) => [result, ...current]);
+        setGenerationAnnouncement(
+          `${result.assets.length} image${result.assets.length === 1 ? " is" : "s are"} ready.`,
+        );
+        setPrompt("");
+        setPromptHistory((current) => {
+          const next = pushPromptHistory(current, input.prompt);
+          persistPromptHistory(next);
+          return next;
+        });
+      } catch (cause) {
+        if (activeGenerationRef.current !== controller || controller.signal.aborted) return;
+
+        setGenerationAnnouncement("");
+        setError(cause instanceof Error ? cause.message : "Image generation failed.");
+      } finally {
+        if (activeGenerationRef.current === controller) {
+          activeGenerationRef.current = null;
+          setPendingGenerationInput(null);
+          setIsGenerating(false);
+        }
+      }
+    },
+    [buildImageGenerationInput, minReferenceImages, modelId, prompt, referenceImages.length],
+  );
+
+  const generateRef = useRef(generate);
+  generateRef.current = generate;
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (editorMode !== "form") return;
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        void generateRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editorMode]);
 
   const deleteGeneration = useCallback(
     async (id: string) => {
@@ -366,6 +476,21 @@ export function ImageWorkspacePage() {
     setProviderOptionsJson("");
   }, []);
 
+  const rerollGeneration = useCallback(
+    (input: ImageGenerationInput) => {
+      const supportsSeed = modelSupports(supportedParameters, "seed");
+      const rerolled: ImageGenerationInput = supportsSeed
+        ? { ...input, seed: Math.floor(Math.random() * 1_000_000) }
+        : input;
+      applyImageGenerationInput(rerolled);
+      setEditorMode("form");
+      setJsonError(null);
+      setError(null);
+      void generate(rerolled);
+    },
+    [applyImageGenerationInput, generate, supportedParameters],
+  );
+
   const switchEditorMode = (nextMode: "form" | "json") => {
     if (nextMode === "json") {
       const result = buildImageGenerationInput();
@@ -392,46 +517,35 @@ export function ImageWorkspacePage() {
     setGenerationAnnouncement("JSON settings applied to the image form.");
   };
 
-  const observeGenerationSentinel = useCallback((sentinel: HTMLDivElement | null) => {
-    if (!sentinel || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE);
-        }
-      },
-      { rootMargin: "600px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+  const handleModelChange = useCallback((nextModelId: string) => {
+    setSelectedEndpointIndex("");
+    setProviderOverride(undefined);
+    setProviderOptionsJson("");
+    setUseStreaming(false);
+    setModelId(nextModelId);
   }, []);
 
-  const aspectRatios = modelEnumValues(supportedParameters, "aspect_ratio", DEFAULT_ASPECT_RATIOS);
-  const resolutions = modelEnumValues(supportedParameters, "resolution", ["512", "1K", "2K", "4K"]);
-  const sizes = modelEnumValues(supportedParameters, "size", [
-    "1024x1024",
-    "1536x1024",
-    "1024x1536",
-  ]);
-  const qualityOptions = modelEnumValues(supportedParameters, "quality", DEFAULT_QUALITIES).filter(
-    (value): value is ImageQuality => DEFAULT_QUALITIES.includes(value as ImageQuality),
-  );
-  const backgroundOptions = modelEnumValues(
-    supportedParameters,
-    "background",
-    DEFAULT_BACKGROUNDS,
-  ).filter((value): value is ImageBackground =>
-    DEFAULT_BACKGROUNDS.includes(value as ImageBackground),
-  );
-  const formatOptions = modelEnumValues(supportedParameters, "output_format", [
-    "png",
-    "jpeg",
-    "webp",
-    "svg",
-  ]).filter((value): value is ImageOutputFormat => ["png", "jpeg", "webp", "svg"].includes(value));
-  const streamingEndpointCount = modelEndpoints?.endpoints.filter(
-    (endpoint) => endpoint.supportsStreaming,
-  ).length;
+  const handleSurprise = useCallback(() => {
+    setPrompt((current) => pickStarterPrompt(current));
+  }, []);
+
+  const restorePrompt = useCallback((entry: string) => {
+    setPrompt(entry);
+    setEditorMode("form");
+    setError(null);
+  }, []);
+
+  const handleClearHistory = useCallback(() => {
+    clearPromptHistory();
+    setPromptHistory([]);
+  }, []);
+
+  const handleUseStarter = useCallback((starter: string) => {
+    setPrompt(starter);
+    setEditorMode("form");
+    setError(null);
+    requestAnimationFrame(() => document.getElementById("zimage-prompt")?.focus());
+  }, []);
 
   if (mode === "video") {
     return <VideoWorkspacePanel onModeChange={() => setMode("image")} />;
@@ -440,13 +554,13 @@ export function ImageWorkspacePage() {
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground">
       <header className="border-b border-border/70 bg-muted/20 px-5 py-4 sm:px-8">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-fuchsia-500">
               <ImageIcon className="size-4" aria-hidden="true" />
               ZImage
             </div>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight">Generate images</h1>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight">Image studio</h1>
           </div>
           <div className="flex items-center gap-1 border border-border/70 bg-background/70 p-1">
             <Button size="sm" className="gap-2">
@@ -467,17 +581,48 @@ export function ImageWorkspacePage() {
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8">
-        <section className="border-b border-border/70 pb-7">
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-4 border-b border-border/60 pb-4">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">
-                Image brief
-              </p>
-              <h2 className="mt-1 text-lg font-semibold tracking-tight">Shape the next frame</h2>
-            </div>
+      <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-5 sm:px-6 sm:py-6">
+        <p className="sr-only" role="status">
+          {generationAnnouncement}
+        </p>
+        {error ? (
+          <p
+            className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
+          <GalleryPanel
+            generations={generations}
+            visibleCount={visibleGenerationCount}
+            isLoading={isLoading}
+            isGenerating={isGenerating}
+            pendingInput={pendingGenerationInput}
+            loadImageContent={imageContentLoader.load}
+            onDelete={deleteGeneration}
+            onReuse={(input) => {
+              applyImageGenerationInput(input);
+              setEditorMode("form");
+              setJsonError(null);
+              setError(null);
+              setGenerationAnnouncement("Image settings loaded into the form.");
+            }}
+            onReroll={rerollGeneration}
+            onCancel={cancelGeneration}
+            onLoadMore={() =>
+              setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE)
+            }
+            canLoadMore={generations.length > visibleGenerationCount}
+            onUseStarter={handleUseStarter}
+            className="order-last lg:order-none"
+          />
+
+          <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0 lg:max-h-dvh lg:overflow-y-auto lg:py-1">
             <div
-              className="flex items-center gap-1 border border-border/70 bg-background/70 p-1"
+              className="flex items-center gap-1 self-start border border-border/70 bg-background/70 p-1"
               role="tablist"
               aria-label="Image editor view"
             >
@@ -502,394 +647,135 @@ export function ImageWorkspacePage() {
                 JSON
               </button>
             </div>
-          </div>
 
-          {editorMode === "form" ? (
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <div>
-                <label htmlFor="zimage-prompt" className="text-sm font-medium">
-                  Prompt
-                </label>
-                <Textarea
-                  id="zimage-prompt"
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="Describe the image you want to create..."
-                  className="mt-2 min-h-32 resize-y bg-background/70"
+            {editorMode === "form" ? (
+              <>
+                <PromptPanel
+                  prompt={prompt}
+                  onChange={setPrompt}
+                  onSurprise={handleSurprise}
+                  history={promptHistory}
+                  onRestorePrompt={restorePrompt}
+                  onClearHistory={handleClearHistory}
                   disabled={isGenerating}
                 />
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <label className="text-sm font-medium" htmlFor="zimage-model">
-                  Model
-                </label>
-                <select
-                  id="zimage-model"
-                  value={modelId}
-                  onChange={(event) => {
-                    setSelectedEndpointIndex("");
+                <SettingsPanel
+                  models={models}
+                  modelId={modelId}
+                  onModelChange={handleModelChange}
+                  modelEndpoints={modelEndpoints}
+                  selectedEndpointIndex={selectedEndpointIndex}
+                  onEndpointChange={(value) => {
+                    setSelectedEndpointIndex(value);
                     setProviderOverride(undefined);
                     setProviderOptionsJson("");
                     setUseStreaming(false);
-                    setModelId(event.target.value);
                   }}
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  disabled={isLoading || isGenerating}
-                >
-                  {models.length === 0 ? <option value="">No image models available</option> : null}
-                  {models.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name ?? model.id}
-                    </option>
-                  ))}
-                </select>
-
-                {isGptImage2Model ? (
-                  <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    Provider endpoint: OpenAI via OpenRouter (fixed)
-                  </p>
-                ) : modelEndpoints?.endpoints.length ? (
-                  <SelectField
-                    label="Provider endpoint"
-                    value={selectedEndpointIndex}
-                    options={["", ...modelEndpoints.endpoints.map((_, index) => String(index))]}
-                    onChange={(value) => {
-                      setSelectedEndpointIndex(value);
-                      setProviderOverride(undefined);
-                      setProviderOptionsJson("");
-                      setUseStreaming(false);
-                    }}
-                    disabled={isGenerating || isLoadingEndpoints}
-                    optionLabel={(value) => {
-                      if (value === "") return "Automatic routing";
-                      const endpoint = modelEndpoints.endpoints[Number(value)];
-                      return (
-                        endpoint?.providerName ??
-                        endpoint?.providerTag ??
-                        endpoint?.providerSlug ??
-                        "Provider endpoint"
-                      );
-                    }}
-                  />
-                ) : null}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <SelectField
-                    label="Aspect ratio"
-                    value={aspectRatio}
-                    options={aspectRatios}
-                    onChange={setAspectRatio}
-                    disabled={!modelSupports(supportedParameters, "aspect_ratio") || isGenerating}
-                  />
-                  <SelectField
-                    label="Count"
-                    value={String(count)}
-                    options={["1", "2", "3", "4"]}
-                    onChange={(value) => setCount(Number(value))}
-                    disabled={isGenerating}
-                    optionLabel={(value) => `${value} image${value === "1" ? "" : "s"}`}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <SelectField
-                    label="Quality"
-                    value={quality}
-                    options={qualityOptions}
-                    onChange={(value) => setQuality(value as ImageQuality)}
-                    disabled={!modelSupports(supportedParameters, "quality") || isGenerating}
-                  />
-                  <SelectField
-                    label="Format"
-                    value={outputFormat}
-                    options={formatOptions}
-                    onChange={(value) => setOutputFormat(value as ImageOutputFormat)}
-                    disabled={!modelSupports(supportedParameters, "output_format") || isGenerating}
-                  />
-                </div>
-
-                {modelSupports(supportedParameters, "resolution") ? (
-                  <SelectField
-                    label="Resolution"
-                    value={resolution}
-                    options={["", ...resolutions]}
-                    onChange={setResolution}
-                    disabled={isGenerating}
-                    optionLabel={(value) => value || "Provider default"}
-                  />
-                ) : null}
-                {modelSupports(supportedParameters, "size") ? (
-                  <SelectField
-                    label="Size"
-                    value={size}
-                    options={["", ...sizes]}
-                    onChange={setSize}
-                    disabled={isGenerating}
-                    optionLabel={(value) => value || "Provider default"}
-                  />
-                ) : null}
-                {modelSupports(supportedParameters, "background") ? (
-                  <SelectField
-                    label="Background"
-                    value={background}
-                    options={backgroundOptions}
-                    onChange={(value) => setBackground(value as ImageBackground)}
-                    disabled={isGenerating}
-                  />
-                ) : null}
-                {modelSupports(supportedParameters, "output_compression") ? (
-                  <label className="text-xs text-muted-foreground">
-                    Compression: {outputCompression}%
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={outputCompression}
-                      onChange={(event) => setOutputCompression(Number(event.target.value))}
-                      className="mt-2 w-full accent-primary"
-                      disabled={isGenerating}
-                    />
-                  </label>
-                ) : null}
-                {modelSupports(supportedParameters, "seed") ? (
-                  <label className="text-xs text-muted-foreground">
-                    Seed
-                    <input
-                      inputMode="numeric"
-                      value={seed}
-                      onChange={(event) => setSeed(event.target.value.replace(/[^0-9]/g, ""))}
-                      placeholder="Random"
-                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                      disabled={isGenerating}
-                    />
-                  </label>
-                ) : null}
-                {modelSupports(supportedParameters, "input_references") ? (
-                  <ReferenceImageDropzone
-                    label="Reference images"
-                    description="PNG, JPEG, WebP, or GIF · up to 8 MB each"
-                    value={referenceImages}
-                    onChange={setReferenceImages}
-                    maxImages={maxReferenceImages}
-                    disabled={isGenerating}
-                  />
-                ) : null}
-                {supportsStreaming ? (
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={useStreaming}
-                      onChange={(event) => setUseStreaming(event.target.checked)}
-                      className="accent-primary"
-                      disabled={isGenerating}
-                    />
-                    Use the streaming response when supported
-                  </label>
-                ) : null}
-                {selectedEndpoint && selectedEndpoint.allowedPassthroughParameters.length > 0 ? (
-                  <label className="text-xs text-muted-foreground">
-                    Provider options (JSON)
-                    <textarea
-                      value={providerOptionsJson}
-                      onChange={(event) => {
-                        setProviderOverride(undefined);
-                        setProviderOptionsJson(event.target.value);
-                      }}
-                      placeholder='{ "steps": 40 }'
-                      className="mt-1 min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs"
-                      disabled={isGenerating}
-                      aria-describedby="zimage-provider-options-help"
-                    />
-                    <span id="zimage-provider-options-help" className="mt-1 block text-[11px]">
-                      Allowed keys: {selectedEndpoint.allowedPassthroughParameters.join(", ")}
-                    </span>
-                  </label>
-                ) : null}
-
-                <p className="text-[11px] text-muted-foreground/75">
-                  {isLoadingEndpoints
-                    ? "Checking provider endpoints..."
-                    : modelEndpoints
-                      ? `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${modelEndpoints.endpoints.length === 1 ? "" : "s"}${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
-                      : "Provider endpoint details unavailable"}
-                </p>
+                  isLoadingEndpoints={isLoadingEndpoints}
+                  isGptImage2Model={isGptImage2Model}
+                  supportedParameters={supportedParameters}
+                  aspectRatio={aspectRatio}
+                  onAspectRatioChange={setAspectRatio}
+                  resolution={resolution}
+                  onResolutionChange={setResolution}
+                  size={size}
+                  onSizeChange={setSize}
+                  quality={quality}
+                  onQualityChange={setQuality}
+                  outputFormat={outputFormat}
+                  onOutputFormatChange={setOutputFormat}
+                  background={background}
+                  onBackgroundChange={setBackground}
+                  count={count}
+                  onCountChange={setCount}
+                  countOptions={countOptions}
+                  seed={seed}
+                  onSeedChange={setSeed}
+                  onRandomizeSeed={() => setSeed(String(Math.floor(Math.random() * 1_000_000)))}
+                  outputCompression={outputCompression}
+                  onOutputCompressionChange={setOutputCompression}
+                  useStreaming={useStreaming}
+                  onUseStreamingChange={setUseStreaming}
+                  supportsStreaming={supportsStreaming}
+                  referenceImages={referenceImages}
+                  onReferenceImagesChange={setReferenceImages}
+                  minReferenceImages={minReferenceImages}
+                  maxReferenceImages={maxReferenceImages}
+                  selectedEndpoint={selectedEndpoint}
+                  providerOptionsJson={providerOptionsJson}
+                  onProviderOptionsChange={(value) => {
+                    setProviderOverride(undefined);
+                    setProviderOptionsJson(value);
+                  }}
+                  noAvailableEndpoints={noAvailableEndpoints}
+                  disabled={isGenerating}
+                />
                 <Button
                   onClick={() => void generate()}
-                  disabled={isGenerating || isLoading || !modelId || prompt.trim().length === 0}
-                  className="mt-auto w-full gap-2"
+                  disabled={
+                    isGenerating ||
+                    isLoading ||
+                    !modelId ||
+                    prompt.trim().length === 0 ||
+                    noAvailableEndpoints
+                  }
+                  className="h-11 w-full gap-2 text-base"
                 >
                   {isGenerating ? (
-                    <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
+                    <LoaderCircleIcon className="size-5 animate-spin" aria-hidden="true" />
                   ) : (
-                    <SparklesIcon className="size-4" aria-hidden="true" />
+                    <SparklesIcon className="size-5" aria-hidden="true" />
                   )}
                   {isGenerating ? "Generating..." : "Generate"}
                 </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <div>
-                <label htmlFor="zimage-json" className="text-sm font-medium">
-                  Reusable JSON payload
-                </label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Paste an image payload copied from a generation, then apply it to the form.
-                </p>
-                <textarea
-                  id="zimage-json"
-                  value={jsonText}
-                  onChange={(event) => {
-                    setJsonText(event.target.value);
-                    setJsonError(null);
-                  }}
-                  className="mt-3 min-h-80 w-full resize-y border border-border/80 bg-muted/20 p-4 font-mono text-xs leading-relaxed text-foreground outline-hidden transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
-                  spellCheck={false}
-                  disabled={isGenerating}
-                  aria-describedby="zimage-json-help"
-                />
-                {jsonError ? (
-                  <p className="mt-2 text-sm text-destructive" role="alert">
-                    {jsonError}
+              </>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="rounded-xl border border-border/70 bg-card/40 p-4 shadow-sm/5">
+                  <label htmlFor="zimage-json" className="text-sm font-medium">
+                    Reusable JSON payload
+                  </label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Paste an image payload copied from a generation, then apply it to the form.
                   </p>
-                ) : null}
+                  <textarea
+                    id="zimage-json"
+                    value={jsonText}
+                    onChange={(event) => {
+                      setJsonText(event.target.value);
+                      setJsonError(null);
+                    }}
+                    className="mt-3 min-h-72 w-full resize-y border border-border/80 bg-muted/20 p-4 font-mono text-xs leading-relaxed text-foreground outline-hidden transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                    spellCheck={false}
+                    disabled={isGenerating}
+                    aria-describedby="zimage-json-help"
+                  />
+                  {jsonError ? (
+                    <p className="mt-2 text-sm text-destructive" role="alert">
+                      {jsonError}
+                    </p>
+                  ) : null}
+                  <p
+                    id="zimage-json-help"
+                    className="mt-3 text-[11px] leading-relaxed text-muted-foreground"
+                  >
+                    JSON exports include the model, full prompt, and every supported setting used by
+                    the generation. Older generations without saved settings still import with their
+                    model and prompt.
+                  </p>
+                  <Button
+                    onClick={applyJsonPayload}
+                    disabled={isGenerating || jsonText.trim().length === 0}
+                    className="mt-4 w-full"
+                  >
+                    Apply to form
+                  </Button>
+                </div>
               </div>
-              <aside className="border-l border-border/70 pl-4 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">Payload notes</p>
-                <p id="zimage-json-help" className="mt-2 leading-relaxed">
-                  JSON exports include the model, full prompt, and every supported setting used by
-                  the generation. Older generations without saved settings still import with their
-                  model and prompt.
-                </p>
-                <Button
-                  onClick={applyJsonPayload}
-                  disabled={isGenerating || jsonText.trim().length === 0}
-                  className="mt-5 w-full"
-                >
-                  Apply to form
-                </Button>
-              </aside>
-            </div>
-          )}
-          {error ? (
-            <p className="mt-4 text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
-        </section>
-
-        <section>
-          <p className="sr-only" role="status">
-            {generationAnnouncement}
-          </p>
-          <div className="flex items-baseline justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Your generations</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Stored locally in the server database.
-              </p>
-            </div>
-            <span className="text-xs tabular-nums text-muted-foreground">{generations.length}</span>
-          </div>
-
-          {isLoading ? (
-            <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
-              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
-              Loading image workspace...
-            </div>
-          ) : generations.length === 0 && !isGenerating ? (
-            <div className="flex flex-col items-center justify-center border-y border-border/60 py-16 text-center">
-              <ImageIcon className="size-8 text-muted-foreground/50" aria-hidden="true" />
-              <p className="mt-3 text-sm font-medium">No generations yet</p>
-              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                Your generated images will appear here as soon as the first prompt completes.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {isGenerating ? <PendingGenerationCard count={count} prompt={prompt} /> : null}
-              {visibleGenerations.map((generation) => (
-                <GenerationCard
-                  key={generation.id}
-                  generation={generation}
-                  loadImageContent={imageContentLoader.load}
-                  onDelete={deleteGeneration}
-                  onReuse={(input) => {
-                    applyImageGenerationInput(input);
-                    setEditorMode("form");
-                    setJsonError(null);
-                    setError(null);
-                    setGenerationAnnouncement("Image settings loaded into the form.");
-                  }}
-                />
-              ))}
-            </div>
-          )}
-          {generations.length > visibleGenerationCount ? (
-            <div ref={observeGenerationSentinel} className="flex justify-center py-5">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  setVisibleGenerationCount((current) => current + GENERATION_WINDOW_SIZE)
-                }
-              >
-                Load more generations
-              </Button>
-            </div>
-          ) : null}
-        </section>
+            )}
+          </aside>
+        </div>
       </div>
     </main>
   );
-}
-
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-  disabled,
-  optionLabel = defaultOptionLabel,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly options: ReadonlyArray<string>;
-  readonly onChange: (value: string) => void;
-  readonly disabled?: boolean;
-  readonly optionLabel?: (value: string) => string;
-}) {
-  return (
-    <label className="text-xs text-muted-foreground">
-      {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-        disabled={disabled}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {optionLabel(option)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function referenceImageFromUrl(url: string, index: number): ReferenceImage {
-  const mediaType = url.startsWith("data:")
-    ? url.slice(5, url.indexOf(";") > 0 ? url.indexOf(";") : url.indexOf(",")) || "image/png"
-    : "image/*";
-  const encodedData = url.startsWith("data:") ? url.slice(url.indexOf(",") + 1) : "";
-
-  return {
-    id: `json-reference-${index}`,
-    name: `Reference ${index + 1}`,
-    mediaType,
-    dataUrl: url,
-    sizeBytes: Math.floor((encodedData.length * 3) / 4),
-  };
 }

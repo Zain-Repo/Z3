@@ -757,6 +757,75 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
+  it("keeps image generation starts visible for the preview skeleton", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "image-start",
+        kind: "tool.started",
+        summary: "Image view started",
+        payload: { itemType: "image_view" },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.itemType).toBe("image_view");
+    expect(entries[0]?.sourceActivityKind).toBe("tool.started");
+  });
+
+  it("removes an image generation skeleton when its terminal activity arrives", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "image-start",
+        kind: "tool.started",
+        summary: "Image view started",
+        turnId: "turn-image",
+        sequence: 1,
+        payload: { itemType: "image_view" },
+      }),
+      makeActivity({
+        id: "image-complete",
+        kind: "tool.completed",
+        summary: "Image view",
+        turnId: "turn-image",
+        sequence: 2,
+        payload: { itemType: "image_view", status: "completed" },
+      }),
+    ]);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["image-complete"]);
+  });
+
+  it("reconciles image skeletons by provider item id when a turn has multiple images", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "image-start-1",
+        kind: "tool.started",
+        summary: "Image view started",
+        turnId: "turn-images",
+        sequence: 1,
+        payload: { itemType: "image_view", itemId: "image-1" },
+      }),
+      makeActivity({
+        id: "image-start-2",
+        kind: "tool.started",
+        summary: "Image view started",
+        turnId: "turn-images",
+        sequence: 2,
+        payload: { itemType: "image_view", itemId: "image-2" },
+      }),
+      makeActivity({
+        id: "image-complete-1",
+        kind: "tool.completed",
+        summary: "Image view",
+        turnId: "turn-images",
+        sequence: 3,
+        payload: { itemType: "image_view", itemId: "image-1", status: "completed" },
+      }),
+    ]);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["image-start-2", "image-complete-1"]);
+  });
+
   it("omits task.started but shows task.progress and task.completed", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

@@ -230,26 +230,33 @@ const make = Effect.gen(function* () {
     generationId: string,
     providerJobId: string,
     instanceId: ProviderInstanceId | undefined,
+    outputCount: number,
   ) =>
     Effect.gen(function* () {
-      const existing = yield* sql<{ readonly asset_id: string }>`
-        SELECT asset_id FROM projection_video_assets WHERE generation_id = ${generationId} LIMIT 1
+      const existing = yield* sql<{ readonly asset_count: number }>`
+        SELECT count(*) AS asset_count
+        FROM projection_video_assets
+        WHERE generation_id = ${generationId}
       `;
-      if (existing.length > 0) return;
+      const assetCount = existing[0]?.asset_count ?? 0;
+      if (assetCount >= outputCount) return;
       const connection = yield* withConnection(instanceId);
-      const download = yield* downloadOpenRouterVideo({
-        httpClient,
-        baseUrl: connection.baseUrl,
-        apiKey: connection.apiKey,
-        jobId: providerJobId,
-      });
-      const assetId = yield* crypto.randomUUIDv4;
-      const createdAt = DateTime.formatIso(yield* DateTime.now);
-      yield* sql`
-        INSERT INTO projection_video_assets
-          (asset_id, generation_id, media_type, bytes, created_at)
-        VALUES (${assetId}, ${generationId}, ${download.mediaType}, ${Buffer.from(download.bytes)}, ${createdAt})
-      `;
+      for (let index = assetCount; index < outputCount; index += 1) {
+        const download = yield* downloadOpenRouterVideo({
+          httpClient,
+          baseUrl: connection.baseUrl,
+          apiKey: connection.apiKey,
+          jobId: providerJobId,
+          index,
+        });
+        const assetId = yield* crypto.randomUUIDv4;
+        const createdAt = DateTime.formatIso(yield* DateTime.now);
+        yield* sql`
+          INSERT INTO projection_video_assets
+            (asset_id, generation_id, media_type, bytes, created_at)
+          VALUES (${assetId}, ${generationId}, ${download.mediaType}, ${Buffer.from(download.bytes)}, ${createdAt})
+        `;
+      }
     });
 
   const markGenerationFailed = (generationId: string, cause: unknown) =>
@@ -260,6 +267,19 @@ const make = Effect.gen(function* () {
         SET status = 'failed', updated_at = ${now}, error = ${safeProviderError(cause)}
         WHERE generation_id = ${generationId}
           AND status NOT IN ('cancelled', 'expired')
+    `;
+    });
+
+  const markAssetPersistencePending = (generationId: string, cause: unknown) =>
+    Effect.gen(function* () {
+      const now = DateTime.formatIso(yield* DateTime.now);
+      yield* sql`
+        UPDATE projection_video_generations
+        SET status = 'completed',
+            updated_at = ${now},
+            completed_at = COALESCE(completed_at, ${now}),
+            error = ${safeProviderError(cause)}
+        WHERE generation_id = ${generationId}
       `;
     });
 
@@ -267,6 +287,7 @@ const make = Effect.gen(function* () {
     generationId: string,
     providerJobId: string,
     instanceId: ProviderInstanceId | undefined,
+    preserveCompletedOnFailure = false,
   ) =>
     Effect.gen(function* () {
       const connection = yield* withConnection(instanceId);
@@ -282,7 +303,12 @@ const make = Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);
         yield* updateJob(generationId, job, now);
         if (job.status === "completed") {
-          yield* persistCompletedVideo(generationId, providerJobId, instanceId);
+          yield* persistCompletedVideo(
+            generationId,
+            providerJobId,
+            instanceId,
+            Math.max(job.unsignedUrls?.length ?? 0, 1),
+          ).pipe(Effect.catch((cause) => markAssetPersistencePending(generationId, cause)));
           return;
         }
         if (job.status === "failed" || job.status === "cancelled" || job.status === "expired")
@@ -294,7 +320,13 @@ const make = Effect.gen(function* () {
         SET status = 'expired', updated_at = ${now}, error = 'Video generation polling timed out.'
         WHERE generation_id = ${generationId}
       `;
-    }).pipe(Effect.catch((cause) => markGenerationFailed(generationId, cause)));
+    }).pipe(
+      Effect.catch((cause) =>
+        preserveCompletedOnFailure
+          ? markAssetPersistencePending(generationId, cause)
+          : markGenerationFailed(generationId, cause),
+      ),
+    );
 
   const service: VideoGenerationServiceShape = {
     listModels: (providerInstanceId) =>
@@ -334,13 +366,19 @@ const make = Effect.gen(function* () {
       ),
     generate: (input) =>
       Effect.gen(function* () {
+        const prompt = input.prompt?.trim();
+        if (!prompt) {
+          return yield* new VideoGenerationServiceError({
+            message: "Video prompt must not be empty.",
+          });
+        }
         const connection = yield* withConnection(input.providerInstanceId);
         const job = yield* createOpenRouterVideo({
           httpClient,
           baseUrl: connection.baseUrl,
           apiKey: connection.apiKey,
           model: input.model,
-          ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+          prompt,
           ...(input.duration !== undefined ? { duration: input.duration } : {}),
           ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
           ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
@@ -378,15 +416,18 @@ const make = Effect.gen(function* () {
               polling_url, created_at, updated_at, usage_json, unsigned_urls_json)
           VALUES (
             ${generationId}, ${job.id}, ${input.providerInstanceId ?? null}, ${input.model},
-            ${input.prompt ?? null}, ${job.status}, ${job.pollingUrl ?? null}, ${createdAt},
+            ${prompt}, ${job.status}, ${job.pollingUrl ?? null}, ${createdAt},
             ${createdAt}, ${job.usage === undefined ? null : JSON.stringify(job.usage)},
             ${job.unsignedUrls === undefined ? null : JSON.stringify(job.unsignedUrls)}
           )
         `;
         if (job.status === "completed") {
-          yield* persistCompletedVideo(generationId, job.id, input.providerInstanceId).pipe(
-            Effect.catch((cause) => markGenerationFailed(generationId, cause)),
-          );
+          yield* persistCompletedVideo(
+            generationId,
+            job.id,
+            input.providerInstanceId,
+            Math.max(job.unsignedUrls?.length ?? 0, 1),
+          ).pipe(Effect.catch((cause) => markAssetPersistencePending(generationId, cause)));
         } else if (
           job.status !== "failed" &&
           job.status !== "cancelled" &&
@@ -441,16 +482,18 @@ const make = Effect.gen(function* () {
     readonly generation_id: string;
     readonly provider_job_id: string;
     readonly provider_instance_id: ProviderInstanceId | null;
+    readonly status: "pending" | "in_progress" | "completed";
   }>`
-    SELECT generation_id, provider_job_id, provider_instance_id
+    SELECT generation_id, provider_job_id, provider_instance_id, status
     FROM projection_video_generations
-    WHERE status IN ('pending', 'in_progress')
+    WHERE status IN ('pending', 'in_progress', 'completed')
   `;
   for (const generation of pendingGenerations) {
     yield* pollGeneration(
       generation.generation_id,
       generation.provider_job_id,
       generation.provider_instance_id ?? undefined,
+      generation.status === "completed",
     ).pipe(Effect.forkDetach, Effect.asVoid);
   }
 

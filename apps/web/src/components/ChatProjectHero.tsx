@@ -18,6 +18,7 @@ import { motion, useReducedMotion } from "motion/react";
 
 import type { ThreadShell } from "../types";
 import type { ChatProject, ChatProjectSource } from "../lib/chatProjects";
+import { useChatProjectsStore } from "../lib/chatProjects";
 import { ChatProjectDialog } from "./ChatProjectDialog";
 import { ChatProjectSourceDropzone } from "./ChatProjectSourceDropzone";
 import { Button } from "./ui/button";
@@ -137,6 +138,7 @@ export function ChatProjectContentTabs({
   const [sourceActionErrors, setSourceActionErrors] = useState<Readonly<Record<string, string>>>(
     {},
   );
+  const sourceUploadProgress = useChatProjectsStore((state) => state.sourceUploadProgress);
   const contentMaxHeight = `${PROJECT_CONTENT_VISIBLE_ROW_COUNT * PROJECT_CONTENT_ROW_HEIGHT_REM}rem`;
 
   const handleSourceAction = async (
@@ -230,131 +232,159 @@ export function ChatProjectContentTabs({
               style={{ maxHeight: contentMaxHeight }}
             >
               <div className="divide-y divide-border/70">
-                {sources.map((source) => (
-                  <div
-                    key={source.id}
-                    className="group flex min-h-12 min-w-0 items-center gap-3 px-1 py-1 sm:px-2"
-                    aria-busy={pendingSourceAction?.sourceId === source.id}
-                  >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/55 text-muted-foreground">
-                      <FileTextIcon className="size-4" strokeWidth={1.7} aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className="block truncate text-sm text-foreground/90"
-                        title={source.name}
+                {sources.map((source) => {
+                  const uploadProgress = sourceUploadProgress[source.id];
+                  return (
+                    <div key={source.id} className="min-w-0">
+                      <div
+                        className="group flex min-h-12 min-w-0 items-center gap-3 px-1 py-1 sm:px-2"
+                        aria-busy={pendingSourceAction?.sourceId === source.id}
                       >
-                        {source.name}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {formatBytes(source.sizeBytes)} · Added {formatRecentDate(source.createdAt)}
-                      </span>
-                      {sourceActionErrors[source.id] ? (
-                        <span
-                          id={`chat-project-source-error-${source.id}`}
-                          className="flex min-w-0 items-center gap-1 break-words text-[11px] text-destructive"
-                          role="alert"
-                        >
-                          <AlertCircleIcon className="size-3 shrink-0" aria-hidden="true" />
-                          <span>{sourceActionErrors[source.id]}</span>
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/55 text-muted-foreground">
+                          <FileTextIcon className="size-4" strokeWidth={1.7} aria-hidden="true" />
                         </span>
-                      ) : null}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={
-                                pendingSourceAction?.sourceId === source.id &&
-                                pendingSourceAction.action === "reindex"
-                                  ? "Re-indexing source…"
-                                  : onReindexSource
-                                    ? "Re-index source"
-                                    : "Re-index source unavailable"
-                              }
-                              title={
-                                onReindexSource ? "Re-index source" : "Re-index source unavailable"
-                              }
-                              disabled={Boolean(pendingSourceAction) || !onReindexSource}
-                              aria-describedby={
-                                sourceActionErrors[source.id]
-                                  ? `chat-project-source-error-${source.id}`
-                                  : undefined
-                              }
-                              onClick={() => void handleSourceAction(source, "reindex")}
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className="block truncate text-sm text-foreground/90"
+                            title={source.name}
+                          >
+                            {source.name}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {formatBytes(source.sizeBytes)} · Added{" "}
+                            {formatRecentDate(source.createdAt)}
+                          </span>
+                          {sourceActionErrors[source.id] ? (
+                            <span
+                              id={`chat-project-source-error-${source.id}`}
+                              className="flex min-w-0 items-center gap-1 break-words text-[11px] text-destructive"
+                              role="alert"
                             >
-                              {pendingSourceAction?.sourceId === source.id &&
-                              pendingSourceAction.action === "reindex" ? (
-                                <LoaderCircleIcon
-                                  className="animate-spin motion-reduce:animate-none"
-                                  aria-hidden="true"
-                                />
-                              ) : (
-                                <RefreshCwIcon aria-hidden="true" />
-                              )}
-                            </Button>
-                          }
-                        />
-                        <TooltipPopup side="top">
-                          {pendingSourceAction?.sourceId === source.id &&
-                          pendingSourceAction.action === "reindex"
-                            ? "Re-indexing source…"
-                            : onReindexSource
-                              ? "Re-index source"
-                              : "Re-index source unavailable"}
-                        </TooltipPopup>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-destructive hover:text-destructive"
-                              aria-label={
-                                pendingSourceAction?.sourceId === source.id &&
-                                pendingSourceAction.action === "delete"
-                                  ? "Deleting source…"
-                                  : onDeleteSource
-                                    ? "Delete source"
-                                    : "Delete source unavailable"
+                              <AlertCircleIcon className="size-3 shrink-0" aria-hidden="true" />
+                              <span>{sourceActionErrors[source.id]}</span>
+                            </span>
+                          ) : null}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={
+                                    pendingSourceAction?.sourceId === source.id &&
+                                    pendingSourceAction.action === "reindex"
+                                      ? "Re-indexing source…"
+                                      : onReindexSource
+                                        ? "Re-index source"
+                                        : "Re-index source unavailable"
+                                  }
+                                  title={
+                                    onReindexSource
+                                      ? "Re-index source"
+                                      : "Re-index source unavailable"
+                                  }
+                                  disabled={Boolean(pendingSourceAction) || !onReindexSource}
+                                  aria-describedby={
+                                    sourceActionErrors[source.id]
+                                      ? `chat-project-source-error-${source.id}`
+                                      : undefined
+                                  }
+                                  onClick={() => void handleSourceAction(source, "reindex")}
+                                >
+                                  {pendingSourceAction?.sourceId === source.id &&
+                                  pendingSourceAction.action === "reindex" ? (
+                                    <LoaderCircleIcon
+                                      className="animate-spin motion-reduce:animate-none"
+                                      aria-hidden="true"
+                                    />
+                                  ) : (
+                                    <RefreshCwIcon aria-hidden="true" />
+                                  )}
+                                </Button>
                               }
-                              title={onDeleteSource ? "Delete source" : "Delete source unavailable"}
-                              disabled={Boolean(pendingSourceAction) || !onDeleteSource}
-                              aria-describedby={
-                                sourceActionErrors[source.id]
-                                  ? `chat-project-source-error-${source.id}`
-                                  : undefined
-                              }
-                              onClick={() => void handleSourceAction(source, "delete")}
-                            >
+                            />
+                            <TooltipPopup side="top">
                               {pendingSourceAction?.sourceId === source.id &&
-                              pendingSourceAction.action === "delete" ? (
-                                <LoaderCircleIcon
-                                  className="animate-spin motion-reduce:animate-none"
-                                  aria-hidden="true"
-                                />
-                              ) : (
-                                <Trash2Icon aria-hidden="true" />
-                              )}
-                            </Button>
-                          }
-                        />
-                        <TooltipPopup side="top">
-                          {pendingSourceAction?.sourceId === source.id &&
-                          pendingSourceAction.action === "delete"
-                            ? "Deleting source…"
-                            : onDeleteSource
-                              ? "Delete source"
-                              : "Delete source unavailable"}
-                        </TooltipPopup>
-                      </Tooltip>
+                              pendingSourceAction.action === "reindex"
+                                ? "Re-indexing source…"
+                                : onReindexSource
+                                  ? "Re-index source"
+                                  : "Re-index source unavailable"}
+                            </TooltipPopup>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-destructive hover:text-destructive"
+                                  aria-label={
+                                    pendingSourceAction?.sourceId === source.id &&
+                                    pendingSourceAction.action === "delete"
+                                      ? "Deleting source…"
+                                      : onDeleteSource
+                                        ? "Delete source"
+                                        : "Delete source unavailable"
+                                  }
+                                  title={
+                                    onDeleteSource ? "Delete source" : "Delete source unavailable"
+                                  }
+                                  disabled={Boolean(pendingSourceAction) || !onDeleteSource}
+                                  aria-describedby={
+                                    sourceActionErrors[source.id]
+                                      ? `chat-project-source-error-${source.id}`
+                                      : undefined
+                                  }
+                                  onClick={() => void handleSourceAction(source, "delete")}
+                                >
+                                  {pendingSourceAction?.sourceId === source.id &&
+                                  pendingSourceAction.action === "delete" ? (
+                                    <LoaderCircleIcon
+                                      className="animate-spin motion-reduce:animate-none"
+                                      aria-hidden="true"
+                                    />
+                                  ) : (
+                                    <Trash2Icon aria-hidden="true" />
+                                  )}
+                                </Button>
+                              }
+                            />
+                            <TooltipPopup side="top">
+                              {pendingSourceAction?.sourceId === source.id &&
+                              pendingSourceAction.action === "delete"
+                                ? "Deleting source…"
+                                : onDeleteSource
+                                  ? "Delete source"
+                                  : "Delete source unavailable"}
+                            </TooltipPopup>
+                          </Tooltip>
+                        </div>
+                        {uploadProgress !== undefined ? (
+                          <div
+                            className="px-1 pb-1.5 sm:px-2"
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.round(uploadProgress)}
+                            aria-label={`Uploading ${source.name}`}
+                          >
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out motion-reduce:transition-none"
+                                style={{
+                                  width: `${Math.min(100, Math.max(0, uploadProgress))}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </ScrollArea>
           ) : null}

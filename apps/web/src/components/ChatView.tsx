@@ -312,7 +312,7 @@ import {
   resolveServerSelfUpdateCapability,
   serverUpdateGuidance,
 } from "../versionSkew";
-import { useAssetUrls } from "../assets/assetUrls";
+import { useAssetUrls, type AssetUrlState } from "../assets/assetUrls";
 import {
   buildChatProjectPrompt,
   encodeChatProjectSourceText,
@@ -2362,9 +2362,19 @@ function ChatViewContent(props: ChatViewProps) {
     () =>
       new Map(
         serverAttachmentIds.flatMap((attachmentId, index) => {
-          const url = serverAttachmentUrls[index];
-          return url ? [[attachmentId, url] as const] : [];
+          const state = serverAttachmentUrls[index];
+          return state?._tag === "Success" ? [[attachmentId, state.url] as const] : [];
         }),
+      ),
+    [serverAttachmentIds, serverAttachmentUrls],
+  );
+  const serverAttachmentStateById = useMemo(
+    () =>
+      new Map<string, AssetUrlState["_tag"]>(
+        serverAttachmentIds.map((attachmentId, index) => [
+          attachmentId,
+          serverAttachmentUrls[index]?._tag ?? "Loading",
+        ]),
       ),
     [serverAttachmentIds, serverAttachmentUrls],
   );
@@ -6052,6 +6062,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
+                imagePreviewStateByAttachmentId={serverAttachmentStateById}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}

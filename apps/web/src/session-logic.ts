@@ -92,6 +92,8 @@ export interface WorkLogEntry {
   toolTitle?: string;
   toolData?: unknown;
   itemType?: ToolLifecycleItemType;
+  /** Provider item identity used to reconcile image-generation lifecycle rows. */
+  itemId?: string;
   requestKind?: PendingApproval["requestKind"];
   /** From runtime item / task payload `status` when present (e.g. tool.updated). */
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
@@ -668,9 +670,44 @@ export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const terminalImageItemIds = new Set(
+    ordered.flatMap((activity) => {
+      const itemId = isTerminalImageActivity(activity) ? activityItemId(activity) : undefined;
+      return itemId ? [itemId] : [];
+    }),
+  );
+  const imageStartCountByTurn = new Map<string, number>();
+  const terminalImageCountByTurn = new Map<string, number>();
+  for (const activity of ordered) {
+    if (activity.turnId === null) continue;
+    const turnId = String(activity.turnId);
+    if (isImageStartActivity(activity)) {
+      imageStartCountByTurn.set(turnId, (imageStartCountByTurn.get(turnId) ?? 0) + 1);
+    }
+    if (isTerminalImageActivity(activity)) {
+      terminalImageCountByTurn.set(turnId, (terminalImageCountByTurn.get(turnId) ?? 0) + 1);
+    }
+  }
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
-    if (activity.kind === "tool.started") continue;
+    if (activity.kind === "tool.started") {
+      if (!isImageStartActivity(activity)) {
+        continue;
+      }
+      const itemId = activityItemId(activity);
+      const turnId = activity.turnId === null ? null : String(activity.turnId);
+      const canUseSingleImageTurnFallback =
+        itemId === undefined &&
+        turnId !== null &&
+        imageStartCountByTurn.get(turnId) === 1 &&
+        terminalImageCountByTurn.get(turnId) === 1;
+      if (
+        (itemId !== undefined && terminalImageItemIds.has(itemId)) ||
+        canUseSingleImageTurnFallback
+      ) {
+        continue;
+      }
+    }
     if (activity.kind === "task.started") continue;
     if (activity.kind === "context-window.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
@@ -678,6 +715,33 @@ export function deriveWorkLogEntries(
     entries.push(toDerivedWorkLogEntry(activity));
   }
   return collapseDerivedWorkLogEntries(entries);
+}
+
+function isImageStartActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.started") return false;
+  return asRecord(activity.payload)?.itemType === "image_view";
+}
+
+function activityItemId(activity: OrchestrationThreadActivity): string | undefined {
+  const itemId = asRecord(activity.payload)?.itemId;
+  return typeof itemId === "string" && itemId.length > 0 ? itemId : undefined;
+}
+
+function isTerminalImageActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.completed" && activity.kind !== "tool.updated") {
+    return false;
+  }
+  const payload = asRecord(activity.payload);
+  if (payload?.itemType !== "image_view") {
+    return false;
+  }
+  return (
+    activity.kind === "tool.completed" ||
+    payload.status === "completed" ||
+    payload.status === "failed" ||
+    payload.status === "declined" ||
+    payload.status === "stopped"
+  );
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -783,6 +847,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (itemType) {
     entry.itemType = itemType;
+  }
+  const itemId = typeof payload?.itemId === "string" ? payload.itemId : undefined;
+  if (itemId) {
+    entry.itemId = itemId;
   }
   if (requestKind) {
     entry.requestKind = requestKind;

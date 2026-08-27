@@ -221,8 +221,10 @@ describe("ProviderRuntimeIngestion", () => {
   async function createHarness(options?: {
     readonly serverSettings?: Partial<ServerSettings>;
     readonly threadScope?: "project" | "chat";
+    readonly imagePersistenceFailure?: boolean;
   }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
+    const serverBaseDir = makeTempDir("t3-provider-state-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -243,7 +245,7 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), serverBaseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
@@ -316,6 +318,12 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt,
       updatedAt: createdAt,
     });
+
+    if (options?.imagePersistenceFailure) {
+      const attachmentsDir = NodePath.join(serverBaseDir, "userdata", "attachments");
+      NodeFS.rmSync(attachmentsDir, { recursive: true, force: true });
+      NodeFS.writeFileSync(attachmentsDir, "not a directory");
+    }
 
     return {
       engine,
@@ -985,6 +993,123 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("persists Codex image generation results as assistant image attachments", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-image-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image_1"),
+      payload: {
+        itemType: "image_view",
+        status: "inProgress",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-image-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image_1"),
+      payload: {
+        itemType: "image_view",
+        status: "completed",
+        data: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-image",
+          item: {
+            type: "imageGeneration",
+            id: "image_1",
+            result: Buffer.from("generated-image").toString("base64"),
+            revisedPrompt: "A generated image",
+            savedPath: null,
+            status: "completed",
+          },
+        },
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-image-completed-replayed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("image_1"),
+      payload: {
+        itemType: "image_view",
+        status: "completed",
+        data: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-image",
+          item: {
+            type: "imageGeneration",
+            id: "image_1",
+            result: Buffer.from("generated-image").toString("base64"),
+            revisedPrompt: "A generated image",
+            savedPath: null,
+            status: "completed",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) => entry.messages.some((message) => message.id === "assistant:image:image_1"),
+      10_000,
+    );
+    const message = thread.messages.find((entry) => entry.id === "assistant:image:image_1");
+    expect(thread.messages.filter((entry) => entry.id === "assistant:image:image_1")).toHaveLength(
+      1,
+    );
+    expect(message?.text).toBe("");
+    expect(message?.streaming).toBe(false);
+    expect(message?.attachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        mimeType: "image/png",
+        sizeBytes: Buffer.byteLength("generated-image"),
+        origin: "assistant",
+      }),
+    ]);
+    await harness.drain();
+    const replayedSnapshot = await harness.readModel();
+    const replayedThread = replayedSnapshot.threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(replayedThread).toBeDefined();
+    expect(
+      replayedThread?.messages.filter((entry) => entry.id === "assistant:image:image_1"),
+    ).toHaveLength(1);
+    expect(
+      thread.activities.some(
+        (activity) => activity.id === "evt-image-started" && activity.kind === "tool.started",
+      ),
+    ).toBe(true);
+    const completedActivity = thread.activities.find(
+      (activity) => activity.id === "evt-image-completed",
+    );
+    const completedPayload =
+      completedActivity?.payload && typeof completedActivity.payload === "object"
+        ? (completedActivity.payload as Record<string, unknown>)
+        : undefined;
+    const completedData =
+      completedPayload?.data && typeof completedPayload.data === "object"
+        ? (completedPayload.data as Record<string, unknown>)
+        : undefined;
+    expect(completedData?.item).toBeUndefined();
+  });
+
   it("preserves completed tool metadata on projected tool activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -1039,6 +1164,51 @@ describe("ProviderRuntimeIngestion", () => {
     expect(data?.toolCallId).toBe("tool-read-1");
     expect(data?.kind).toBe("read");
     expect(rawOutput?.content).toBe('import * as Effect from "effect/Effect"\n');
+  });
+
+  it("appends the image tool activity when attachment persistence fails", async () => {
+    const harness = await createHarness({ imagePersistenceFailure: true });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-image-persistence-failed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image-persistence-failed"),
+      itemId: asItemId("image-persistence-failed"),
+      payload: {
+        itemType: "image_view",
+        status: "completed",
+        data: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-image-persistence-failed",
+          item: {
+            type: "imageGeneration",
+            id: "image-persistence-failed",
+            result: Buffer.from("generated-image").toString("base64"),
+            revisedPrompt: "A generated image",
+            savedPath: null,
+            status: "completed",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-image-persistence-failed"),
+    );
+    expect(
+      thread.activities.some(
+        (activity) =>
+          activity.id === "evt-image-persistence-failed" && activity.kind === "tool.completed",
+      ),
+    ).toBe(true);
+    expect(
+      thread.messages.some((message) => message.id === "assistant:image:image-persistence-failed"),
+    ).toBe(false);
   });
 
   it("normalizes command execution activities to ran-command summaries", async () => {

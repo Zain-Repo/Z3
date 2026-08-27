@@ -53,6 +53,7 @@ import {
   MousePointerClickIcon,
   PaintbrushIcon,
   MinusIcon,
+  SparklesIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -61,6 +62,7 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
 import { TextShimmer } from "../text-shimmer";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -102,6 +104,7 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
+import { type AssetUrlState } from "../../assets/assetUrls";
 
 import {
   buildInlineTerminalContextText,
@@ -141,6 +144,7 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  imagePreviewStateByAttachmentId: ReadonlyMap<string, AssetUrlState["_tag"]>;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorElement?: HTMLElement) => void;
@@ -159,6 +163,7 @@ const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
 const TIMELINE_LIST_FADE_HEADER = <div className="h-10 sm:h-12" />;
 const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+const EMPTY_IMAGE_PREVIEW_STATES: ReadonlyMap<string, AssetUrlState["_tag"]> = new Map();
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -179,6 +184,7 @@ interface MessagesTimelineProps {
   onRevertUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  imagePreviewStateByAttachmentId?: ReadonlyMap<string, AssetUrlState["_tag"]>;
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
@@ -214,6 +220,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRevertUserMessage,
   isRevertingCheckpoint,
   onImageExpand,
+  imagePreviewStateByAttachmentId = EMPTY_IMAGE_PREVIEW_STATES,
   activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
@@ -436,6 +443,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onImageExpand,
+      imagePreviewStateByAttachmentId,
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -450,6 +458,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onImageExpand,
+      imagePreviewStateByAttachmentId,
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -1072,7 +1081,12 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const assistantImages = (row.message.attachments ?? []).filter(
+    (attachment): attachment is TimelineImageAttachment => attachment.type === "image",
+  );
+  const messageText =
+    row.message.text ||
+    (row.message.streaming || assistantImages.length > 0 ? "" : "(empty response)");
 
   return (
     <>
@@ -1084,6 +1098,19 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           isStreaming={Boolean(row.message.streaming)}
           skills={ctx.skills}
         />
+        {assistantImages.length > 0 ? (
+          <div className="mt-2 grid max-w-[420px] grid-cols-2 gap-2">
+            {assistantImages.map((image) => (
+              <AssistantImagePreviewTile
+                key={image.id}
+                image={image}
+                images={assistantImages}
+                previewState={ctx.imagePreviewStateByAttachmentId.get(image.id)}
+                onExpand={ctx.onImageExpand}
+              />
+            ))}
+          </div>
+        ) : null}
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
@@ -1109,6 +1136,80 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
         ) : null}
       </div>
     </>
+  );
+}
+
+function AssistantImagePreviewTile({
+  image,
+  images,
+  previewState,
+  onExpand,
+}: {
+  readonly image: TimelineImageAttachment;
+  readonly images: ReadonlyArray<TimelineImageAttachment>;
+  readonly previewState: AssetUrlState["_tag"] | undefined;
+  readonly onExpand: (preview: ExpandedImagePreview) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    setFailed(false);
+  }, [image.previewUrl]);
+
+  const assetState = previewState ?? (image.previewUrl ? "Success" : "Failure");
+  const unavailable = assetState === "Failure" || failed;
+  const showSkeleton = !unavailable && !loaded;
+  const preview = image.previewUrl ? buildExpandedImagePreview(images, image.id) : null;
+
+  return (
+    <div
+      className="relative aspect-square overflow-hidden rounded-lg border border-border/70 bg-muted/60"
+      aria-busy={showSkeleton}
+    >
+      <Skeleton
+        className={`absolute inset-0 rounded-none motion-reduce:animate-none ${showSkeleton ? "opacity-100" : "opacity-0"}`}
+      />
+      {showSkeleton ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-background/45 text-muted-foreground/45 shadow-sm/5">
+            <SparklesIcon className="size-4" aria-hidden="true" />
+          </span>
+        </div>
+      ) : null}
+      {image.previewUrl && !unavailable ? (
+        <img
+          src={image.previewUrl}
+          alt={image.name}
+          className={`block h-full w-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          loading="lazy"
+          decoding="async"
+        />
+      ) : null}
+      {unavailable ? (
+        <div className="absolute inset-0 flex items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+          Preview unavailable
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="absolute inset-0 flex cursor-zoom-in items-end justify-end p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default"
+        aria-label={`View generated image ${image.name}`}
+        disabled={!loaded || unavailable || preview === null}
+        onClick={() => {
+          if (preview) onExpand(preview);
+        }}
+      >
+        {loaded ? (
+          <span className="flex size-7 items-center justify-center rounded-md bg-black/45 text-white/90 backdrop-blur-sm">
+            <EyeIcon className="size-4" aria-hidden="true" />
+          </span>
+        ) : null}
+      </button>
+    </div>
   );
 }
 
@@ -2026,6 +2127,26 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         },
       }
     : {};
+
+  if (workEntry.itemType === "image_view" && workEntry.sourceActivityKind === "tool.started") {
+    return (
+      <div className="max-w-[420px] py-1">
+        <div
+          className="relative aspect-square w-full overflow-hidden rounded-lg border border-border/70 bg-muted/60"
+          aria-busy="true"
+          aria-label="Generating image"
+        >
+          <Skeleton className="absolute inset-0 rounded-none motion-reduce:animate-none" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="flex size-9 items-center justify-center rounded-md bg-background/55 text-muted-foreground backdrop-blur-sm">
+              <SparklesIcon className="size-4" aria-hidden="true" />
+            </span>
+          </div>
+        </div>
+        <p className="mt-1.5 text-[11px] text-muted-foreground/70">Generating image...</p>
+      </div>
+    );
+  }
 
   return (
     <div

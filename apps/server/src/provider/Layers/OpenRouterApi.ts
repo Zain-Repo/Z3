@@ -5,10 +5,6 @@ import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import {
-  OPENROUTER_GPT_IMAGE_2_MODEL,
-  OPENROUTER_GPT_IMAGE_2_PROVIDER,
-} from "@t3tools/contracts";
 
 export interface OpenRouterModel {
   readonly id: string;
@@ -141,12 +137,20 @@ export type OpenRouterVideoInputReference =
   | { readonly type: "audio_url"; readonly audio_url: { readonly url: string } }
   | { readonly type: "video_url"; readonly video_url: { readonly url: string } };
 
+export interface OpenRouterVideoProviderOption {
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+
+export interface OpenRouterVideoProvider {
+  readonly options: Readonly<Record<string, OpenRouterVideoProviderOption>>;
+}
+
 export interface OpenRouterVideoGenerationInput {
   readonly httpClient: HttpClient.HttpClient;
   readonly baseUrl: string;
   readonly apiKey: string;
   readonly model: string;
-  readonly prompt?: string;
+  readonly prompt: string;
   readonly duration?: number;
   readonly resolution?: string;
   readonly aspectRatio?: string;
@@ -155,7 +159,7 @@ export interface OpenRouterVideoGenerationInput {
   readonly seed?: number;
   readonly frameImages?: ReadonlyArray<OpenRouterVideoFrameImage>;
   readonly inputReferences?: ReadonlyArray<OpenRouterVideoInputReference>;
-  readonly provider?: Readonly<Record<string, unknown>>;
+  readonly provider?: OpenRouterVideoProvider;
   readonly callbackUrl?: string;
 }
 
@@ -873,11 +877,8 @@ function validateReferenceUrl(
 }
 
 function validateVideoGenerationInput(input: OpenRouterVideoGenerationInput): void {
-  const prompt = input.prompt?.trim();
-  const hasInput = (input.frameImages?.length ?? 0) > 0 || (input.inputReferences?.length ?? 0) > 0;
-  if (!prompt && !hasInput) {
-    throw new OpenRouterApiError("Video generation needs a prompt or a reference input.");
-  }
+  if (input.prompt.trim().length === 0)
+    throw new OpenRouterApiError("Video prompt must not be empty.");
   if (input.duration !== undefined && (!Number.isInteger(input.duration) || input.duration < 1)) {
     throw new OpenRouterApiError("Video duration must be an integer of at least one second.");
   }
@@ -914,6 +915,21 @@ function validateVideoGenerationInput(input: OpenRouterVideoGenerationInput): vo
   if (input.callbackUrl !== undefined && input.callbackUrl.trim().length > 0) {
     validateReferenceUrl(input.callbackUrl, "Callback URL", { allowDataUrl: false });
   }
+  if (input.provider !== undefined) {
+    if (!Predicate.isObject(input.provider) || !Predicate.isObject(input.provider.options)) {
+      throw new OpenRouterApiError(
+        "Video provider options must use the OpenRouter options format.",
+      );
+    }
+    for (const [providerSlug, option] of Object.entries(input.provider.options)) {
+      if (providerSlug.trim().length === 0 || !Predicate.isObject(option)) {
+        throw new OpenRouterApiError("Video provider options must use non-empty provider slugs.");
+      }
+      if (!Predicate.isObject(option.parameters)) {
+        throw new OpenRouterApiError("Video provider options must include a parameters object.");
+      }
+    }
+  }
 }
 
 export const createOpenRouterVideo = Effect.fn("createOpenRouterVideo")(function* (
@@ -928,7 +944,7 @@ export const createOpenRouterVideo = Effect.fn("createOpenRouterVideo")(function
     HttpClientRequest.bearerToken(input.apiKey),
     HttpClientRequest.bodyJsonUnsafe({
       model: input.model,
-      ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
+      prompt: input.prompt.trim(),
       ...(input.duration !== undefined ? { duration: input.duration } : {}),
       ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
       ...(input.aspectRatio !== undefined ? { aspect_ratio: input.aspectRatio } : {}),
@@ -1056,18 +1072,210 @@ function parseOpenRouterImageGenerationResult(payload: unknown): OpenRouterImage
   };
 }
 
-function providerPreferencesForImageModel(
-  model: string,
-  provider: Readonly<Record<string, unknown>> | undefined,
-): Readonly<Record<string, unknown>> | undefined {
-  if (model !== OPENROUTER_GPT_IMAGE_2_MODEL) return provider;
+export interface OpenRouterImageCapabilities {
+  readonly supportedParameters: Readonly<Record<string, OpenRouterImageParameterDescriptor>>;
+  readonly supportsStreaming: boolean;
+}
 
-  // GPT Image 2 is a single OpenAI endpoint. Keep this request on OpenRouter's
-  // OpenAI route and prevent OpenRouter from selecting a fallback endpoint.
+function intersectImageParameterDescriptors(
+  descriptors: ReadonlyArray<OpenRouterImageParameterDescriptor>,
+): OpenRouterImageParameterDescriptor | undefined {
+  const first = descriptors[0];
+  if (first === undefined) return undefined;
+  if (descriptors.some((descriptor) => descriptor.type !== first.type)) return undefined;
+
+  if (first.type === "boolean") return { type: "boolean" };
+
+  if (first.type === "range") {
+    let min = -Infinity;
+    let max = Infinity;
+    for (const descriptor of descriptors) {
+      if (descriptor.type !== "range") return undefined;
+      min = Math.max(min, descriptor.min);
+      max = Math.min(max, descriptor.max);
+    }
+    return min <= max ? { type: "range", min, max } : undefined;
+  }
+
+  const sharedValues = first.values.filter((value) =>
+    descriptors.every(
+      (descriptor) => descriptor.type === "enum" && descriptor.values.includes(value),
+    ),
+  );
+  return sharedValues.length > 0 ? { type: "enum", values: sharedValues } : undefined;
+}
+
+/**
+ * Merges per-endpoint capability records into the set that is safe to send
+ * with automatic provider routing. A request field is only kept when every
+ * endpoint accepts it, and enum values are intersected so the request works
+ * no matter which endpoint OpenRouter picks.
+ */
+export function mergeOpenRouterImageCapabilities(
+  endpoints: ReadonlyArray<OpenRouterImageModelEndpoint>,
+): OpenRouterImageCapabilities {
+  if (endpoints.length === 0) return { supportedParameters: {}, supportsStreaming: false };
+
+  const parameterNames = new Set<string>();
+  for (const endpoint of endpoints) {
+    for (const name of Object.keys(endpoint.supportedParameters)) parameterNames.add(name);
+  }
+
+  const supportedParameters: Record<string, OpenRouterImageParameterDescriptor> = {};
+  for (const name of parameterNames) {
+    const descriptors = endpoints
+      .map((endpoint) => endpoint.supportedParameters[name])
+      .filter(
+        (descriptor): descriptor is OpenRouterImageParameterDescriptor => descriptor !== undefined,
+      );
+    if (descriptors.length !== endpoints.length) continue;
+    const merged = intersectImageParameterDescriptors(descriptors);
+    if (merged) supportedParameters[name] = merged;
+  }
+
   return {
-    ...(provider ?? {}),
-    only: [OPENROUTER_GPT_IMAGE_2_PROVIDER],
-    allow_fallbacks: false,
+    supportedParameters,
+    supportsStreaming: endpoints.every((endpoint) => endpoint.supportsStreaming),
+  };
+}
+
+/**
+ * Resolves the effective capabilities for a generation request. When the
+ * request pins a provider with `provider.only`, that endpoint's records are
+ * authoritative; otherwise the request may route to any endpoint, so the
+ * endpoint records are merged into a safe intersection.
+ */
+export function resolveOpenRouterImageCapabilities(
+  result: OpenRouterImageModelEndpoints,
+  provider: Readonly<Record<string, unknown>> | undefined,
+): OpenRouterImageCapabilities {
+  const only = provider?.only;
+  if (Array.isArray(only) && only.length > 0) {
+    const pinned =
+      result.endpoints.find(
+        (endpoint) => endpoint.providerSlug !== undefined && only.includes(endpoint.providerSlug),
+      ) ??
+      result.endpoints.find(
+        (endpoint) => endpoint.providerTag !== undefined && only.includes(endpoint.providerTag),
+      );
+    if (pinned) {
+      return {
+        supportedParameters: pinned.supportedParameters,
+        supportsStreaming: pinned.supportsStreaming,
+      };
+    }
+  }
+  return mergeOpenRouterImageCapabilities(result.endpoints);
+}
+
+function imageParameterBounds(
+  descriptor: OpenRouterImageParameterDescriptor,
+  defaultMin: number,
+  defaultMax: number,
+): { readonly min: number; readonly max: number } {
+  return descriptor.type === "range"
+    ? { min: descriptor.min, max: descriptor.max }
+    : { min: defaultMin, max: defaultMax };
+}
+
+function clampImageNumber(
+  value: number,
+  bounds: { readonly min: number; readonly max: number },
+): number {
+  return Math.min(bounds.max, Math.max(bounds.min, Math.floor(value)));
+}
+
+function sanitizeImageEnumValue<const T extends string>(
+  value: T | undefined,
+  descriptor: OpenRouterImageParameterDescriptor | undefined,
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (descriptor === undefined) return undefined;
+  if (descriptor.type !== "enum") return value;
+  if (descriptor.values.includes(value)) return value;
+  return descriptor.values[0] as T;
+}
+
+function sanitizeImageRangeValue(
+  value: number | undefined,
+  descriptor: OpenRouterImageParameterDescriptor | undefined,
+  defaultMin: number,
+  defaultMax: number,
+): number | undefined {
+  if (value === undefined || descriptor === undefined) return undefined;
+  return clampImageNumber(value, imageParameterBounds(descriptor, defaultMin, defaultMax));
+}
+
+function sanitizeImageReferences(
+  references: ReadonlyArray<OpenRouterImageReference> | undefined,
+  descriptor: OpenRouterImageParameterDescriptor | undefined,
+): ReadonlyArray<OpenRouterImageReference> | undefined {
+  if (references === undefined || descriptor === undefined) return undefined;
+  const bounds = imageParameterBounds(descriptor, 0, Number.MAX_SAFE_INTEGER);
+  if (references.length < bounds.min) {
+    throw new OpenRouterApiError(
+      `This model requires at least ${bounds.min} reference image${bounds.min === 1 ? "" : "s"}.`,
+    );
+  }
+  if (references.length > bounds.max) {
+    throw new OpenRouterApiError(
+      `This model accepts at most ${bounds.max} reference image${bounds.max === 1 ? "" : "s"}.`,
+    );
+  }
+  return references;
+}
+
+/**
+ * Shapes a generation request so it only carries fields the model's endpoints
+ * accept. Unsupported fields are dropped, numbers are clamped into the model's
+ * ranges, and enum values are remapped to a value the model accepts so the
+ * provider default still applies when the requested value is unavailable.
+ * Violating a hard reference-image requirement fails with a clear error.
+ */
+export function sanitizeOpenRouterImageInput(
+  input: OpenRouterImageGenerationInput,
+  capabilities: OpenRouterImageCapabilities,
+): OpenRouterImageGenerationInput {
+  const supported = capabilities.supportedParameters;
+  const resolution = sanitizeImageEnumValue(input.resolution, supported.resolution);
+  const aspectRatio = sanitizeImageEnumValue(input.aspectRatio, supported.aspect_ratio);
+  const size = sanitizeImageEnumValue(input.size, supported.size);
+  const quality = sanitizeImageEnumValue(input.quality, supported.quality);
+  const outputFormat = sanitizeImageEnumValue(input.outputFormat, supported.output_format);
+  const background = sanitizeImageEnumValue(input.background, supported.background);
+  const n = sanitizeImageRangeValue(input.n, supported.n, 1, 10);
+  const outputCompression = sanitizeImageRangeValue(
+    input.outputCompression,
+    supported.output_compression,
+    0,
+    100,
+  );
+  const seed = sanitizeImageRangeValue(input.seed, supported.seed, 0, Number.MAX_SAFE_INTEGER);
+  const inputReferences = sanitizeImageReferences(
+    input.inputReferences,
+    supported.input_references,
+  );
+
+  return {
+    httpClient: input.httpClient,
+    baseUrl: input.baseUrl,
+    apiKey: input.apiKey,
+    model: input.model,
+    prompt: input.prompt,
+    ...(input.provider !== undefined ? { provider: input.provider } : {}),
+    ...(input.stream === true && capabilities.supportsStreaming ? { stream: true } : {}),
+    ...(n !== undefined ? { n } : {}),
+    // An explicit pixel size is authoritative; a mismatched resolution
+    // alongside it is rejected with a 400, so drop resolution when both exist.
+    ...(resolution !== undefined && size === undefined ? { resolution } : {}),
+    ...(aspectRatio !== undefined ? { aspectRatio } : {}),
+    ...(size !== undefined ? { size } : {}),
+    ...(quality !== undefined ? { quality } : {}),
+    ...(outputFormat !== undefined ? { outputFormat } : {}),
+    ...(background !== undefined ? { background } : {}),
+    ...(outputCompression !== undefined ? { outputCompression } : {}),
+    ...(seed !== undefined ? { seed } : {}),
+    ...(inputReferences !== undefined ? { inputReferences } : {}),
   };
 }
 
@@ -1086,7 +1294,6 @@ export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(func
   if (input.stream) {
     request = request.pipe(HttpClientRequest.setHeader("Accept", "text/event-stream"));
   }
-  const provider = providerPreferencesForImageModel(input.model, input.provider);
   request = request.pipe(
     HttpClientRequest.bodyJsonUnsafe({
       model: input.model,
@@ -1104,7 +1311,7 @@ export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(func
         : {}),
       ...(input.seed !== undefined ? { seed: input.seed } : {}),
       ...(input.inputReferences !== undefined ? { input_references: input.inputReferences } : {}),
-      ...(provider !== undefined ? { provider } : {}),
+      ...(input.provider !== undefined ? { provider: input.provider } : {}),
     }),
   );
   const payload = yield* (input.stream ? requestStreamingImage : requestJson)({

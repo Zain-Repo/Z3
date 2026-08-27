@@ -261,6 +261,38 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
+  it("keeps an image generation start visible for its skeleton preview", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "image-start-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:00Z",
+          entry: {
+            id: "image-start",
+            createdAt: "2026-01-01T00:00:00Z",
+            turnId: "turn-image" as never,
+            label: "Image view started",
+            tone: "tool",
+            itemType: "image_view",
+            sourceActivityKind: "tool.started",
+          },
+        },
+      ],
+      runningTurnId: "turn-image" as never,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("work");
+    expect(rows[0]?.kind === "work" ? rows[0].groupedEntries[0]?.itemType : undefined).toBe(
+      "image_view",
+    );
+  });
+
   it("only enables assistant copy for the terminal assistant message in a turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
@@ -322,6 +354,96 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRows).toHaveLength(2);
     expect(assistantRows[0]?.showAssistantCopyButton).toBe(false);
     expect(assistantRows[1]?.showAssistantCopyButton).toBe(true);
+  });
+
+  it("keeps generated assistant images outside the worked fold", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00Z",
+          message: {
+            id: "user-message" as never,
+            role: "user",
+            text: "Generate an image",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "tool-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:01Z",
+          entry: {
+            id: "tool-complete",
+            createdAt: "2026-01-01T00:00:01Z",
+            turnId: "turn-image" as never,
+            label: "Image view",
+            tone: "tool",
+            itemType: "image_view",
+            sourceActivityKind: "tool.completed",
+          },
+        },
+        {
+          id: "image-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:02Z",
+          message: {
+            id: "image-message" as never,
+            role: "assistant",
+            text: "",
+            turnId: "turn-image" as never,
+            createdAt: "2026-01-01T00:00:02Z",
+            updatedAt: "2026-01-01T00:00:02Z",
+            streaming: false,
+            attachments: [
+              {
+                type: "image",
+                id: "image-attachment",
+                name: "generated-image.png",
+                mimeType: "image/png",
+                sizeBytes: 4,
+                origin: "assistant",
+              },
+            ],
+          },
+        },
+        {
+          id: "final-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:03Z",
+          message: {
+            id: "final-message" as never,
+            role: "assistant",
+            text: "Here is your image.",
+            turnId: "turn-image" as never,
+            createdAt: "2026-01-01T00:00:03Z",
+            updatedAt: "2026-01-01T00:00:03Z",
+            streaming: false,
+          },
+        },
+      ],
+      latestTurn: {
+        turnId: "turn-image" as never,
+        state: "completed",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: "2026-01-01T00:00:03Z",
+      },
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => (row.kind === "message" ? row.message.id : row.kind))).toEqual([
+      "user-message",
+      "turn-fold",
+      "image-message",
+      "final-message",
+    ]);
   });
 
   it("marks only the active assistant turn as streaming for copy controls", () => {

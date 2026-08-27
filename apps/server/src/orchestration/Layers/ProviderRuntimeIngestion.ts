@@ -1,5 +1,6 @@
 import {
   ApprovalRequestId,
+  type ChatAttachment,
   type AssistantDeliveryMode,
   CommandId,
   MessageId,
@@ -16,14 +17,18 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@t3tools/contracts";
+import * as NodeCrypto from "node:crypto";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
@@ -40,6 +45,9 @@ import {
 import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { resolveAttachmentPath, toSafeThreadAttachmentSegment } from "../../attachmentStore.ts";
+import { ServerConfig } from "../../config.ts";
+import { parseBase64DataUrl } from "../../imageMime.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -124,6 +132,86 @@ function sameId(left: string | null | undefined, right: string | null | undefine
     return false;
   }
   return left === right;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function decodeGeneratedImageResult(result: string): {
+  readonly mimeType: string;
+  readonly bytes: Uint8Array;
+} | null {
+  const parsedDataUrl = parseBase64DataUrl(result);
+  const mimeType = parsedDataUrl?.mimeType ?? "image/png";
+  const base64 = (parsedDataUrl?.base64 ?? result.trim()).replace(/\s+/g, "");
+  if (!/^image\//i.test(mimeType) || base64.length === 0 || base64.length % 4 !== 0) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+    return null;
+  }
+
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+    return null;
+  }
+  return { mimeType: mimeType.toLowerCase(), bytes };
+}
+
+interface GeneratedImage {
+  readonly itemId: string;
+  readonly mimeType: string;
+  readonly bytes: Uint8Array;
+}
+
+function generatedImageFromEvent(event: ProviderRuntimeEvent): GeneratedImage | null {
+  if (event.type !== "item.completed" || event.payload.itemType !== "image_view") {
+    return null;
+  }
+  const data = asRecord(event.payload.data);
+  const item = asRecord(data?.item);
+  if (item?.type !== "imageGeneration" || typeof item.result !== "string") {
+    return null;
+  }
+
+  const decoded = decodeGeneratedImageResult(item.result);
+  if (!decoded) {
+    return null;
+  }
+
+  const itemId =
+    typeof item.id === "string" && item.id.length > 0
+      ? item.id
+      : event.itemId !== undefined
+        ? String(event.itemId)
+        : String(event.eventId);
+  return { itemId, ...decoded };
+}
+
+function imageLifecycleItemId(event: ProviderRuntimeEvent): string | undefined {
+  if (event.itemId !== undefined) {
+    return String(event.itemId);
+  }
+  const data = "data" in event.payload ? asRecord(event.payload.data) : null;
+  const item = asRecord(data?.item);
+  return typeof item?.id === "string" && item.id.length > 0 ? item.id : undefined;
+}
+
+function deterministicGeneratedAttachmentId(
+  threadId: string,
+  providerImageItemId: string,
+): string | null {
+  const threadSegment = toSafeThreadAttachmentSegment(threadId);
+  if (!threadSegment) return null;
+  const digest = NodeCrypto.createHash("sha256")
+    .update(`${threadId}:${providerImageItemId}`, "utf8")
+    .digest("hex")
+    .slice(0, 32);
+  const uuid = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20)}`;
+  return `${threadSegment}-${uuid}`;
 }
 
 function hasAssistantMessageForTurn(
@@ -631,6 +719,9 @@ export function runtimeEventToActivities(
           summary: event.payload.title ?? "Tool updated",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.payload.itemType === "image_view" && imageLifecycleItemId(event)
+              ? { itemId: imageLifecycleItemId(event) }
+              : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
@@ -645,21 +736,25 @@ export function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
-      return [
-        {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "tool",
-          kind: "tool.completed",
-          summary: event.payload.title ?? "Tool",
-          payload: {
-            itemType: event.payload.itemType,
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
-          },
-          turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
+      const activity = {
+        id: event.eventId,
+        createdAt: event.createdAt,
+        tone: "tool" as const,
+        kind: "tool.completed" as const,
+        summary: event.payload.title ?? "Tool",
+        payload: {
+          itemType: event.payload.itemType,
+          ...(event.payload.itemType === "image_view" && imageLifecycleItemId(event)
+            ? { itemId: imageLifecycleItemId(event) }
+            : {}),
+          ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+          ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
         },
+        turnId: toTurnId(event.turnId) ?? null,
+        ...maybeSequence,
+      } satisfies OrchestrationThreadActivity;
+      return [
+        event.payload.itemType === "image_view" ? projectActivityPayload(activity) : activity,
       ];
     }
 
@@ -676,6 +771,9 @@ export function runtimeEventToActivities(
           summary: `${event.payload.title ?? "Tool"} started`,
           payload: {
             itemType: event.payload.itemType,
+            ...(event.payload.itemType === "image_view" && imageLifecycleItemId(event)
+              ? { itemId: imageLifecycleItemId(event) }
+              : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -693,6 +791,9 @@ export function runtimeEventToActivities(
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const serverConfig = yield* ServerConfig;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -702,6 +803,38 @@ const make = Effect.gen(function* () {
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
     );
+
+  const persistGeneratedImage = Effect.fn("persistGeneratedImage")(function* (input: {
+    readonly event: ProviderRuntimeEvent;
+    readonly threadId: ThreadId;
+  }) {
+    const generatedImage = generatedImageFromEvent(input.event);
+    if (!generatedImage) {
+      return null;
+    }
+    const attachmentId = deterministicGeneratedAttachmentId(input.threadId, generatedImage.itemId);
+    if (!attachmentId) {
+      return null;
+    }
+    const attachment: ChatAttachment = {
+      type: "image",
+      id: attachmentId,
+      name: `generated-image-${generatedImage.itemId}`,
+      mimeType: generatedImage.mimeType,
+      sizeBytes: generatedImage.bytes.byteLength,
+      origin: "assistant",
+    };
+    const attachmentPath = resolveAttachmentPath({
+      attachmentsDir: serverConfig.attachmentsDir,
+      attachment,
+    });
+    if (!attachmentPath) {
+      return null;
+    }
+    yield* fileSystem.makeDirectory(path.dirname(attachmentPath), { recursive: true });
+    yield* fileSystem.writeFile(attachmentPath, generatedImage.bytes);
+    return attachment;
+  });
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -1783,6 +1916,39 @@ const make = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.asVoid);
+
+      const generatedImage = generatedImageFromEvent(event);
+      if (generatedImage) {
+        const generatedImageAttachment = yield* persistGeneratedImage({
+          event,
+          threadId: thread.id,
+        }).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) {
+              return Effect.failCause(cause);
+            }
+            return Effect.logWarning(
+              "failed to persist generated image attachment; provider activity was appended",
+              {
+                eventId: event.eventId,
+                itemId: generatedImage.itemId,
+                cause: Cause.pretty(cause),
+              },
+            ).pipe(Effect.as(null));
+          }),
+        );
+        if (generatedImageAttachment) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.assistant.complete",
+            commandId: yield* providerCommandId(event, "assistant-image-complete"),
+            threadId: thread.id,
+            messageId: MessageId.make(`assistant:image:${generatedImage.itemId}`),
+            attachments: [generatedImageAttachment],
+            ...(eventTurnId ? { turnId: eventTurnId } : {}),
+            createdAt: now,
+          });
+        }
+      }
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;

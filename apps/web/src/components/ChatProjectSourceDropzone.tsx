@@ -34,12 +34,20 @@ function encodeBase64(bytes: ArrayBuffer): string {
   return btoa(binary);
 }
 
+/** Staged upload progress so the bar reads left-to-right instead of jumping. */
+const UPLOAD_STAGE_PROGRESS: Record<"encoded" | "uploadStart" | "complete", number> = {
+  encoded: 45,
+  uploadStart: 55,
+  complete: 100,
+};
+
 export function ChatProjectSourceDropzone({
   environmentId,
   projectId,
 }: ChatProjectSourceDropzoneProps) {
   const addSource = useChatProjectsStore((state) => state.addSource);
   const updateSource = useChatProjectsStore((state) => state.updateSource);
+  const setSourceUploadProgress = useChatProjectsStore((state) => state.setSourceUploadProgress);
   const projectName = useChatProjectsStore(
     (state) =>
       state.projectsByEnvironment[environmentId]?.find((project) => project.id === projectId)
@@ -89,7 +97,14 @@ export function ChatProjectSourceDropzone({
           });
           if (sourceId) {
             addedCount += 1;
+            let lastReportedProgress = UPLOAD_STAGE_PROGRESS.encoded;
+            const reportProgress = (progress: number) => {
+              lastReportedProgress = Math.max(lastReportedProgress, Math.min(progress, 100));
+              setSourceUploadProgress(environmentId, projectId, sourceId, lastReportedProgress);
+            };
+            reportProgress(UPLOAD_STAGE_PROGRESS.encoded);
             try {
+              reportProgress(UPLOAD_STAGE_PROGRESS.uploadStart);
               const result = await uploadSource({
                 environmentId,
                 input: {
@@ -102,6 +117,7 @@ export function ChatProjectSourceDropzone({
                   embeddingModel,
                 },
               });
+              reportProgress(UPLOAD_STAGE_PROGRESS.complete);
               if (result._tag === "Success") {
                 updateSource(environmentId, projectId, sourceId, {
                   embeddingModel: result.value.embeddingModel,
@@ -120,6 +136,7 @@ export function ChatProjectSourceDropzone({
                 });
               }
             } catch {
+              reportProgress(UPLOAD_STAGE_PROGRESS.complete);
               updateSource(environmentId, projectId, sourceId, { indexStatus: "failed" });
               toastManager.add({
                 type: "warning",

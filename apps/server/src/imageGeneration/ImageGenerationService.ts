@@ -14,19 +14,25 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
+  OpenRouterApiError,
   fetchOpenRouterImageModelEndpoints,
   fetchOpenRouterImageModels,
   generateOpenRouterImage,
   normalizeOpenRouterImageMimeType,
+  resolveOpenRouterImageCapabilities,
+  sanitizeOpenRouterImageInput,
+  type OpenRouterImageGenerationInput,
   type OpenRouterImageModel,
   type OpenRouterImageModelEndpoint,
 } from "../provider/Layers/OpenRouterApi.ts";
+import { resolveImageModelRouting } from "../provider/Layers/OpenRouterImageRouting.ts";
 import { resolveOpenRouterConnection } from "../provider/Layers/OpenRouterConnection.ts";
 
 export class ImageGenerationServiceError extends Data.TaggedError("ImageGenerationServiceError")<{
@@ -288,7 +294,33 @@ const make = Effect.gen(function* () {
     generate: (input) =>
       Effect.gen(function* () {
         const connection = yield* withConnection(input.providerInstanceId);
-        const result = yield* generateOpenRouterImage({
+        // Resolve the model's endpoint capabilities so the request only carries
+        // parameters the routed provider accepts, and apply the curated
+        // provider routing per model. When OpenRouter cannot describe the
+        // model, send the request unchanged and let OpenRouter validate it.
+        const endpoints = yield* fetchOpenRouterImageModelEndpoints(
+          httpClient,
+          connection.baseUrl,
+          connection.apiKey,
+          input.model,
+        ).pipe(
+          Effect.result,
+        );
+        const resolvedEndpoints = Result.getOrUndefined(endpoints);
+        if (resolvedEndpoints !== undefined && resolvedEndpoints.endpoints.length === 0) {
+          return yield* new ImageGenerationServiceError({
+            message: `Model ${input.model} has no available provider endpoints on OpenRouter.`,
+          });
+        }
+        const routedProvider =
+          resolvedEndpoints === undefined
+            ? input.provider
+            : resolveImageModelRouting(input.model, input.provider, resolvedEndpoints.endpoints);
+        const capabilities =
+          resolvedEndpoints === undefined
+            ? undefined
+            : resolveOpenRouterImageCapabilities(resolvedEndpoints, routedProvider);
+        const candidate: OpenRouterImageGenerationInput = {
           httpClient,
           baseUrl: connection.baseUrl,
           apiKey: connection.apiKey,
@@ -314,8 +346,13 @@ const make = Effect.gen(function* () {
                 })),
               }
             : {}),
-          ...(input.provider !== undefined ? { provider: input.provider } : {}),
-        });
+          ...(routedProvider !== undefined ? { provider: routedProvider } : {}),
+        };
+        const sanitized =
+          capabilities === undefined
+            ? candidate
+            : sanitizeOpenRouterImageInput(candidate, capabilities);
+        const result = yield* generateOpenRouterImage(sanitized);
         const generationId = yield* crypto.randomUUIDv4;
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const usageJson = result.usage === undefined ? null : JSON.stringify(result.usage);
@@ -360,6 +397,8 @@ const make = Effect.gen(function* () {
         Effect.catch((cause) =>
           cause instanceof ImageGenerationServiceError
             ? Effect.fail(cause)
+            : cause instanceof OpenRouterApiError
+              ? Effect.fail(new ImageGenerationServiceError({ message: cause.message }))
             : Effect.fail(new ImageGenerationServiceError({ message: "Image generation failed." })),
         ),
       ),

@@ -145,10 +145,16 @@ function formatThreadTitleContext(
     if (message.role === "system") {
       continue;
     }
+    const inputAttachments = (message.attachments ?? []).filter(
+      (attachment) =>
+        !(
+          message.role === "assistant" &&
+          attachment.type === "image" &&
+          attachment.origin === "assistant"
+        ),
+    );
     const text = message.text.trim();
-    const attachmentSummary = (message.attachments ?? [])
-      .map((attachment) => attachment.name)
-      .join(", ");
+    const attachmentSummary = inputAttachments.map((attachment) => attachment.name).join(", ");
     const contents = [
       ...(text.length > 0 ? [text] : []),
       ...(attachmentSummary.length > 0 ? [`[Attachments: ${attachmentSummary}]`] : []),
@@ -163,13 +169,13 @@ function formatThreadTitleContext(
     if (section.length > available) {
       if (available > 0) {
         context = `${section.slice(-available)}${separator}${context}`;
-        retainedAttachments.unshift(...(message.attachments ?? []));
+        retainedAttachments.unshift(...inputAttachments);
       }
       truncated = true;
       break;
     }
     context = `${section}${separator}${context}`;
-    retainedAttachments.unshift(...(message.attachments ?? []));
+    retainedAttachments.unshift(...inputAttachments);
   }
 
   return {

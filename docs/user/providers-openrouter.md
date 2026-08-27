@@ -34,6 +34,20 @@ Z3 accepts PNG, JPEG, WEBP, and GIF attachments for this provider. Selecting a t
 produces a validation message before a request is sent. If OpenRouter rejects a request, Z3 now
 surfaces the provider's response detail instead of showing only a generic runtime error.
 
+## Video generation
+
+Z3Image can generate videos through OpenRouter. Choose an OpenRouter video model and enter a
+prompt. You can also provide optional frames or references, duration, resolution, aspect ratio,
+audio, a seed, and any provider-specific options that the selected model advertises.
+
+Video jobs run asynchronously. Z3 polls the job, resumes polling after a restart, downloads all
+outputs, stores them locally, and serves them to web, desktop, and remote clients. Jobs show
+**pending**, **rendering**, or **error** states. Terminal provider failures remain visible with
+their error; preview-loading failures offer **Retry**.
+
+OpenRouter video generation is not eligible for Zero Data Retention (ZDR), and the provider may
+charge OpenRouter credits for these requests.
+
 ## Workspace tools
 
 The direct driver exposes workspace tools to models that support OpenRouter function calling:

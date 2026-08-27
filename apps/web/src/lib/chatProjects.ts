@@ -54,6 +54,7 @@ export interface ChatProject {
 interface ChatProjectsState {
   readonly projectsByEnvironment: Readonly<Record<string, readonly ChatProject[]>>;
   readonly activeProjectIdByEnvironment: Readonly<Record<string, string | null>>;
+  readonly sourceUploadProgress: Readonly<Record<string, number>>;
   readonly createProject: (environmentId: EnvironmentId, name: string) => string | null;
   readonly updateProject: (
     environmentId: EnvironmentId,
@@ -89,6 +90,12 @@ interface ChatProjectsState {
       | "indexStatus"
     >,
   ) => void;
+  readonly setSourceUploadProgress: (
+    environmentId: EnvironmentId,
+    projectId: string,
+    sourceId: string,
+    progress: number,
+  ) => void;
   readonly setActiveProject: (environmentId: EnvironmentId, projectId: string | null) => void;
   readonly toggleProjectPin: (environmentId: EnvironmentId, projectId: string) => void;
   readonly addThreadToProject: (
@@ -99,6 +106,9 @@ interface ChatProjectsState {
 }
 
 const EMPTY_PROJECTS: readonly ChatProject[] = [];
+
+/** Transient per-source upload progress (0-100); never persisted to storage. */
+const EMPTY_UPLOAD_PROGRESS: Readonly<Record<string, number>> = {};
 
 function now(): string {
   return new Date().toISOString();
@@ -137,9 +147,7 @@ function sanitizeSource(value: unknown): ChatProjectSource | null {
     sizeBytes: nonNegativeNumber(value.sizeBytes),
     contents,
     ...(typeof value.contentBase64 === "string" ? { contentBase64: value.contentBase64 } : {}),
-    ...(typeof value.embeddingModel === "string"
-      ? { embeddingModel: value.embeddingModel }
-      : {}),
+    ...(typeof value.embeddingModel === "string" ? { embeddingModel: value.embeddingModel } : {}),
     ...(typeof value.embeddingDimensions === "number"
       ? { embeddingDimensions: value.embeddingDimensions }
       : {}),
@@ -345,6 +353,7 @@ const persistedState = readPersistedState();
 
 export const useChatProjectsStore = create<ChatProjectsState>((set) => ({
   ...persistedState,
+  sourceUploadProgress: EMPTY_UPLOAD_PROGRESS,
   createProject: (environmentId, rawName) => {
     const name = rawName.trim();
     if (!name) return null;
@@ -474,6 +483,31 @@ export const useChatProjectsStore = create<ChatProjectsState>((set) => ({
         ),
       ),
     );
+  },
+  setSourceUploadProgress: (environmentId, projectId, sourceId, progress) => {
+    set((state) => {
+      const project = state.projectsByEnvironment[environmentId]?.find(
+        (entry) => entry.id === projectId,
+      );
+      if (!project || !project.sources.some((entry) => entry.id === sourceId)) return state;
+      const current = state.sourceUploadProgress[sourceId];
+      if (current !== undefined && (current >= 100 || progress <= current)) return state;
+      const clamped = Math.max(0, Math.min(100, progress));
+      if (clamped === current) return state;
+      if (clamped >= 100) {
+        if (state.sourceUploadProgress[sourceId] === undefined) return state;
+        const nextProgress = { ...state.sourceUploadProgress };
+        delete nextProgress[sourceId];
+        return { ...state, sourceUploadProgress: nextProgress };
+      }
+      return {
+        ...state,
+        sourceUploadProgress: {
+          ...state.sourceUploadProgress,
+          [sourceId]: clamped,
+        },
+      };
+    });
   },
   setActiveProject: (environmentId, projectId) => {
     set((state) => {

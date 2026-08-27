@@ -69,7 +69,7 @@ const VideoReferenceType = Schema.Literals(["image_url", "audio_url", "video_url
 export const VideoGenerationInput = Schema.Struct({
   providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
-  prompt: Schema.optionalKey(Schema.String),
+  prompt: TrimmedNonEmptyString,
   duration: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   resolution: Schema.optionalKey(TrimmedNonEmptyString),
   aspectRatio: Schema.optionalKey(TrimmedNonEmptyString),
@@ -92,7 +92,14 @@ export const VideoGenerationInput = Schema.Struct({
       }),
     ),
   ),
-  provider: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  provider: Schema.optionalKey(
+    Schema.Struct({
+      options: Schema.Record(
+        TrimmedNonEmptyString,
+        Schema.Struct({ parameters: Schema.Record(Schema.String, Schema.Unknown) }),
+      ),
+    }),
+  ),
   callbackUrl: Schema.optionalKey(Schema.String),
 });
 export type VideoGenerationInput = typeof VideoGenerationInput.Type;

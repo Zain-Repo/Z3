@@ -352,7 +352,7 @@ function deriveTurnFolds(input: {
     }
     const hiddenEntryIds = new Set<string>();
     for (const entry of group.entries) {
-      if (entry.id !== group.terminalEntry?.id) {
+      if (entry.id !== group.terminalEntry?.id && !isAssistantImageEntry(entry)) {
         hiddenEntryIds.add(entry.id);
       }
     }
@@ -400,6 +400,14 @@ function deriveTurnFolds(input: {
     });
   }
   return foldsByAnchorEntryId;
+}
+
+function isAssistantImageEntry(entry: TimelineEntry): boolean {
+  return (
+    entry.kind === "message" &&
+    entry.message.role === "assistant" &&
+    (entry.message.attachments ?? []).some((attachment) => attachment.type === "image")
+  );
 }
 
 export function deriveMessagesTimelineRows(input: {
@@ -476,7 +484,9 @@ export function deriveMessagesTimelineRows(input: {
         cursor += 1;
       }
       const visibleGroupedEntries = groupedEntries.filter(
-        (entry) => !workEntryIndicatesToolNeutralStatus(entry),
+        (entry) =>
+          !workEntryIndicatesToolNeutralStatus(entry) ||
+          (entry.itemType === "image_view" && entry.sourceActivityKind === "tool.started"),
       );
       if (visibleGroupedEntries.length > 0) {
         if (visibleGroupedEntries.length <= MAX_VISIBLE_WORK_LOG_ENTRIES) {

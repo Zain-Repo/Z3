@@ -69,6 +69,10 @@ describe("ElectronProtocol", () => {
           );
           assert.include(
             response.headers.get("content-security-policy") ?? "",
+            "media-src 'self' t3code-dev: blob:",
+          );
+          assert.include(
+            response.headers.get("content-security-policy") ?? "",
             "font-src 'self' t3code-dev: data:",
           );
         }),
@@ -217,6 +221,7 @@ describe("ElectronProtocol", () => {
       "https://challenges.cloudflare.com",
     ]);
     assert.deepEqual(directives["connect-src"], ["'self'", "http:", "https:", "ws:", "wss:"]);
+    assert.deepEqual(directives["media-src"], ["'self'", "t3code:", "blob:"]);
     assert.deepEqual(directives["img-src"], [
       "'self'",
       "t3code:",

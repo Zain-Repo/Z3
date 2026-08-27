@@ -4,6 +4,7 @@ import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import {
+  mergeOpenRouterImageCapabilities,
   fetchOpenRouterImageModelEndpoints,
   fetchOpenRouterVideoJob,
   downloadOpenRouterVideo,
@@ -13,6 +14,8 @@ import {
   parseOpenRouterImageModels,
   parseOpenRouterModels,
   parseOpenRouterVideoModels,
+  resolveOpenRouterImageCapabilities,
+  sanitizeOpenRouterImageInput,
   streamOpenRouterCompletion,
   createOpenRouterEmbeddings,
 } from "./OpenRouterApi.ts";
@@ -278,7 +281,7 @@ describe("parseOpenRouterModels", () => {
     );
   });
 
-  it.effect("pins GPT Image 2 to OpenAI without provider fallbacks", () => {
+  it.effect("sends the provider routing object unchanged", () => {
     let requestBody: Record<string, unknown> | undefined;
     const client = HttpClient.make((request) => {
       const body = request.body as { readonly body?: Uint8Array };
@@ -307,8 +310,7 @@ describe("parseOpenRouterModels", () => {
       Effect.map(() => {
         expect(requestBody?.provider).toEqual({
           order: ["some-other-provider"],
-          only: ["openai"],
-          allow_fallbacks: false,
+          allow_fallbacks: true,
         });
       }),
     );
@@ -415,6 +417,224 @@ describe("OpenRouter chat completion routing", () => {
   });
 });
 
+describe("OpenRouter image generation capability handling", () => {
+  const baseInput = {
+    httpClient: HttpClient.make((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(JSON.stringify({ data: [{ b64_json: "AQID" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    ),
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: "test-key",
+    model: "x-ai/grok-imagine-image-2.0",
+    prompt: "A red panda",
+  } as const;
+
+  it("drops fields the model does not support", () => {
+    const sanitized = sanitizeOpenRouterImageInput(
+      {
+        ...baseInput,
+        n: 2,
+        background: "transparent",
+        stream: true,
+        seed: 7,
+        aspectRatio: "1:1",
+      },
+      {
+        supportedParameters: {
+          aspect_ratio: { type: "enum", values: ["1:1"] },
+        },
+        supportsStreaming: false,
+      },
+    );
+
+    expect(sanitized.n).toBeUndefined();
+    expect(sanitized.background).toBeUndefined();
+    expect(sanitized.stream).toBeUndefined();
+    expect(sanitized.seed).toBeUndefined();
+    expect(sanitized.aspectRatio).toBe("1:1");
+  });
+
+  it("remaps enum values the model does not accept", () => {
+    const sanitized = sanitizeOpenRouterImageInput(
+      { ...baseInput, quality: "auto", outputFormat: "png" },
+      {
+        supportedParameters: {
+          quality: { type: "enum", values: ["low", "medium"] },
+          output_format: { type: "enum", values: ["svg"] },
+        },
+        supportsStreaming: false,
+      },
+    );
+
+    expect(sanitized.quality).toBe("low");
+    expect(sanitized.outputFormat).toBe("svg");
+  });
+
+  it("clamps numeric fields into the model's ranges", () => {
+    const sanitized = sanitizeOpenRouterImageInput(
+      { ...baseInput, n: 8, outputCompression: 150 },
+      {
+        supportedParameters: {
+          n: { type: "range", min: 1, max: 1 },
+          output_compression: { type: "range", min: 0, max: 100 },
+        },
+        supportsStreaming: false,
+      },
+    );
+
+    expect(sanitized.n).toBe(1);
+    expect(sanitized.outputCompression).toBe(100);
+  });
+
+  it("drops resolution when an explicit size is authoritative", () => {
+    const sanitized = sanitizeOpenRouterImageInput(
+      { ...baseInput, resolution: "1K", size: "2048x2048" },
+      {
+        supportedParameters: {
+          resolution: { type: "enum", values: ["1K", "2K"] },
+          size: { type: "enum", values: ["2048x2048"] },
+        },
+        supportsStreaming: false,
+      },
+    );
+
+    expect(sanitized.size).toBe("2048x2048");
+    expect(sanitized.resolution).toBeUndefined();
+  });
+
+  it("requires reference images when the endpoint minimum is greater than zero", () => {
+    expect(() =>
+      sanitizeOpenRouterImageInput(
+        { ...baseInput, inputReferences: [] },
+        {
+          supportedParameters: {
+            input_references: { type: "range", min: 1, max: 10 },
+          },
+          supportsStreaming: false,
+        },
+      ),
+    ).toThrow("requires at least 1 reference image");
+
+    const sanitized = sanitizeOpenRouterImageInput(
+      {
+        ...baseInput,
+        inputReferences: [{ type: "image_url", image_url: { url: "data:image/png;base64,AQID" } }],
+      },
+      {
+        supportedParameters: {
+          input_references: { type: "range", min: 1, max: 10 },
+        },
+        supportsStreaming: false,
+      },
+    );
+
+    expect(sanitized.inputReferences).toHaveLength(1);
+  });
+
+  it("rejects more references than the endpoint accepts", () => {
+    const references = [
+      { type: "image_url" as const, image_url: { url: "data:image/png;base64,AQID" } },
+      { type: "image_url" as const, image_url: { url: "data:image/png;base64,AQID" } },
+    ];
+
+    expect(() =>
+      sanitizeOpenRouterImageInput(
+        { ...baseInput, inputReferences: references },
+        {
+          supportedParameters: {
+            input_references: { type: "range", min: 0, max: 1 },
+          },
+          supportsStreaming: false,
+        },
+      ),
+    ).toThrow("accepts at most 1 reference image");
+  });
+
+  it("intersects capabilities across endpoints for automatic routing", () => {
+    const capabilities = mergeOpenRouterImageCapabilities([
+      {
+        providerName: "OpenAI",
+        providerSlug: "openai",
+        supportedParameters: {
+          quality: { type: "enum", values: ["auto", "low", "high"] },
+          n: { type: "range", min: 1, max: 10 },
+        },
+        allowedPassthroughParameters: [],
+        supportsStreaming: true,
+        pricing: [],
+      },
+      {
+        providerName: "Second",
+        providerSlug: "second",
+        supportedParameters: {
+          quality: { type: "enum", values: ["low", "medium"] },
+          n: { type: "range", min: 1, max: 4 },
+        },
+        allowedPassthroughParameters: [],
+        supportsStreaming: false,
+        pricing: [],
+      },
+    ]);
+
+    expect(capabilities.supportsStreaming).toBe(false);
+    expect(capabilities.supportedParameters.quality).toEqual({
+      type: "enum",
+      values: ["low"],
+    });
+    expect(capabilities.supportedParameters.n).toEqual({
+      type: "range",
+      min: 1,
+      max: 4,
+    });
+  });
+
+  it("uses the pinned endpoint's capabilities when a provider is selected", () => {
+    const capabilities = resolveOpenRouterImageCapabilities(
+      {
+        id: "openai/gpt-image-1",
+        endpoints: [
+          {
+            providerName: "OpenAI",
+            providerSlug: "openai",
+            providerTag: "openai",
+            supportedParameters: {
+              quality: { type: "enum", values: ["auto", "high"] },
+            },
+            allowedPassthroughParameters: [],
+            supportsStreaming: true,
+            pricing: [],
+          },
+          {
+            providerName: "Other",
+            providerSlug: "other",
+            providerTag: "other",
+            supportedParameters: {
+              quality: { type: "enum", values: ["low"] },
+            },
+            allowedPassthroughParameters: [],
+            supportsStreaming: false,
+            pricing: [],
+          },
+        ],
+      },
+      { only: ["other"], allow_fallbacks: false },
+    );
+
+    expect(capabilities.supportsStreaming).toBe(false);
+    expect(capabilities.supportedParameters.quality).toEqual({
+      type: "enum",
+      values: ["low"],
+    });
+  });
+});
+
 describe("OpenRouter video generation", () => {
   it("parses video model capabilities from the video catalog", () => {
     expect(
@@ -505,6 +725,7 @@ describe("OpenRouter video generation", () => {
           seed: 7,
           frame_images: [{ frame_type: "first_frame" }],
           input_references: [{ type: "image_url" }, { type: "audio_url" }, { type: "video_url" }],
+          provider: { options: { "google-vertex": { parameters: { enhancePrompt: true } } } },
           callback_url: "https://example.com/openrouter-callback",
         });
         expect(job.status).toBe("pending");
@@ -593,6 +814,48 @@ describe("OpenRouter video generation", () => {
       ]);
     });
   });
+
+  it.effect(
+    "downloads each completed video output through the authenticated content endpoint",
+    () => {
+      const requestedUrls: Array<string> = [];
+      const client = HttpClient.make((request) => {
+        requestedUrls.push(request.url);
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(new Uint8Array([1, 2, 3]), {
+              status: 200,
+              headers: { "content-type": "video/webm" },
+            }),
+          ),
+        );
+      });
+
+      return Effect.gen(function* () {
+        const first = yield* downloadOpenRouterVideo({
+          httpClient: client,
+          baseUrl: "https://openrouter.ai/api/v1",
+          apiKey: "test-key",
+          jobId: "job-2",
+          index: 0,
+        });
+        const second = yield* downloadOpenRouterVideo({
+          httpClient: client,
+          baseUrl: "https://openrouter.ai/api/v1",
+          apiKey: "test-key",
+          jobId: "job-2",
+          index: 1,
+        });
+        expect(first.mediaType).toBe("video/webm");
+        expect(second.mediaType).toBe("video/webm");
+        expect(requestedUrls).toEqual([
+          "https://openrouter.ai/api/v1/videos/job-2/content?index=0",
+          "https://openrouter.ai/api/v1/videos/job-2/content?index=1",
+        ]);
+      });
+    },
+  );
 });
 
 describe("streamOpenRouterCompletion", () => {
