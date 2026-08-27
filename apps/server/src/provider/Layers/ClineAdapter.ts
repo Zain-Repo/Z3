@@ -7,6 +7,7 @@
 import {
   ApprovalRequestId,
   type ClineSettings,
+  type ProviderOptionSelection,
   EventId,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
@@ -50,6 +51,7 @@ import {
 } from "../Errors.ts";
 import {
   mapAcpToAdapterError,
+  applyAcpModelOptionSelections,
   selectAcpAutoApprovedPermissionOption,
   selectAcpPermissionOptionId,
 } from "../acp/AcpAdapterSupport.ts";
@@ -228,6 +230,7 @@ function applyRequestedSessionConfiguration<E>(input: {
   readonly interactionMode: ProviderInteractionMode | undefined;
   readonly currentModelId: string | undefined;
   readonly requestedModelId: string | undefined;
+  readonly modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
   readonly mapError: (context: {
     readonly cause: EffectAcpErrors.AcpError;
     readonly method: "session/set_config_option" | "session/set_mode";
@@ -238,6 +241,12 @@ function applyRequestedSessionConfiguration<E>(input: {
       runtime: input.runtime,
       currentModelId: input.currentModelId,
       requestedModelId: input.requestedModelId,
+      mapError: (cause) => input.mapError({ cause, method: "session/set_config_option" }),
+    });
+
+    yield* applyAcpModelOptionSelections({
+      runtime: input.runtime,
+      selections: input.modelOptions,
       mapError: (cause) => input.mapError({ cause, method: "session/set_config_option" }),
     });
 
@@ -593,6 +602,7 @@ export function makeClineAdapter(clineSettings: ClineSettings, options?: ClineAd
             interactionMode: undefined,
             currentModelId: currentClineModelIdFromSessionSetup(started.sessionSetupResult),
             requestedModelId: requestedStartModelId,
+            modelOptions: clineModelSelection?.options,
             mapError: ({ cause, method }) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });
@@ -775,6 +785,7 @@ export function makeClineAdapter(clineSettings: ClineSettings, options?: ClineAd
             interactionMode: input.interactionMode,
             currentModelId: ctx.currentModelId,
             requestedModelId: requestedTurnModelId,
+            modelOptions: turnModelSelection?.options,
             mapError: ({ cause, method }) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });

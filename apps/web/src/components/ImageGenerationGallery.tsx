@@ -1,5 +1,14 @@
-import type { ImageGenerationRecord } from "@t3tools/contracts";
-import { Maximize2Icon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import type { ImageGenerationInput, ImageGenerationRecord } from "@t3tools/contracts";
+import {
+  CheckIcon,
+  Code2Icon,
+  CopyIcon,
+  Maximize2Icon,
+  RotateCcwIcon,
+  SparklesIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "../lib/utils";
@@ -7,6 +16,11 @@ import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Skeleton } from "./ui/skeleton";
 import type { ImageContent, LoadImageContent } from "./imageContentLoader";
+import {
+  copyTextToClipboard,
+  reusableImageGenerationInput,
+  serializeImageGenerationPayload,
+} from "../lib/imageGenerationPayload";
 
 export function PendingGenerationCard({
   count,
@@ -33,7 +47,7 @@ export function PendingGenerationCard({
       </div>
       <div className="border-t border-border/60 p-2.5">
         <div className="flex items-center gap-2 text-xs font-medium text-foreground/80">
-          <span className="size-2 rounded-full bg-fuchsia-500" aria-hidden="true" />
+          <span className="size-2 rounded-full bg-primary" aria-hidden="true" />
           Generating {count} image{count === 1 ? "" : "s"}
         </div>
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{prompt}</p>
@@ -46,13 +60,30 @@ export const GenerationCard = memo(function GenerationCard({
   generation,
   loadImageContent,
   onDelete,
+  onReuse,
 }: {
   readonly generation: ImageGenerationRecord;
   readonly loadImageContent: LoadImageContent;
   readonly onDelete: (id: string) => Promise<void>;
+  readonly onReuse: (input: ImageGenerationInput) => void;
 }) {
+  const [copiedAction, setCopiedAction] = useState<"prompt" | "json" | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const reusableInput = reusableImageGenerationInput(generation);
+
+  const copy = async (action: "prompt" | "json", value: string) => {
+    try {
+      await copyTextToClipboard(value);
+      setCopiedAction(action);
+      setCopyFailed(false);
+      window.setTimeout(() => setCopiedAction(null), 1400);
+    } catch {
+      setCopyFailed(true);
+    }
+  };
+
   return (
-    <article className="group min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card/30 shadow-sm/5 [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
+    <article className="group min-w-0 overflow-hidden border border-border/70 bg-card/30 shadow-sm/5 [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
       <div
         className={cn(
           "grid aspect-square overflow-hidden bg-muted/35",
@@ -68,19 +99,67 @@ export const GenerationCard = memo(function GenerationCard({
           />
         ))}
       </div>
-      <div className="flex items-start justify-between gap-2 border-t border-border/60 p-2.5">
+      <div className="border-t border-border/60 p-2.5">
         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
           {generation.prompt}
         </p>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => void onDelete(generation.id)}
-          aria-label="Delete generation"
-          className="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-        >
-          <Trash2Icon className="size-3.5" aria-hidden="true" />
-        </Button>
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/50 pt-2">
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => void copy("prompt", generation.prompt)}
+              aria-label="Copy full prompt"
+              title="Copy full prompt"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {copiedAction === "prompt" ? (
+                <CheckIcon className="size-3.5 text-emerald-500" aria-hidden="true" />
+              ) : (
+                <CopyIcon className="size-3.5" aria-hidden="true" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => void copy("json", serializeImageGenerationPayload(reusableInput))}
+              aria-label="Copy image settings as JSON"
+              title="Copy settings as JSON"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {copiedAction === "json" ? (
+                <CheckIcon className="size-3.5 text-emerald-500" aria-hidden="true" />
+              ) : (
+                <Code2Icon className="size-3.5" aria-hidden="true" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onReuse(reusableInput)}
+              aria-label="Reuse image settings"
+              title="Reuse settings"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <RotateCcwIcon className="size-3.5" aria-hidden="true" />
+            </Button>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => void onDelete(generation.id)}
+            aria-label="Delete generation"
+            title="Delete generation"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2Icon className="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+        {copyFailed ? (
+          <p className="mt-1 text-[11px] text-destructive" role="status">
+            Clipboard unavailable
+          </p>
+        ) : null}
       </div>
     </article>
   );

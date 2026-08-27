@@ -9,6 +9,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
+  DEFAULT_RUNTIME_MODE,
 } from "@t3tools/contracts";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
@@ -133,7 +134,7 @@ export function buildChatDraftThread(
     projectId: null,
     title: "New chat",
     modelSelection,
-    runtimeMode: "approval-required",
+    runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: "default",
     session: null,
     messages: [],

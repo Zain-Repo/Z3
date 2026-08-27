@@ -1,4 +1,9 @@
-import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type EnvironmentId,
+  type ProviderInstanceId,
+  type ThreadId,
+} from "@t3tools/contracts";
 
 export const CHAT_ENVIRONMENT_STORAGE_KEY = "t3code:chat-environment";
 
@@ -103,7 +108,7 @@ export function buildChatThreadCreateInput(input: {
     projectId: null,
     title: input.title ?? "New chat",
     modelSelection: input.selection,
-    runtimeMode: "approval-required" as const,
+    runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: "default" as const,
     branch: null,
     worktreePath: null,

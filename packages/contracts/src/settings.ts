@@ -62,8 +62,8 @@ export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill",
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
 
-export const DEFAULT_Z3CHAT_EMBEDDING_PROVIDER = "voyageai";
-export const DEFAULT_Z3CHAT_EMBEDDING_MODEL = "voyageai/voyage-4-large";
+export const DEFAULT_Z3CHAT_EMBEDDING_PROVIDER = "openrouter";
+export const DEFAULT_Z3CHAT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -73,6 +73,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  showHiddenFiles: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   environmentIdentificationMode: EnvironmentIdentificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE)),
   ),
@@ -924,6 +925,7 @@ export const ClientSettingsPatch = Schema.Struct({
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  showHiddenFiles: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
   z3chatEmbeddingProvider: Schema.optionalKey(TrimmedString),

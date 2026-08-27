@@ -32,6 +32,7 @@ describe("filesystem browse model", () => {
       exactEntry: null,
     });
     expect(filterFilesystemBrowseEntries(entries, "").visibleEntries).toEqual(entries.slice(1));
+    expect(filterFilesystemBrowseEntries(entries, "", true).visibleEntries).toEqual(entries);
     expect(filterFilesystemBrowseEntries(entries, ".").visibleEntries).toEqual(entries.slice(0, 1));
     expect(filterFilesystemBrowseEntries(entries, "Code").exactEntry).toEqual(entries[1]);
   });

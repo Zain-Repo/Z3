@@ -30,6 +30,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
 import { makeClineAcpRuntime } from "../acp/ClineAcpSupport.ts";
+import { buildAcpModelOptionDescriptors } from "../acp/AcpRuntimeModel.ts";
 
 const CLINE_PRESENTATION = {
   displayName: "Cline",
@@ -92,10 +93,12 @@ function clineModelsFromSettings(
 
 function buildClineDiscoveredModelsFromSessionModelState(
   modelState: EffectAcpSchema.SessionModelState | null | undefined,
+  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> | null | undefined,
 ): ReadonlyArray<ServerProviderModel> {
   if (!modelState || modelState.availableModels.length === 0) {
     return [];
   }
+  const optionDescriptors = buildAcpModelOptionDescriptors(configOptions);
   const seen = new Set<string>();
   return modelState.availableModels
     .map((model): ServerProviderModel | undefined => {
@@ -108,7 +111,7 @@ function buildClineDiscoveredModelsFromSessionModelState(
         slug,
         name: model.name.trim() || slug,
         isCustom: false,
-        capabilities: EMPTY_CAPABILITIES,
+        capabilities: createModelCapabilities({ optionDescriptors }),
       };
     })
     .filter((model): model is ServerProviderModel => model !== undefined);
@@ -128,7 +131,10 @@ const discoverClineModelsViaAcp = (
       clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
     });
     const started = yield* acp.start();
-    return buildClineDiscoveredModelsFromSessionModelState(started.sessionSetupResult.models);
+    return buildClineDiscoveredModelsFromSessionModelState(
+      started.sessionSetupResult.models,
+      started.sessionSetupResult.configOptions,
+    );
   }).pipe(Effect.scoped);
 
 const runClineVersionCommand = (

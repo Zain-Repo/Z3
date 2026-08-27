@@ -82,6 +82,19 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain("text-sidebar-muted-foreground/80");
   });
 
+  it("supports the compact chat row treatment", () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider>
+        <SidebarMenuButton variant="chat">New chat</SidebarMenuButton>
+      </SidebarProvider>,
+    );
+
+    expect(html).toContain("h-8");
+    expect(html).toContain("text-sm");
+    expect(html).toContain("font-normal");
+    expect(html).toContain("text-sidebar-foreground/75");
+  });
+
   it("lets project drag handles override the default pointer cursor", () => {
     const html = renderSidebarButton("cursor-grab");
 

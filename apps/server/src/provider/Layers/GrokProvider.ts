@@ -30,6 +30,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
 import { makeGrokAcpRuntime, resolveGrokAcpBaseModelId } from "../acp/GrokAcpSupport.ts";
+import { buildAcpModelOptionDescriptors } from "../acp/AcpRuntimeModel.ts";
 
 const GROK_PRESENTATION = {
   displayName: "Grok",
@@ -101,10 +102,12 @@ function grokModelsFromSettings(
 
 function buildGrokDiscoveredModelsFromSessionModelState(
   modelState: EffectAcpSchema.SessionModelState | null | undefined,
+  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> | null | undefined,
 ): ReadonlyArray<ServerProviderModel> {
   if (!modelState || modelState.availableModels.length === 0) {
     return [];
   }
+  const optionDescriptors = buildAcpModelOptionDescriptors(configOptions);
   const seen = new Set<string>();
   return modelState.availableModels
     .map((model): ServerProviderModel | undefined => {
@@ -117,7 +120,7 @@ function buildGrokDiscoveredModelsFromSessionModelState(
         slug,
         name: model.name.trim() || slug,
         isCustom: false,
-        capabilities: EMPTY_CAPABILITIES,
+        capabilities: createModelCapabilities({ optionDescriptors }),
       };
     })
     .filter((model): model is ServerProviderModel => model !== undefined);
@@ -137,7 +140,10 @@ const discoverGrokModelsViaAcp = (
       clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
     });
     const started = yield* acp.start();
-    return buildGrokDiscoveredModelsFromSessionModelState(started.sessionSetupResult.models);
+    return buildGrokDiscoveredModelsFromSessionModelState(
+      started.sessionSetupResult.models,
+      started.sessionSetupResult.configOptions,
+    );
   }).pipe(Effect.scoped);
 
 const runGrokVersionCommand = (

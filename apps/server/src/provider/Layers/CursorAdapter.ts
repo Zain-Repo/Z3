@@ -49,7 +49,11 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { acpPermissionOutcome, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import {
+  acpPermissionOutcome,
+  applyAcpModelOptionSelections,
+  mapAcpToAdapterError,
+} from "../acp/AcpAdapterSupport.ts";
 import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -267,6 +271,16 @@ function applyRequestedSessionConfiguration<E>(input: {
         model: input.modelSelection.model,
         selections: input.modelSelection.options,
         mapError: ({ cause }) =>
+          input.mapError({
+            cause,
+            method: "session/set_config_option",
+          }),
+      });
+
+      yield* applyAcpModelOptionSelections({
+        runtime: input.runtime,
+        selections: input.modelSelection.options,
+        mapError: (cause) =>
           input.mapError({
             cause,
             method: "session/set_config_option",

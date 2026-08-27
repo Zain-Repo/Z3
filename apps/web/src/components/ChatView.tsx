@@ -13,7 +13,7 @@ import {
   type ServerConfig,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
@@ -230,7 +230,7 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
-import { ChatProjectHero } from "./ChatProjectHero";
+import { ChatProjectContentTabs, ChatProjectHero } from "./ChatProjectHero";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -314,7 +314,8 @@ import {
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
 import {
-  buildChatProjectContext,
+  buildChatProjectPrompt,
+  encodeChatProjectSourceText,
   projectForChatThread,
   type ChatProject,
   useChatProjectsStore,
@@ -1190,6 +1191,12 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const routeThreadKey = useMemo(() => scopedThreadKey(routeThreadRef), [routeThreadRef]);
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
+  const uploadZ3ChatProjectSource = useAtomCommand(serverEnvironment.uploadZ3ChatProjectSource, {
+    reportFailure: false,
+  });
+  const deleteZ3ChatProjectSource = useAtomCommand(serverEnvironment.deleteZ3ChatProjectSource, {
+    reportFailure: false,
+  });
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
@@ -1503,6 +1510,8 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const addThreadToChatProject = useChatProjectsStore((state) => state.addThreadToProject);
   const toggleChatProjectPin = useChatProjectsStore((state) => state.toggleProjectPin);
+  const updateChatProjectSource = useChatProjectsStore((state) => state.updateSource);
+  const removeChatProjectSource = useChatProjectsStore((state) => state.removeSource);
   const chatThreadShells = useThreadShells();
   const chatProject = useMemo(() => {
     if (!isChatThread) return null;
@@ -1531,15 +1540,59 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [navigate],
   );
+  const reindexChatProjectSource = useCallback(
+    async (source: ChatProject["sources"][number]) => {
+      if (!chatProject) throw new Error("The project is no longer available.");
+      const contentBase64 = source.contentBase64 ?? encodeChatProjectSourceText(source.contents);
+      const result = await uploadZ3ChatProjectSource({
+        environmentId,
+        input: {
+          projectId: chatProject.id,
+          sourceId: source.id,
+          projectName: chatProject.name,
+          fileName: source.name,
+          mimeType: source.mimeType,
+          contentBase64,
+          embeddingModel: settings.z3chatEmbeddingModel,
+        },
+      });
+      if (result._tag === "Failure") {
+        throw squashAtomCommandFailure(result);
+      }
+      updateChatProjectSource(environmentId, chatProject.id, source.id, {
+        embeddingModel: result.value.embeddingModel,
+        embeddingDimensions: result.value.embeddingDimensions,
+        embeddingChunkCount: result.value.chunkCount,
+        indexedAt: result.value.indexedAt,
+        indexStatus: result.value.status,
+      });
+    },
+    [
+      chatProject,
+      environmentId,
+      settings.z3chatEmbeddingModel,
+      updateChatProjectSource,
+      uploadZ3ChatProjectSource,
+    ],
+  );
+  const deleteChatProjectSource = useCallback(
+    async (source: ChatProject["sources"][number]) => {
+      if (!chatProject) throw new Error("The project is no longer available.");
+      const result = await deleteZ3ChatProjectSource({
+        environmentId,
+        input: { projectId: chatProject.id, sourceId: source.id },
+      });
+      if (result._tag === "Failure") {
+        throw squashAtomCommandFailure(result);
+      }
+      removeChatProjectSource(environmentId, chatProject.id, source.id);
+    },
+    [chatProject, deleteZ3ChatProjectSource, environmentId, removeChatProjectSource],
+  );
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
-  // Chat threads never run with implicit full access. Keep the mode fixed to
-  // approval-required while leaving the existing code-workspace controls
-  // unchanged.
-  const runtimeMode = isChatThread
-    ? "approval-required"
-    : (composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE);
+  const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
@@ -3140,7 +3193,6 @@ function ChatViewContent(props: ChatViewProps) {
 
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
-      if (isChatThread) return;
       if (mode === runtimeMode) return;
       setComposerDraftRuntimeMode(composerDraftTarget, mode);
       if (isLocalDraftThread) {
@@ -3149,7 +3201,6 @@ function ChatViewContent(props: ChatViewProps) {
       scheduleComposerFocus();
     },
     [
-      isChatThread,
       isLocalDraftThread,
       runtimeMode,
       scheduleComposerFocus,
@@ -4831,7 +4882,7 @@ function ChatViewContent(props: ChatViewProps) {
     );
     const messageTextWithProjectContext =
       isChatThread && chatProject
-        ? `${buildChatProjectContext(chatProject)}\n\n<user-request>\n${messageTextForSend}\n</user-request>`
+        ? buildChatProjectPrompt(chatProject, messageTextForSend)
         : messageTextForSend;
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
@@ -5032,7 +5083,19 @@ function ChatViewContent(props: ChatViewProps) {
             text: visibleMessageText,
             attachments: turnAttachmentsResult.value,
           },
-          ...(isChatThread && chatProject ? { providerText: outgoingMessageText } : {}),
+          ...(isChatThread && chatProject
+            ? {
+                providerText: outgoingMessageText,
+                memoryScope: chatProject.memoryMode,
+                ...(chatProject.memoryMode === "project-only"
+                  ? {
+                      memoryThreadIds: chatProject.threadIds
+                        .slice(0, 500)
+                        .map((threadId) => ThreadId.make(threadId)),
+                    }
+                  : {}),
+              }
+            : {}),
           modelSelection: ctxSelectedModelSelection,
           titleSeed: title,
           runtimeMode,
@@ -6056,11 +6119,9 @@ function ChatViewContent(props: ChatViewProps) {
                             key={chatProject.id}
                             environmentId={environmentId}
                             project={chatProject}
-                            recentThreads={recentChatProjectThreads}
                             onTogglePin={() => {
                               toggleChatProjectPin(environmentId, chatProject.id);
                             }}
-                            onSelectThread={selectRecentChatProjectThread}
                           />
                         ) : isChatSurface ? (
                           <h1 className="text-center text-2xl font-medium tracking-tight text-foreground/90 sm:text-[28px]">
@@ -6220,6 +6281,18 @@ function ChatViewContent(props: ChatViewProps) {
                         </div>
                       </div>
                     </div>
+                    {isDraftHeroState && chatProject ? (
+                      <ChatProjectContentTabs
+                        key={chatProject.id}
+                        environmentId={environmentId}
+                        projectId={chatProject.id}
+                        recentThreads={recentChatProjectThreads}
+                        sources={chatProject.sources}
+                        onSelectThread={selectRecentChatProjectThread}
+                        onReindexSource={reindexChatProjectSource}
+                        onDeleteSource={deleteChatProjectSource}
+                      />
+                    ) : null}
                     <div
                       aria-hidden
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"

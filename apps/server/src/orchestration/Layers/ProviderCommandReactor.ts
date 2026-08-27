@@ -11,6 +11,7 @@ import {
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ThreadId,
   type ProviderSession,
   type RuntimeMode,
@@ -1286,11 +1287,37 @@ const make = Effect.gen(function* () {
         ),
       );
 
+    const providerText = event.payload.providerText ?? message.text;
+    const recallMemoryEffect = projectionSnapshotQuery.recallConversationMemory?.({
+      threadId: thread.id,
+      scope: isChatThread(thread) ? "chat" : "project",
+      projectId: thread.projectId,
+      query: message.text,
+      ...(event.payload.memoryScope === "project-only"
+        ? {
+            candidateThreadIds: (event.payload.memoryThreadIds ?? []).slice(0, 500),
+          }
+        : {}),
+    });
+    const recalledMemory = yield* (recallMemoryEffect ??
+      Effect.succeed({ context: "", count: 0 })).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("conversation memory recall failed; continuing without memory", {
+          threadId: thread.id,
+          cause: Cause.pretty(cause),
+        }).pipe(Effect.as({ context: "", count: 0 })),
+      ),
+    );
+    const recalledProviderText =
+      recalledMemory.context.length > 0 &&
+      recalledMemory.context.length + 2 + providerText.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS
+        ? `${recalledMemory.context}\n\n${providerText}`
+        : providerText;
+
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      // Project context is carried separately from the rendered user message so the
-      // provider receives it while chat history continues to show the user's request.
-      messageText: event.payload.providerText ?? message.text,
+      // Provider-only project and recalled context stay out of the rendered chat history.
+      messageText: recalledProviderText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

@@ -161,6 +161,13 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  Z3ChatProjectSourceDeleteInput,
+  Z3ChatProjectSourceDeleteResult,
+  Z3ChatProjectSourceError,
+  Z3ChatProjectSourceUploadInput,
+  Z3ChatProjectSourceUploadResult,
+} from "./chatProjectSources.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -230,6 +237,8 @@ export const WS_METHODS = {
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverUploadZ3ChatProjectSource: "server.uploadZ3ChatProjectSource",
+  serverDeleteZ3ChatProjectSource: "server.deleteZ3ChatProjectSource",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
@@ -334,6 +343,24 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
+
+export const WsServerUploadZ3ChatProjectSourceRpc = Rpc.make(
+  WS_METHODS.serverUploadZ3ChatProjectSource,
+  {
+    payload: Z3ChatProjectSourceUploadInput,
+    success: Z3ChatProjectSourceUploadResult,
+    error: Schema.Union([Z3ChatProjectSourceError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsServerDeleteZ3ChatProjectSourceRpc = Rpc.make(
+  WS_METHODS.serverDeleteZ3ChatProjectSource,
+  {
+    payload: Z3ChatProjectSourceDeleteInput,
+    success: Z3ChatProjectSourceDeleteResult,
+    error: Schema.Union([Z3ChatProjectSourceError, EnvironmentAuthorizationError]),
+  },
+);
 
 export const WsServerDiscoverSourceControlRpc = Rpc.make(WS_METHODS.serverDiscoverSourceControl, {
   payload: Schema.Struct({}),
@@ -794,6 +821,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRemoveKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerUploadZ3ChatProjectSourceRpc,
+  WsServerDeleteZ3ChatProjectSourceRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,

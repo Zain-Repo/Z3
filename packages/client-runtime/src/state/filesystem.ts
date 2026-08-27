@@ -32,9 +32,10 @@ export function getFilesystemBrowsePath(query: string, platform = "", enabled = 
 export function filterFilesystemBrowseEntries(
   entries: ReadonlyArray<FilesystemBrowseEntry>,
   query: string,
+  showHiddenFiles = false,
 ) {
   const lowerQuery = query.toLowerCase();
-  const showHidden = query.startsWith(".");
+  const showHidden = showHiddenFiles || query.startsWith(".");
   const visibleEntries = entries.filter(
     (entry) =>
       entry.name.toLowerCase().startsWith(lowerQuery) &&

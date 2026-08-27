@@ -51,6 +51,7 @@ import {
 } from "../Errors.ts";
 import type { ProviderAdapterError } from "../Errors.ts";
 import {
+  applyAcpModelOptionSelections,
   mapAcpToAdapterError,
   selectAcpAutoApprovedPermissionOption,
   selectAcpPermissionOptionId,
@@ -67,7 +68,6 @@ import {
 import {
   type AcpSessionMode,
   type AcpSessionModeState,
-  findSessionConfigOption,
   parsePermissionRequest,
 } from "../acp/AcpRuntimeModel.ts";
 import {
@@ -272,27 +272,12 @@ export function makeOpenCodeAcpAdapter(
             );
         }
 
-        const variant = getModelSelectionStringOptionValue(input.modelSelection, "variant");
-        const effortOption = findSessionConfigOption(yield* input.acp.getConfigOptions, "effort");
-        if (variant && effortOption?.type === "select") {
-          const values = effortOption.options.flatMap((entry) =>
-            "value" in entry ? [entry.value] : entry.options.map((option) => option.value),
-          );
-          if (values.includes(variant) && effortOption.currentValue !== variant) {
-            yield* input.acp
-              .setConfigOption(effortOption.id, variant)
-              .pipe(
-                Effect.mapError((cause) =>
-                  mapAcpToAdapterError(
-                    PROVIDER,
-                    input.threadId,
-                    "session/set_config_option",
-                    cause,
-                  ),
-                ),
-              );
-          }
-        }
+        yield* applyAcpModelOptionSelections({
+          runtime: input.acp,
+          selections: input.modelSelection?.options,
+          mapError: (cause) =>
+            mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_config_option", cause),
+        });
         return modelId;
       });
 

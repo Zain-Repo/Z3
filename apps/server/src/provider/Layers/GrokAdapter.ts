@@ -42,6 +42,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import {
+  applyAcpModelOptionSelections,
   mapAcpToAdapterError,
   selectAcpAutoApprovedPermissionOption,
   selectAcpPermissionOptionId,
@@ -726,6 +727,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             mapError: (cause) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
           });
+          yield* applyAcpModelOptionSelections({
+            runtime: acp,
+            selections: grokModelSelection?.options,
+            mapError: (cause) =>
+              mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_config_option", cause),
+          });
 
           const now = yield* nowIso;
           const session: ProviderSession = {
@@ -930,6 +937,17 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 requestedModelId: requestedTurnModelId,
                 mapError: (cause) =>
                   mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
+              });
+              yield* applyAcpModelOptionSelections({
+                runtime: ctx.acp,
+                selections: turnModelSelection?.options,
+                mapError: (cause) =>
+                  mapAcpToAdapterError(
+                    PROVIDER,
+                    input.threadId,
+                    "session/set_config_option",
+                    cause,
+                  ),
               });
 
               const text = input.input?.trim();

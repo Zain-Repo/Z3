@@ -725,6 +725,18 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    uploadZ3ChatProjectSource: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:upload-z3chat-project-source",
+      tag: WS_METHODS.serverUploadZ3ChatProjectSource,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    deleteZ3ChatProjectSource: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:delete-z3chat-project-source",
+      tag: WS_METHODS.serverDeleteZ3ChatProjectSource,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,

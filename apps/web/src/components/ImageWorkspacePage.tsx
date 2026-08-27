@@ -1,12 +1,21 @@
-import { ImageIcon, LoaderCircleIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
+import {
+  Code2Icon,
+  ImageIcon,
+  LoaderCircleIcon,
+  RefreshCwIcon,
+  Settings2Icon,
+  SparklesIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Effect from "effect/Effect";
 
-import type {
-  ImageGenerationInput,
-  ImageGenerationModel,
-  ImageGenerationModelEndpoints,
-  ImageGenerationRecord,
+import {
+  OPENROUTER_GPT_IMAGE_2_MODEL,
+  OPENROUTER_GPT_IMAGE_2_PROVIDER,
+  type ImageGenerationInput,
+  type ImageGenerationModel,
+  type ImageGenerationModelEndpoints,
+  type ImageGenerationRecord,
 } from "@t3tools/contracts";
 
 import { PrimaryEnvironmentHttpClient } from "../environments/primary/httpClient";
@@ -17,6 +26,10 @@ import { GenerationCard, PendingGenerationCard } from "./ImageGenerationGallery"
 import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDropzone";
 import { VideoWorkspacePanel } from "./VideoWorkspacePanel";
 import { createImageContentLoader } from "./imageContentLoader";
+import {
+  parseImageGenerationPayload,
+  serializeImageGenerationPayload,
+} from "../lib/imageGenerationPayload";
 
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
 type ImageQuality = "auto" | "low" | "medium" | "high";
@@ -65,6 +78,10 @@ export function ImageWorkspacePage() {
   const [modelEndpoints, setModelEndpoints] = useState<ImageGenerationModelEndpoints | null>(null);
   const [selectedEndpointIndex, setSelectedEndpointIndex] = useState("");
   const [providerOptionsJson, setProviderOptionsJson] = useState("");
+  const [providerOverride, setProviderOverride] = useState<ImageGenerationInput["provider"]>();
+  const [editorMode, setEditorMode] = useState<"form" | "json">("form");
+  const [jsonText, setJsonText] = useState("");
+  const [jsonError, setJsonError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingEndpoints, setIsLoadingEndpoints] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -85,6 +102,7 @@ export function ImageWorkspacePage() {
   );
   const supportedParameters =
     selectedEndpoint?.supportedParameters ?? selectedModel?.supportedParameters ?? {};
+  const isGptImage2Model = modelId === OPENROUTER_GPT_IMAGE_2_MODEL;
   const supportsStreaming =
     selectedEndpoint?.supportsStreaming ?? selectedModel?.supportsStreaming ?? false;
   const maxReferenceImages = (() => {
@@ -93,6 +111,89 @@ export function ImageWorkspacePage() {
       ? Math.max(1, Math.floor(descriptor.max))
       : 4;
   })();
+
+  const buildImageGenerationInput = useCallback(() => {
+    let provider: Record<string, unknown> | undefined = isGptImage2Model
+      ? { only: [OPENROUTER_GPT_IMAGE_2_PROVIDER], allow_fallbacks: false }
+      : providerOverride
+        ? { ...providerOverride }
+        : undefined;
+    if (!isGptImage2Model && !provider && selectedEndpoint?.providerTag) {
+      provider = { only: [selectedEndpoint.providerTag], allow_fallbacks: false };
+    }
+    if (providerOptionsJson.trim()) {
+      let options: unknown;
+      try {
+        options = JSON.parse(providerOptionsJson) as unknown;
+      } catch {
+        return { error: "Provider options must be valid JSON." } as const;
+      }
+      if (!options || typeof options !== "object" || Array.isArray(options)) {
+        return { error: "Provider options must be a JSON object." } as const;
+      }
+      if (selectedEndpoint) {
+        const unsupportedKeys = Object.keys(options).filter(
+          (key) => !selectedEndpoint.allowedPassthroughParameters.includes(key),
+        );
+        if (unsupportedKeys.length > 0) {
+          return { error: `Unsupported provider option: ${unsupportedKeys.join(", ")}.` } as const;
+        }
+      }
+      const providerKey = selectedEndpoint?.providerSlug ?? selectedEndpoint?.providerTag;
+      if (!providerKey) {
+        return {
+          error: "This endpoint does not expose a provider slug for provider options.",
+        } as const;
+      }
+      provider = {
+        ...provider,
+        options: { [providerKey]: options },
+      };
+    }
+
+    const input: ImageGenerationInput = {
+      model: modelId,
+      prompt: prompt.trim(),
+      n: count,
+      ...(supportsStreaming && useStreaming ? { stream: true } : {}),
+      ...(modelSupports(supportedParameters, "aspect_ratio") ? { aspectRatio } : {}),
+      ...(resolution && modelSupports(supportedParameters, "resolution") ? { resolution } : {}),
+      ...(modelSupports(supportedParameters, "quality") ? { quality } : {}),
+      ...(modelSupports(supportedParameters, "output_format") ? { outputFormat } : {}),
+      ...(size && modelSupports(supportedParameters, "size") ? { size } : {}),
+      ...(modelSupports(supportedParameters, "background") ? { background } : {}),
+      ...(modelSupports(supportedParameters, "output_compression") ? { outputCompression } : {}),
+      ...(seed.trim() && modelSupports(supportedParameters, "seed") ? { seed: Number(seed) } : {}),
+      ...(modelSupports(supportedParameters, "input_references") && referenceImages.length > 0
+        ? {
+            inputReferences: referenceImages.map((image) => ({ url: image.dataUrl })),
+          }
+        : {}),
+      ...(provider ? { provider } : {}),
+    };
+
+    return { input } as const;
+  }, [
+    aspectRatio,
+    background,
+    count,
+    isGptImage2Model,
+    modelId,
+    outputCompression,
+    outputFormat,
+    prompt,
+    providerOverride,
+    providerOptionsJson,
+    referenceImages,
+    resolution,
+    seed,
+    selectedEndpoint,
+    size,
+    supportedParameters,
+    supportsStreaming,
+    useStreaming,
+    quality,
+  ]);
 
   const loadGenerations = useCallback(async () => {
     const result = await runPrimaryHttp(
@@ -144,12 +245,6 @@ export function ImageWorkspacePage() {
   }, [load]);
 
   useEffect(() => {
-    setSelectedEndpointIndex("");
-    setProviderOptionsJson("");
-    setUseStreaming(false);
-  }, [selectedModel?.id]);
-
-  useEffect(() => {
     if (!selectedModel) {
       setModelEndpoints(null);
       return;
@@ -190,40 +285,10 @@ export function ImageWorkspacePage() {
       return;
     }
 
-    let provider: Record<string, unknown> | undefined;
-    if (selectedEndpoint?.providerTag) {
-      provider = { only: [selectedEndpoint.providerTag], allow_fallbacks: false };
-    }
-    if (providerOptionsJson.trim()) {
-      let options: unknown;
-      try {
-        options = JSON.parse(providerOptionsJson) as unknown;
-      } catch {
-        setError("Provider options must be valid JSON.");
-        return;
-      }
-      if (!options || typeof options !== "object" || Array.isArray(options)) {
-        setError("Provider options must be a JSON object.");
-        return;
-      }
-      if (selectedEndpoint) {
-        const unsupportedKeys = Object.keys(options).filter(
-          (key) => !selectedEndpoint.allowedPassthroughParameters.includes(key),
-        );
-        if (unsupportedKeys.length > 0) {
-          setError(`Unsupported provider option: ${unsupportedKeys.join(", ")}.`);
-          return;
-        }
-      }
-      const providerKey = selectedEndpoint?.providerSlug ?? selectedEndpoint?.providerTag;
-      if (!providerKey) {
-        setError("This endpoint does not expose a provider slug for provider options.");
-        return;
-      }
-      provider = {
-        ...provider,
-        options: { [providerKey]: options },
-      };
+    const inputResult = buildImageGenerationInput();
+    if ("error" in inputResult) {
+      setError(inputResult.error);
+      return;
     }
 
     setIsGenerating(true);
@@ -231,26 +296,7 @@ export function ImageWorkspacePage() {
       `Generating ${count} image${count === 1 ? "" : "s"}. This may take a moment.`,
     );
     setError(null);
-    const input: ImageGenerationInput = {
-      model: modelId,
-      prompt: prompt.trim(),
-      n: count,
-      ...(supportsStreaming && useStreaming ? { stream: true } : {}),
-      ...(modelSupports(supportedParameters, "aspect_ratio") ? { aspectRatio } : {}),
-      ...(resolution && modelSupports(supportedParameters, "resolution") ? { resolution } : {}),
-      ...(modelSupports(supportedParameters, "quality") ? { quality } : {}),
-      ...(modelSupports(supportedParameters, "output_format") ? { outputFormat } : {}),
-      ...(size && modelSupports(supportedParameters, "size") ? { size } : {}),
-      ...(modelSupports(supportedParameters, "background") ? { background } : {}),
-      ...(modelSupports(supportedParameters, "output_compression") ? { outputCompression } : {}),
-      ...(seed.trim() && modelSupports(supportedParameters, "seed") ? { seed: Number(seed) } : {}),
-      ...(modelSupports(supportedParameters, "input_references") && referenceImages.length > 0
-        ? {
-            inputReferences: referenceImages.map((image) => ({ url: image.dataUrl })),
-          }
-        : {}),
-      ...(provider ? { provider } : {}),
-    };
+    const { input } = inputResult;
 
     try {
       const result = await runPrimaryHttp(
@@ -296,6 +342,55 @@ export function ImageWorkspacePage() {
     },
     [imageContentLoader],
   );
+
+  const applyImageGenerationInput = useCallback((input: ImageGenerationInput) => {
+    setModelId(input.model);
+    setSelectedEndpointIndex("");
+    setPrompt(input.prompt);
+    setAspectRatio(input.aspectRatio ?? "1:1");
+    setQuality(input.quality ?? "auto");
+    setResolution(input.resolution ?? "");
+    setSize(input.size ?? "");
+    setBackground(input.background ?? "auto");
+    setOutputCompression(input.outputCompression ?? 85);
+    setSeed(input.seed === undefined ? "" : String(input.seed));
+    setOutputFormat(input.outputFormat ?? "png");
+    setUseStreaming(input.stream ?? false);
+    setCount(input.n ?? 1);
+    setReferenceImages(
+      input.inputReferences?.map((reference, index) =>
+        referenceImageFromUrl(reference.url, index),
+      ) ?? [],
+    );
+    setProviderOverride(input.provider);
+    setProviderOptionsJson("");
+  }, []);
+
+  const switchEditorMode = (nextMode: "form" | "json") => {
+    if (nextMode === "json") {
+      const result = buildImageGenerationInput();
+      if ("input" in result) {
+        setJsonText(serializeImageGenerationPayload(result.input));
+        setJsonError(null);
+      } else {
+        setJsonError(result.error);
+      }
+    }
+    setEditorMode(nextMode);
+  };
+
+  const applyJsonPayload = () => {
+    const result = parseImageGenerationPayload(jsonText);
+    if ("error" in result) {
+      setJsonError(result.error);
+      return;
+    }
+    applyImageGenerationInput(result.input);
+    setJsonError(null);
+    setError(null);
+    setEditorMode("form");
+    setGenerationAnnouncement("JSON settings applied to the image form.");
+  };
 
   const observeGenerationSentinel = useCallback((sentinel: HTMLDivElement | null) => {
     if (!sentinel || typeof IntersectionObserver === "undefined") return;
@@ -344,7 +439,7 @@ export function ImageWorkspacePage() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground">
-      <header className="border-b border-border/70 bg-fuchsia-500/[0.06] px-5 py-4 sm:px-8">
+      <header className="border-b border-border/70 bg-muted/20 px-5 py-4 sm:px-8">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-fuchsia-500">
@@ -374,215 +469,309 @@ export function ImageWorkspacePage() {
 
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8">
         <section className="border-b border-border/70 pb-7">
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-4 border-b border-border/60 pb-4">
             <div>
-              <label htmlFor="zimage-prompt" className="text-sm font-medium">
-                Prompt
-              </label>
-              <Textarea
-                id="zimage-prompt"
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder="Describe the image you want to create..."
-                className="mt-2 min-h-32 resize-y bg-background/70"
-                disabled={isGenerating}
-              />
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-medium" htmlFor="zimage-model">
-                Model
-              </label>
-              <select
-                id="zimage-model"
-                value={modelId}
-                onChange={(event) => setModelId(event.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                disabled={isLoading || isGenerating}
-              >
-                {models.length === 0 ? <option value="">No image models available</option> : null}
-                {models.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name ?? model.id}
-                  </option>
-                ))}
-              </select>
-
-              {modelEndpoints?.endpoints.length ? (
-                <SelectField
-                  label="Provider endpoint"
-                  value={selectedEndpointIndex}
-                  options={["", ...modelEndpoints.endpoints.map((_, index) => String(index))]}
-                  onChange={(value) => {
-                    setSelectedEndpointIndex(value);
-                    setProviderOptionsJson("");
-                    setUseStreaming(false);
-                  }}
-                  disabled={isGenerating || isLoadingEndpoints}
-                  optionLabel={(value) => {
-                    if (value === "") return "Automatic routing";
-                    const endpoint = modelEndpoints.endpoints[Number(value)];
-                    return (
-                      endpoint?.providerName ??
-                      endpoint?.providerTag ??
-                      endpoint?.providerSlug ??
-                      "Provider endpoint"
-                    );
-                  }}
-                />
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-2">
-                <SelectField
-                  label="Aspect ratio"
-                  value={aspectRatio}
-                  options={aspectRatios}
-                  onChange={setAspectRatio}
-                  disabled={!modelSupports(supportedParameters, "aspect_ratio") || isGenerating}
-                />
-                <SelectField
-                  label="Count"
-                  value={String(count)}
-                  options={["1", "2", "3", "4"]}
-                  onChange={(value) => setCount(Number(value))}
-                  disabled={isGenerating}
-                  optionLabel={(value) => `${value} image${value === "1" ? "" : "s"}`}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <SelectField
-                  label="Quality"
-                  value={quality}
-                  options={qualityOptions}
-                  onChange={(value) => setQuality(value as ImageQuality)}
-                  disabled={!modelSupports(supportedParameters, "quality") || isGenerating}
-                />
-                <SelectField
-                  label="Format"
-                  value={outputFormat}
-                  options={formatOptions}
-                  onChange={(value) => setOutputFormat(value as ImageOutputFormat)}
-                  disabled={!modelSupports(supportedParameters, "output_format") || isGenerating}
-                />
-              </div>
-
-              {modelSupports(supportedParameters, "resolution") ? (
-                <SelectField
-                  label="Resolution"
-                  value={resolution}
-                  options={["", ...resolutions]}
-                  onChange={setResolution}
-                  disabled={isGenerating}
-                  optionLabel={(value) => value || "Provider default"}
-                />
-              ) : null}
-              {modelSupports(supportedParameters, "size") ? (
-                <SelectField
-                  label="Size"
-                  value={size}
-                  options={["", ...sizes]}
-                  onChange={setSize}
-                  disabled={isGenerating}
-                  optionLabel={(value) => value || "Provider default"}
-                />
-              ) : null}
-              {modelSupports(supportedParameters, "background") ? (
-                <SelectField
-                  label="Background"
-                  value={background}
-                  options={backgroundOptions}
-                  onChange={(value) => setBackground(value as ImageBackground)}
-                  disabled={isGenerating}
-                />
-              ) : null}
-              {modelSupports(supportedParameters, "output_compression") ? (
-                <label className="text-xs text-muted-foreground">
-                  Compression: {outputCompression}%
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={outputCompression}
-                    onChange={(event) => setOutputCompression(Number(event.target.value))}
-                    className="mt-2 w-full accent-fuchsia-500"
-                    disabled={isGenerating}
-                  />
-                </label>
-              ) : null}
-              {modelSupports(supportedParameters, "seed") ? (
-                <label className="text-xs text-muted-foreground">
-                  Seed
-                  <input
-                    inputMode="numeric"
-                    value={seed}
-                    onChange={(event) => setSeed(event.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="Random"
-                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                    disabled={isGenerating}
-                  />
-                </label>
-              ) : null}
-              {modelSupports(supportedParameters, "input_references") ? (
-                <ReferenceImageDropzone
-                  label="Reference images"
-                  description="PNG, JPEG, WebP, or GIF · up to 8 MB each"
-                  value={referenceImages}
-                  onChange={setReferenceImages}
-                  maxImages={maxReferenceImages}
-                  disabled={isGenerating}
-                />
-              ) : null}
-              {supportsStreaming ? (
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={useStreaming}
-                    onChange={(event) => setUseStreaming(event.target.checked)}
-                    className="accent-fuchsia-500"
-                    disabled={isGenerating}
-                  />
-                  Use the streaming response when supported
-                </label>
-              ) : null}
-              {selectedEndpoint && selectedEndpoint.allowedPassthroughParameters.length > 0 ? (
-                <label className="text-xs text-muted-foreground">
-                  Provider options (JSON)
-                  <textarea
-                    value={providerOptionsJson}
-                    onChange={(event) => setProviderOptionsJson(event.target.value)}
-                    placeholder='{ "steps": 40 }'
-                    className="mt-1 min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs"
-                    disabled={isGenerating}
-                    aria-describedby="zimage-provider-options-help"
-                  />
-                  <span id="zimage-provider-options-help" className="mt-1 block text-[11px]">
-                    Allowed keys: {selectedEndpoint.allowedPassthroughParameters.join(", ")}
-                  </span>
-                </label>
-              ) : null}
-
-              <p className="text-[11px] text-muted-foreground/75">
-                {isLoadingEndpoints
-                  ? "Checking provider endpoints..."
-                  : modelEndpoints
-                    ? `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${modelEndpoints.endpoints.length === 1 ? "" : "s"}${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
-                    : "Provider endpoint details unavailable"}
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">
+                Image brief
               </p>
-              <Button
-                onClick={() => void generate()}
-                disabled={isGenerating || isLoading || !modelId || prompt.trim().length === 0}
-                className="mt-auto w-full gap-2"
+              <h2 className="mt-1 text-lg font-semibold tracking-tight">Shape the next frame</h2>
+            </div>
+            <div
+              className="flex items-center gap-1 border border-border/70 bg-background/70 p-1"
+              role="tablist"
+              aria-label="Image editor view"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={editorMode === "form"}
+                onClick={() => switchEditorMode("form")}
+                className={`inline-flex h-8 items-center gap-1.5 px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${editorMode === "form" ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
-                {isGenerating ? (
-                  <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <SparklesIcon className="size-4" aria-hidden="true" />
-                )}
-                {isGenerating ? "Generating..." : "Generate"}
-              </Button>
+                <Settings2Icon className="size-3.5" aria-hidden="true" />
+                Form
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={editorMode === "json"}
+                onClick={() => switchEditorMode("json")}
+                className={`inline-flex h-8 items-center gap-1.5 px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${editorMode === "json" ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Code2Icon className="size-3.5" aria-hidden="true" />
+                JSON
+              </button>
             </div>
           </div>
+
+          {editorMode === "form" ? (
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div>
+                <label htmlFor="zimage-prompt" className="text-sm font-medium">
+                  Prompt
+                </label>
+                <Textarea
+                  id="zimage-prompt"
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder="Describe the image you want to create..."
+                  className="mt-2 min-h-32 resize-y bg-background/70"
+                  disabled={isGenerating}
+                />
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <label className="text-sm font-medium" htmlFor="zimage-model">
+                  Model
+                </label>
+                <select
+                  id="zimage-model"
+                  value={modelId}
+                  onChange={(event) => {
+                    setSelectedEndpointIndex("");
+                    setProviderOverride(undefined);
+                    setProviderOptionsJson("");
+                    setUseStreaming(false);
+                    setModelId(event.target.value);
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  disabled={isLoading || isGenerating}
+                >
+                  {models.length === 0 ? <option value="">No image models available</option> : null}
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name ?? model.id}
+                    </option>
+                  ))}
+                </select>
+
+                {isGptImage2Model ? (
+                  <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    Provider endpoint: OpenAI via OpenRouter (fixed)
+                  </p>
+                ) : modelEndpoints?.endpoints.length ? (
+                  <SelectField
+                    label="Provider endpoint"
+                    value={selectedEndpointIndex}
+                    options={["", ...modelEndpoints.endpoints.map((_, index) => String(index))]}
+                    onChange={(value) => {
+                      setSelectedEndpointIndex(value);
+                      setProviderOverride(undefined);
+                      setProviderOptionsJson("");
+                      setUseStreaming(false);
+                    }}
+                    disabled={isGenerating || isLoadingEndpoints}
+                    optionLabel={(value) => {
+                      if (value === "") return "Automatic routing";
+                      const endpoint = modelEndpoints.endpoints[Number(value)];
+                      return (
+                        endpoint?.providerName ??
+                        endpoint?.providerTag ??
+                        endpoint?.providerSlug ??
+                        "Provider endpoint"
+                      );
+                    }}
+                  />
+                ) : null}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <SelectField
+                    label="Aspect ratio"
+                    value={aspectRatio}
+                    options={aspectRatios}
+                    onChange={setAspectRatio}
+                    disabled={!modelSupports(supportedParameters, "aspect_ratio") || isGenerating}
+                  />
+                  <SelectField
+                    label="Count"
+                    value={String(count)}
+                    options={["1", "2", "3", "4"]}
+                    onChange={(value) => setCount(Number(value))}
+                    disabled={isGenerating}
+                    optionLabel={(value) => `${value} image${value === "1" ? "" : "s"}`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <SelectField
+                    label="Quality"
+                    value={quality}
+                    options={qualityOptions}
+                    onChange={(value) => setQuality(value as ImageQuality)}
+                    disabled={!modelSupports(supportedParameters, "quality") || isGenerating}
+                  />
+                  <SelectField
+                    label="Format"
+                    value={outputFormat}
+                    options={formatOptions}
+                    onChange={(value) => setOutputFormat(value as ImageOutputFormat)}
+                    disabled={!modelSupports(supportedParameters, "output_format") || isGenerating}
+                  />
+                </div>
+
+                {modelSupports(supportedParameters, "resolution") ? (
+                  <SelectField
+                    label="Resolution"
+                    value={resolution}
+                    options={["", ...resolutions]}
+                    onChange={setResolution}
+                    disabled={isGenerating}
+                    optionLabel={(value) => value || "Provider default"}
+                  />
+                ) : null}
+                {modelSupports(supportedParameters, "size") ? (
+                  <SelectField
+                    label="Size"
+                    value={size}
+                    options={["", ...sizes]}
+                    onChange={setSize}
+                    disabled={isGenerating}
+                    optionLabel={(value) => value || "Provider default"}
+                  />
+                ) : null}
+                {modelSupports(supportedParameters, "background") ? (
+                  <SelectField
+                    label="Background"
+                    value={background}
+                    options={backgroundOptions}
+                    onChange={(value) => setBackground(value as ImageBackground)}
+                    disabled={isGenerating}
+                  />
+                ) : null}
+                {modelSupports(supportedParameters, "output_compression") ? (
+                  <label className="text-xs text-muted-foreground">
+                    Compression: {outputCompression}%
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={outputCompression}
+                      onChange={(event) => setOutputCompression(Number(event.target.value))}
+                      className="mt-2 w-full accent-primary"
+                      disabled={isGenerating}
+                    />
+                  </label>
+                ) : null}
+                {modelSupports(supportedParameters, "seed") ? (
+                  <label className="text-xs text-muted-foreground">
+                    Seed
+                    <input
+                      inputMode="numeric"
+                      value={seed}
+                      onChange={(event) => setSeed(event.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="Random"
+                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      disabled={isGenerating}
+                    />
+                  </label>
+                ) : null}
+                {modelSupports(supportedParameters, "input_references") ? (
+                  <ReferenceImageDropzone
+                    label="Reference images"
+                    description="PNG, JPEG, WebP, or GIF · up to 8 MB each"
+                    value={referenceImages}
+                    onChange={setReferenceImages}
+                    maxImages={maxReferenceImages}
+                    disabled={isGenerating}
+                  />
+                ) : null}
+                {supportsStreaming ? (
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={useStreaming}
+                      onChange={(event) => setUseStreaming(event.target.checked)}
+                      className="accent-primary"
+                      disabled={isGenerating}
+                    />
+                    Use the streaming response when supported
+                  </label>
+                ) : null}
+                {selectedEndpoint && selectedEndpoint.allowedPassthroughParameters.length > 0 ? (
+                  <label className="text-xs text-muted-foreground">
+                    Provider options (JSON)
+                    <textarea
+                      value={providerOptionsJson}
+                      onChange={(event) => {
+                        setProviderOverride(undefined);
+                        setProviderOptionsJson(event.target.value);
+                      }}
+                      placeholder='{ "steps": 40 }'
+                      className="mt-1 min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs"
+                      disabled={isGenerating}
+                      aria-describedby="zimage-provider-options-help"
+                    />
+                    <span id="zimage-provider-options-help" className="mt-1 block text-[11px]">
+                      Allowed keys: {selectedEndpoint.allowedPassthroughParameters.join(", ")}
+                    </span>
+                  </label>
+                ) : null}
+
+                <p className="text-[11px] text-muted-foreground/75">
+                  {isLoadingEndpoints
+                    ? "Checking provider endpoints..."
+                    : modelEndpoints
+                      ? `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${modelEndpoints.endpoints.length === 1 ? "" : "s"}${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
+                      : "Provider endpoint details unavailable"}
+                </p>
+                <Button
+                  onClick={() => void generate()}
+                  disabled={isGenerating || isLoading || !modelId || prompt.trim().length === 0}
+                  className="mt-auto w-full gap-2"
+                >
+                  {isGenerating ? (
+                    <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <SparklesIcon className="size-4" aria-hidden="true" />
+                  )}
+                  {isGenerating ? "Generating..." : "Generate"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div>
+                <label htmlFor="zimage-json" className="text-sm font-medium">
+                  Reusable JSON payload
+                </label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Paste an image payload copied from a generation, then apply it to the form.
+                </p>
+                <textarea
+                  id="zimage-json"
+                  value={jsonText}
+                  onChange={(event) => {
+                    setJsonText(event.target.value);
+                    setJsonError(null);
+                  }}
+                  className="mt-3 min-h-80 w-full resize-y border border-border/80 bg-muted/20 p-4 font-mono text-xs leading-relaxed text-foreground outline-hidden transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                  spellCheck={false}
+                  disabled={isGenerating}
+                  aria-describedby="zimage-json-help"
+                />
+                {jsonError ? (
+                  <p className="mt-2 text-sm text-destructive" role="alert">
+                    {jsonError}
+                  </p>
+                ) : null}
+              </div>
+              <aside className="border-l border-border/70 pl-4 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Payload notes</p>
+                <p id="zimage-json-help" className="mt-2 leading-relaxed">
+                  JSON exports include the model, full prompt, and every supported setting used by
+                  the generation. Older generations without saved settings still import with their
+                  model and prompt.
+                </p>
+                <Button
+                  onClick={applyJsonPayload}
+                  disabled={isGenerating || jsonText.trim().length === 0}
+                  className="mt-5 w-full"
+                >
+                  Apply to form
+                </Button>
+              </aside>
+            </div>
+          )}
           {error ? (
             <p className="mt-4 text-sm text-destructive" role="alert">
               {error}
@@ -626,6 +815,13 @@ export function ImageWorkspacePage() {
                   generation={generation}
                   loadImageContent={imageContentLoader.load}
                   onDelete={deleteGeneration}
+                  onReuse={(input) => {
+                    applyImageGenerationInput(input);
+                    setEditorMode("form");
+                    setJsonError(null);
+                    setError(null);
+                    setGenerationAnnouncement("Image settings loaded into the form.");
+                  }}
                 />
               ))}
             </div>
@@ -681,4 +877,19 @@ function SelectField({
       </select>
     </label>
   );
+}
+
+function referenceImageFromUrl(url: string, index: number): ReferenceImage {
+  const mediaType = url.startsWith("data:")
+    ? url.slice(5, url.indexOf(";") > 0 ? url.indexOf(";") : url.indexOf(",")) || "image/png"
+    : "image/*";
+  const encodedData = url.startsWith("data:") ? url.slice(url.indexOf(",") + 1) : "";
+
+  return {
+    id: `json-reference-${index}`,
+    name: `Reference ${index + 1}`,
+    mediaType,
+    dataUrl: url,
+    sizeBytes: Math.floor((encodedData.length * 3) / 4),
+  };
 }

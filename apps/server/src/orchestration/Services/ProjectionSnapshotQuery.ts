@@ -26,6 +26,10 @@ import type * as Option from "effect/Option";
 import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
+import type {
+  RecallConversationMemoryInput,
+  RecalledConversationMemory,
+} from "../../memory/ConversationMemory.ts";
 
 export interface ProjectionSnapshotCounts {
   readonly projectCount: number;
@@ -103,6 +107,11 @@ export interface ProjectionSnapshotQueryShape {
   readonly searchThreads: (
     input: OrchestrationSearchThreadsInput,
   ) => Effect.Effect<OrchestrationSearchThreadsResult, ProjectionRepositoryError>;
+
+  /** Retrieve bounded, project-scoped context from completed historical turns. */
+  readonly recallConversationMemory?: (
+    input: RecallConversationMemoryInput,
+  ) => Effect.Effect<RecalledConversationMemory, ProjectionRepositoryError>;
 
   /**
    * Read the latest projection snapshot sequence without hydrating read-model

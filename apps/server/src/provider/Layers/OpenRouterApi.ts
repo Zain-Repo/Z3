@@ -5,19 +5,33 @@ import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
+import {
+  OPENROUTER_GPT_IMAGE_2_MODEL,
+  OPENROUTER_GPT_IMAGE_2_PROVIDER,
+} from "@t3tools/contracts";
 
 export interface OpenRouterModel {
   readonly id: string;
   readonly name?: string;
   readonly contextLength?: number;
   readonly supportedParameters?: ReadonlyArray<string>;
-  readonly reasoning?: {
-    readonly supported: boolean;
-    readonly maxTokens?: number;
-  };
+  readonly reasoning?: OpenRouterReasoningMetadata;
   readonly inputModalities?: ReadonlyArray<string>;
   readonly outputModalities?: ReadonlyArray<string>;
 }
+
+export interface OpenRouterReasoningMetadata {
+  readonly supported: boolean;
+  readonly maxTokens?: number;
+  readonly supportedEfforts?: ReadonlyArray<string>;
+  readonly defaultEffort?: string;
+  readonly defaultEnabled?: boolean;
+  readonly mandatory?: boolean;
+  readonly supportsMaxTokens?: boolean;
+}
+
+const OPENROUTER_GLM_5_3_FLASH_MODEL = "z-ai/glm-5.3-flash";
+const OPENROUTER_BASETEN_PROVIDER = "baseten";
 
 export interface OpenRouterImageModel extends OpenRouterModel {
   readonly imageGeneration: {
@@ -223,6 +237,11 @@ export interface OpenRouterToolDefinition {
   };
 }
 
+export interface OpenRouterModelOptionSelection {
+  readonly id: string;
+  readonly value: string | boolean;
+}
+
 export interface OpenRouterCompletionChunk {
   readonly delta: string;
   readonly done: boolean;
@@ -232,6 +251,14 @@ export interface OpenRouterCompletionChunk {
   readonly usage?: unknown;
   readonly annotations?: ReadonlyArray<unknown>;
   readonly toolCallDeltas?: ReadonlyArray<OpenRouterToolCallDelta>;
+}
+
+export interface OpenRouterEmbeddingInput {
+  readonly httpClient: HttpClient.HttpClient;
+  readonly baseUrl: string;
+  readonly apiKey: string;
+  readonly model: string;
+  readonly inputs: ReadonlyArray<string>;
 }
 
 export class OpenRouterApiError extends Error {
@@ -266,13 +293,36 @@ export function parseOpenRouterModels(payload: unknown): ReadonlyArray<OpenRoute
       reasoningValue && typeof reasoningValue.max_tokens === "number"
         ? reasoningValue.max_tokens
         : undefined;
+    const reasoningSupportedEfforts =
+      reasoningValue && Array.isArray(reasoningValue.supported_efforts)
+        ? reasoningValue.supported_efforts
+            .filter(
+              (value): value is string => typeof value === "string" && value.trim().length > 0,
+            )
+            .map((value) => value.trim())
+        : undefined;
+    const reasoningDefaultEffort = stringValue(reasoningValue?.default_effort);
+    const reasoningDefaultEnabled =
+      reasoningValue && typeof reasoningValue.default_enabled === "boolean"
+        ? reasoningValue.default_enabled
+        : undefined;
+    const reasoningMandatory =
+      reasoningValue && typeof reasoningValue.mandatory === "boolean"
+        ? reasoningValue.mandatory
+        : undefined;
+    const reasoningSupportsMaxTokens =
+      reasoningValue && typeof reasoningValue.supports_max_tokens === "boolean"
+        ? reasoningValue.supports_max_tokens
+        : undefined;
     const reasoningSupported = reasoningValue
       ? typeof reasoningValue.supported === "boolean"
         ? reasoningValue.supported
         : reasoningMaxTokens !== undefined ||
-          typeof reasoningValue.mandatory === "boolean" ||
-          typeof reasoningValue.default_enabled === "boolean" ||
-          Array.isArray(reasoningValue.supported_efforts)
+          reasoningSupportedEfforts !== undefined ||
+          reasoningDefaultEffort !== undefined ||
+          reasoningDefaultEnabled !== undefined ||
+          reasoningMandatory !== undefined ||
+          reasoningSupportsMaxTokens !== undefined
       : undefined;
     const architecture = Predicate.isObject(entry.architecture) ? entry.architecture : undefined;
     const inputModalities = Array.isArray(architecture?.input_modalities)
@@ -296,6 +346,19 @@ export function parseOpenRouterModels(payload: unknown): ReadonlyArray<OpenRoute
               reasoning: {
                 supported: reasoningSupported,
                 ...(reasoningMaxTokens !== undefined ? { maxTokens: reasoningMaxTokens } : {}),
+                ...(reasoningSupportedEfforts?.length
+                  ? { supportedEfforts: reasoningSupportedEfforts }
+                  : {}),
+                ...(reasoningDefaultEffort !== undefined
+                  ? { defaultEffort: reasoningDefaultEffort }
+                  : {}),
+                ...(reasoningDefaultEnabled !== undefined
+                  ? { defaultEnabled: reasoningDefaultEnabled }
+                  : {}),
+                ...(reasoningMandatory !== undefined ? { mandatory: reasoningMandatory } : {}),
+                ...(reasoningSupportsMaxTokens !== undefined
+                  ? { supportsMaxTokens: reasoningSupportsMaxTokens }
+                  : {}),
               },
             }
           : {}),
@@ -499,6 +562,39 @@ const requestJson = Effect.fn("openRouterRequestJson")(function* (input: {
       (cause) => new OpenRouterApiError(`OpenRouter returned invalid JSON: ${String(cause)}`),
     ),
   );
+});
+
+export const createOpenRouterEmbeddings = Effect.fn("createOpenRouterEmbeddings")(function* (
+  input: OpenRouterEmbeddingInput,
+): Effect.fn.Return<ReadonlyArray<ReadonlyArray<number>>, OpenRouterApiError> {
+  const payload = yield* requestJson({
+    httpClient: input.httpClient,
+    request: HttpClientRequest.post(endpointUrl(input.baseUrl, "embeddings")).pipe(
+      HttpClientRequest.bearerToken(input.apiKey),
+      HttpClientRequest.bodyJsonUnsafe({
+        model: input.model,
+        input: input.inputs,
+      }),
+    ),
+  });
+
+  if (!Predicate.isObject(payload) || !Array.isArray(payload.data)) {
+    return yield* Effect.fail(new OpenRouterApiError("OpenRouter returned invalid embeddings."));
+  }
+
+  const embeddings = payload.data.flatMap((entry): ReadonlyArray<ReadonlyArray<number>> => {
+    if (!Predicate.isObject(entry) || !Array.isArray(entry.embedding)) return [];
+    const vector = entry.embedding.filter((value): value is number => typeof value === "number");
+    return vector.length === entry.embedding.length && vector.length > 0 ? [vector] : [];
+  });
+
+  if (embeddings.length !== input.inputs.length) {
+    return yield* Effect.fail(
+      new OpenRouterApiError("OpenRouter returned an incomplete embeddings response."),
+    );
+  }
+
+  return embeddings;
 });
 
 function parseStreamingImageEvent(line: string): unknown | undefined {
@@ -960,6 +1056,21 @@ function parseOpenRouterImageGenerationResult(payload: unknown): OpenRouterImage
   };
 }
 
+function providerPreferencesForImageModel(
+  model: string,
+  provider: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  if (model !== OPENROUTER_GPT_IMAGE_2_MODEL) return provider;
+
+  // GPT Image 2 is a single OpenAI endpoint. Keep this request on OpenRouter's
+  // OpenAI route and prevent OpenRouter from selecting a fallback endpoint.
+  return {
+    ...(provider ?? {}),
+    only: [OPENROUTER_GPT_IMAGE_2_PROVIDER],
+    allow_fallbacks: false,
+  };
+}
+
 export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(function* (
   input: OpenRouterImageGenerationInput,
 ): Effect.fn.Return<OpenRouterImageGenerationResult, OpenRouterApiError> {
@@ -975,6 +1086,7 @@ export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(func
   if (input.stream) {
     request = request.pipe(HttpClientRequest.setHeader("Accept", "text/event-stream"));
   }
+  const provider = providerPreferencesForImageModel(input.model, input.provider);
   request = request.pipe(
     HttpClientRequest.bodyJsonUnsafe({
       model: input.model,
@@ -992,7 +1104,7 @@ export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(func
         : {}),
       ...(input.seed !== undefined ? { seed: input.seed } : {}),
       ...(input.inputReferences !== undefined ? { input_references: input.inputReferences } : {}),
-      ...(input.provider !== undefined ? { provider: input.provider } : {}),
+      ...(provider !== undefined ? { provider } : {}),
     }),
   );
   const payload = yield* (input.stream ? requestStreamingImage : requestJson)({
@@ -1029,7 +1141,12 @@ function parseOpenRouterCompletionSseLine(line: string): OpenRouterCompletionChu
       ? firstChoice.delta
       : undefined;
   const content = delta && Predicate.isString(delta.content) ? delta.content : "";
-  const reasoningDelta = delta && Predicate.isString(delta.reasoning) ? delta.reasoning : undefined;
+  const reasoningDelta =
+    delta && Predicate.isString(delta.reasoning)
+      ? delta.reasoning
+      : delta && Predicate.isString(delta.reasoning_content)
+        ? delta.reasoning_content
+        : undefined;
   const reasoningDetails =
     delta && Array.isArray(delta.reasoning_details) ? delta.reasoning_details : undefined;
   const toolCallDeltas =
@@ -1084,7 +1201,8 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
     readonly model: string;
     readonly messages: ReadonlyArray<OpenRouterCompletionMessage>;
     readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
-    readonly modelCapabilities?: Pick<OpenRouterModel, "supportedParameters">;
+    readonly modelCapabilities?: Pick<OpenRouterModel, "supportedParameters" | "reasoning">;
+    readonly modelOptions?: ReadonlyArray<OpenRouterModelOptionSelection>;
   }): Effect.fn.Return<
     Stream.Stream<OpenRouterCompletionChunk, OpenRouterApiError>,
     OpenRouterApiError
@@ -1092,6 +1210,52 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
     const localTools = input.modelCapabilities?.supportedParameters?.includes("tools")
       ? (input.tools ?? [])
       : [];
+    const supportedParameters = input.modelCapabilities?.supportedParameters;
+    const selectedReasoningEffort = input.modelOptions?.find(
+      (option) =>
+        (option.id === "reasoningEffort" ||
+          option.id === "reasoning_effort" ||
+          option.id === "reasoning" ||
+          option.id === "effort") &&
+        typeof option.value === "string",
+    )?.value;
+    const supportedReasoningEfforts = input.modelCapabilities?.reasoning?.supportedEfforts;
+    const isSupportedReasoningEffort = (value: string) =>
+      supportedReasoningEfforts === undefined || supportedReasoningEfforts.includes(value);
+    const selectedEffortIsValid =
+      typeof selectedReasoningEffort === "string" &&
+      (selectedReasoningEffort === "none"
+        ? input.modelCapabilities?.reasoning?.mandatory !== true
+        : isSupportedReasoningEffort(selectedReasoningEffort));
+    const reasoningEffort = selectedEffortIsValid
+      ? selectedReasoningEffort
+      : input.modelCapabilities?.reasoning?.mandatory
+        ? [
+            input.modelCapabilities.reasoning.defaultEffort,
+            ...(supportedReasoningEfforts ?? []),
+          ].find(
+            (value): value is string =>
+              value !== undefined && value !== "none" && isSupportedReasoningEffort(value),
+          )
+        : undefined;
+    const reasoningRequest =
+      reasoningEffort !== undefined && supportedParameters?.includes("reasoning_effort")
+        ? { reasoning_effort: reasoningEffort }
+        : reasoningEffort !== undefined && supportedParameters?.includes("reasoning")
+          ? { reasoning: { effort: reasoningEffort } }
+          : {};
+    // Provider compatibility checks include request parameters. These optional
+    // tool controls are not advertised by BaseTen's GLM endpoint, so sending
+    // them unconditionally can make require_parameters reject the route.
+    // BaseTen is the intended OpenRouter endpoint for GLM 5.3 Flash. The base
+    // provider slug intentionally allows OpenRouter to match its endpoint
+    // variants while retaining OpenRouter's normal provider fallbacks.
+    const provider = {
+      ...(input.model === OPENROUTER_GLM_5_3_FLASH_MODEL
+        ? { order: [OPENROUTER_BASETEN_PROVIDER] }
+        : {}),
+      ...(localTools.length > 0 ? { require_parameters: true } : {}),
+    };
     const response = yield* input.httpClient
       .execute(
         HttpClientRequest.post(endpointUrl(input.baseUrl, "chat/completions")).pipe(
@@ -1113,15 +1277,8 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
             ...(input.modelCapabilities?.supportedParameters?.includes("tool_choice")
               ? { tool_choice: "auto" }
               : {}),
-            // OpenRouter's default routing is price-weighted load balancing. Use
-            // explicit price sorting so the selected model consistently starts
-            // with its cheapest eligible provider while retaining tool support.
-            provider: {
-              sort: "price",
-              ...(localTools.length > 0 ? { require_parameters: true } : {}),
-            },
-            parallel_tool_calls: true,
-            max_tool_calls: 5,
+            ...reasoningRequest,
+            ...(Object.keys(provider).length > 0 ? { provider } : {}),
           }),
         ),
       )

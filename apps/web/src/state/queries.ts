@@ -30,6 +30,7 @@ import { projectContentSearch, projectEnvironment } from "./projects";
 import { useEnvironmentQuery } from "./query";
 import { useEnvironmentThread } from "./threads";
 import { vcsEnvironment } from "./vcs";
+import { useClientSettings } from "../hooks/useSettings";
 
 const PROJECT_PATH_SEARCH_DEBOUNCE_MS = 120;
 const COMPOSER_PATH_SEARCH_LIMIT = 80;
@@ -236,6 +237,7 @@ export function usePaginatedBranches(target: VcsRefTarget) {
 
 type ProjectPathSearchTarget = ComposerPathSearchTarget & {
   readonly kind?: ProjectEntryKind | undefined;
+  readonly showHiddenFiles?: boolean | undefined;
 };
 
 export function areProjectPathSearchTargetsEqual(
@@ -246,7 +248,8 @@ export function areProjectPathSearchTargetsEqual(
     left.environmentId === right.environmentId &&
     left.cwd === right.cwd &&
     left.query === right.query &&
-    left.kind === right.kind
+    left.kind === right.kind &&
+    left.showHiddenFiles === right.showHiddenFiles
   );
 }
 
@@ -256,14 +259,16 @@ export function useProjectPathSearch(
   options?: { readonly allowEmptyQuery?: boolean },
 ) {
   const allowEmptyQuery = options?.allowEmptyQuery === true;
+  const showHiddenFiles = useClientSettings((settings) => settings.showHiddenFiles);
   const normalizedTarget = useMemo(
     () => ({
       environmentId: target.environmentId,
       cwd: target.cwd,
       query: target.query == null ? null : target.query.trim(),
       kind: target.kind,
+      showHiddenFiles,
     }),
-    [target.cwd, target.environmentId, target.kind, target.query],
+    [showHiddenFiles, target.cwd, target.environmentId, target.kind, target.query],
   );
   const debouncedTarget = useDebouncedValue(normalizedTarget, PROJECT_PATH_SEARCH_DEBOUNCE_MS);
   const result = useEnvironmentQuery(
@@ -278,6 +283,7 @@ export function useProjectPathSearch(
             query: debouncedTarget.query,
             limit,
             ...(debouncedTarget.kind ? { kind: debouncedTarget.kind } : {}),
+            showHiddenFiles: debouncedTarget.showHiddenFiles,
           },
         })
       : null,

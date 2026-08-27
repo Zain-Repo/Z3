@@ -56,7 +56,10 @@ import {
 } from "./ProviderCommandReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "../Services/ProjectionSnapshotQuery.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -149,6 +152,7 @@ describe("ProviderCommandReactor", () => {
     readonly requiresNewThreadForModelChange?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
+    readonly memoryContext?: string;
     readonly startSessionEffect?: (
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderAdapterRequestError>;
@@ -352,10 +356,27 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
-    const projectionSnapshotLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
+    const projectionSnapshotLayerBase = OrchestrationProjectionSnapshotQueryLive.pipe(
       Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
+    const memoryRecallInputs: Array<
+      Parameters<NonNullable<ProjectionSnapshotQueryShape["recallConversationMemory"]>>[0]
+    > = [];
+    const projectionSnapshotLayer =
+      input?.memoryContext === undefined
+        ? projectionSnapshotLayerBase
+        : Layer.effect(
+            ProjectionSnapshotQuery,
+            Effect.map(ProjectionSnapshotQuery, (service) => ({
+              ...service,
+              recallConversationMemory: (recallInput) =>
+                Effect.sync(() => {
+                  memoryRecallInputs.push(recallInput);
+                  return { context: input.memoryContext ?? "", count: 1 };
+                }),
+            })),
+          ).pipe(Layer.provide(projectionSnapshotLayerBase));
     let titleRegenerationCompletionDispatchAttempts = 0;
     const reactorOrchestrationLayer = Layer.effect(
       OrchestrationEngineService,
@@ -500,6 +521,7 @@ describe("ProviderCommandReactor", () => {
       runtimeSessions,
       stateDir,
       attachmentsDir,
+      memoryRecallInputs,
       drain,
       runEffect,
       get titleRegenerationCompletionDispatchAttempts() {
@@ -509,7 +531,9 @@ describe("ProviderCommandReactor", () => {
   }
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      memoryContext: "<conversation-memory>recalled answer</conversation-memory>",
+    });
     const now = "2026-01-01T00:00:00.000Z";
 
     await Effect.runPromise(
@@ -536,7 +560,16 @@ describe("ProviderCommandReactor", () => {
       | ProviderSendTurnInput
       | undefined;
     expect(providerRequest?.input).toContain("hidden project context");
+    expect(providerRequest?.input).toContain("recalled answer");
     expect(providerRequest?.input).toContain("hello reactor");
+    expect(harness.memoryRecallInputs).toEqual([
+      {
+        threadId: ThreadId.make("thread-1"),
+        scope: "project",
+        projectId: ProjectId.make("project-1"),
+        query: "hello reactor",
+      },
+    ]);
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.make("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       cwd: "/tmp/provider-project",

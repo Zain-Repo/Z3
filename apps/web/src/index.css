@@ -139,8 +139,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --animate-status-ping: status-ping 2s infinite;
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
   --font-sans:
-    "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-    sans-serif;
+    "Satoshi", "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
   --font-mono:
     "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --color-warning-foreground: var(--warning-foreground);
@@ -894,28 +894,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   @variant dark {
     color-scheme: dark;
-    /* Keep the workspace in the same neutral-black family as sidebar v2.
-       Surfaces lift from this base instead of starting from a milky gray. */
-    --background: var(--color-neutral-950);
+    /* Codex-inspired fallback tokens prevent a dark flash before the selected
+       palette is applied by the theme hook. */
+    --background: #21252b;
     --app-chrome-background: var(--background);
-    --surface-raised: var(--secondary);
-    --foreground: var(--color-neutral-100);
-    --card: color-mix(in srgb, var(--background) 97%, var(--color-white));
-    --card-foreground: var(--color-neutral-100);
-    --popover: color-mix(in srgb, var(--background) 94%, var(--color-white));
-    --popover-foreground: var(--color-neutral-100);
-    --primary: oklch(0.588 0.217 264);
+    --surface-raised: #2c313a;
+    --foreground: #abb2bf;
+    --card: #282c34;
+    --card-foreground: #abb2bf;
+    --popover: #282c34;
+    --popover-foreground: #abb2bf;
+    --primary: #4d78cc;
     --primary-foreground: var(--color-white);
-    --secondary: --alpha(var(--color-white) / 4%);
-    --secondary-foreground: var(--color-neutral-100);
-    --muted: --alpha(var(--color-white) / 4%);
-    --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
-    --accent: --alpha(var(--color-white) / 4%);
-    --accent-foreground: var(--color-neutral-100);
+    --secondary: #2c313a;
+    --secondary-foreground: #abb2bf;
+    --muted: #21252b;
+    --muted-foreground: #7f848e;
+    --accent: #2c313a;
+    --accent-foreground: #abb2bf;
     --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
-    --border: --alpha(var(--color-white) / 6%);
-    --input: --alpha(var(--color-white) / 8%);
-    --ring: oklch(0.588 0.217 264);
+    --border: #3e4451;
+    --input: #3e4451;
+    --ring: #4d78cc;
     --destructive-foreground: var(--color-red-400);
     --info: var(--color-blue-500);
     --info-foreground: var(--color-blue-400);
@@ -965,17 +965,17 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 .dark [data-sidebar-version="v1"],
 .dark [data-sidebar-version="v2"] {
-  --background: #000;
-  --foreground: #f1f3f7;
-  --card: #000;
+  --background: #21252b;
+  --foreground: #abb2bf;
+  --card: #282c34;
   --card-foreground: var(--foreground);
-  --accent: #191a1d;
-  --accent-foreground: #f7f9ff;
-  --muted: #0a0a0a;
-  --muted-foreground: #a3a3a3;
-  --border: rgb(255 255 255 / 8%);
-  --input: rgb(255 255 255 / 18%);
-  --sidebar: var(--card);
+  --accent: #2c313a;
+  --accent-foreground: #abb2bf;
+  --muted: #21252b;
+  --muted-foreground: #7f848e;
+  --border: #3e4451;
+  --input: #3e4451;
+  --sidebar: #282c34;
   --sidebar-foreground: var(--foreground);
   --sidebar-muted-foreground: var(--muted-foreground);
   --sidebar-control-surface: var(--muted);
@@ -991,6 +991,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 body {
   font-family:
+    "Satoshi",
     "DM Sans Variable",
     "DM Sans",
     -apple-system,
@@ -1733,4 +1734,57 @@ html[data-theme-id] [data-sidebar-version="v2"] {
   --sidebar-row-active: var(--app-theme-surface-raised);
   --sidebar-row-selected: var(--app-theme-surface-raised);
   --sidebar-border: var(--app-theme-border);
+}
+
+/* Codex-inspired workspace chrome. These selectors are intentionally scoped
+   to the built-in code palette so custom user palettes keep their own visual
+   language while Code and Chat share one calm hierarchy. */
+html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-inner"],
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-inner"] {
+  background-color: var(--sidebar);
+}
+
+html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-header"],
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-header"] {
+  border-bottom-color: color-mix(in srgb, var(--border) 76%, transparent);
+  background: color-mix(in srgb, var(--sidebar) 94%, var(--primary));
+}
+
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-header"] {
+  border-bottom-color: transparent;
+  background: var(--sidebar);
+}
+
+html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-menu-button"],
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-menu-button"] {
+  border-radius: 0.375rem;
+}
+
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-chat-sidebar] {
+  --sidebar-control-gap: 0.625rem;
+  --sidebar-row-content-inset: 0.5rem;
+}
+
+html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-menu-button"][data-active="true"],
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-menu-button"][data-active="true"] {
+  background: color-mix(in srgb, var(--primary) 17%, var(--sidebar));
+  box-shadow: inset 2px 0 0 var(--primary);
+  color: var(--foreground);
+}
+
+html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-menu-sub-button"][data-active="true"],
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-menu-sub-button"][data-active="true"] {
+  background: color-mix(in srgb, var(--primary) 13%, var(--sidebar));
+}
+
+html[data-theme-id="t3-code"] [data-workspace="code"] .surface-subheader,
+html[data-theme-id="t3-code"] [data-workspace="chat"] .surface-subheader {
+  background: color-mix(in srgb, var(--background) 92%, var(--card));
+  border-bottom-color: color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+html[data-theme-id="t3-code"] [data-workspace="code"] .chat-composer-glass-shell,
+html[data-theme-id="t3-code"] [data-workspace="chat"] .chat-composer-glass-shell {
+  --chat-composer-glass-surface: var(--card);
+  --chat-composer-outline: color-mix(in srgb, var(--border) 86%, transparent);
 }

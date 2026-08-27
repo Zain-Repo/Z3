@@ -2,6 +2,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import {
   ArchiveIcon,
+  ChevronRightIcon,
   FolderIcon,
   FolderOpenIcon,
   MessageSquareIcon,
@@ -142,6 +143,7 @@ function ChatSidebarThreadRow({
         <SidebarMenuButton
           type="button"
           isActive={isActive}
+          variant="chat"
           onClick={() => navigateToThread(thread.environmentId, thread.id)}
           className={cn("font-normal", isActive && "font-medium")}
           title={title}
@@ -166,7 +168,7 @@ function ChatSidebarThreadRow({
       )}
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover:opacity-100"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
           aria-label={`Actions for ${title}`}
         >
           <MoreHorizontalIcon className="size-4" />
@@ -234,10 +236,11 @@ function ChatSidebarProjectRow({
       <SidebarMenuButton
         type="button"
         isActive={isActive}
+        variant="chat"
         aria-expanded={projectIsOpen}
         aria-label={`${projectIsOpen ? "Collapse" : "Open"} ${project.name}`}
         {...(hasVisibleThreads ? { "aria-controls": projectPanelId } : {})}
-        className={cn("min-w-0 flex-1 rounded-lg px-2 font-medium", isActive && "font-semibold")}
+        className={cn("min-w-0 flex-1", isActive && "font-medium")}
         title={`${project.name}${isActive ? " (selected for new chats)" : ""}`}
         onClick={() => {
           onSelect(project);
@@ -277,7 +280,7 @@ function ChatSidebarProjectRow({
       </SidebarMenuButton>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-hover:opacity-100"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
           aria-label={`Actions for ${project.name}`}
         >
           <MoreHorizontalIcon className="size-4" />
@@ -363,6 +366,7 @@ export default function ChatWorkspaceSidebar() {
   );
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
+  const [isRecentChatsExpanded, setIsRecentChatsExpanded] = useState(true);
   const renameCancelledRef = useRef(false);
   const cleanupInFlightRef = useRef(new Set<ThreadId>());
 
@@ -658,9 +662,10 @@ export default function ChatWorkspaceSidebar() {
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
-        className="gap-0"
+        className="chat-sidebar-content gap-0"
+        data-chat-sidebar=""
         fixedHeader={
-          <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
+          <SidebarGroup className="gap-1 p-[var(--sidebar-content-inset)]">
             {environments.length > 0 ? (
               <Select
                 value={availableEnvironmentId ?? undefined}
@@ -681,7 +686,7 @@ export default function ChatWorkspaceSidebar() {
                   }
                 }}
               >
-                <SelectTrigger className="h-9 w-full justify-between bg-sidebar-control-surface shadow-none">
+                <SelectTrigger className="h-8 w-full justify-between rounded-md border-0 bg-transparent px-2 text-sm font-normal text-sidebar-foreground/80 shadow-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring">
                   <SelectValue placeholder="Choose environment">
                     {selectedEnvironment?.label ?? "Choose environment"}
                   </SelectValue>
@@ -695,18 +700,23 @@ export default function ChatWorkspaceSidebar() {
                 </SelectPopup>
               </Select>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 w-full justify-start gap-2 bg-sidebar-control-surface font-medium shadow-none"
-              onClick={() => void handleNewChat()}
-              disabled={availableEnvironmentId === null}
-              title={availableEnvironmentId === null ? "Connect an environment first" : "New chat"}
-            >
-              <SquarePenIcon className="size-4" />
-              New chat
-            </Button>
-            <div className="flex h-8 items-center gap-2 rounded-md bg-sidebar-control-surface px-2 text-sidebar-muted-foreground ring-1 ring-sidebar-border/70">
+            <SidebarMenu className="gap-0.5">
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  type="button"
+                  variant="chat"
+                  onClick={() => void handleNewChat()}
+                  disabled={availableEnvironmentId === null}
+                  title={
+                    availableEnvironmentId === null ? "Connect an environment first" : "New chat"
+                  }
+                >
+                  <SquarePenIcon className="size-4" />
+                  New chat
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <div className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-sidebar-muted-foreground transition-colors focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground hover:bg-sidebar-row-hover motion-reduce:transition-none">
               <SearchIcon className="size-4 shrink-0" />
               <Input
                 nativeInput
@@ -735,16 +745,16 @@ export default function ChatWorkspaceSidebar() {
         }
       >
         {visiblePinnedThreads.length > 0 ? (
-          <SidebarGroup className="gap-2 px-[var(--sidebar-content-inset)] pt-3">
-            <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-muted-foreground/70">
+          <SidebarGroup className="gap-1 px-[var(--sidebar-content-inset)] pt-3">
+            <div className="px-2 text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55">
               Pinned
             </div>
             <SidebarMenu className="gap-0.5">{renderThreadRows(visiblePinnedThreads)}</SidebarMenu>
           </SidebarGroup>
         ) : null}
-        <SidebarGroup className="gap-2 px-[var(--sidebar-content-inset)] py-3">
+        <SidebarGroup className="gap-1 px-[var(--sidebar-content-inset)] py-3">
           <div className="flex items-center justify-between px-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-muted-foreground/70">
+            <div className="text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55">
               Projects
             </div>
             <Button
@@ -815,11 +825,24 @@ export default function ChatWorkspaceSidebar() {
             </div>
           )}
         </SidebarGroup>
-        <SidebarGroup className="gap-2 px-[var(--sidebar-content-inset)] py-3">
+        <SidebarGroup className="gap-1 px-[var(--sidebar-content-inset)] py-3">
           <div className="flex items-center justify-between px-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-muted-foreground/70">
-              Recent chats
-            </div>
+            <button
+              type="button"
+              className="group flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55 transition-colors hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none"
+              aria-expanded={isRecentChatsExpanded}
+              aria-controls="chat-recent-chats-panel"
+              onClick={() => setIsRecentChatsExpanded((expanded) => !expanded)}
+            >
+              <ChevronRightIcon
+                className={cn(
+                  "size-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
+                  isRecentChatsExpanded && "rotate-90",
+                )}
+                aria-hidden="true"
+              />
+              <span>Recent chats</span>
+            </button>
             <Button
               type="button"
               size="icon-xs"
@@ -833,14 +856,32 @@ export default function ChatWorkspaceSidebar() {
               <PlusIcon className="size-3.5" />
             </Button>
           </div>
-          <SidebarMenu className="gap-0.5">{renderThreadRows(unassignedRecentThreads)}</SidebarMenu>
-          {unassignedRecentThreads.length === 0 && visiblePinnedThreads.length === 0 ? (
-            <div className="px-2 py-8 text-center text-sm text-sidebar-muted-foreground">
-              {searchQuery.trim().length > 0
-                ? "No chats found"
-                : "Your recent chats will appear here"}
-            </div>
-          ) : null}
+          <AnimatePresence initial={false} mode="popLayout">
+            {isRecentChatsExpanded ? (
+              <motion.div
+                key="recent-chats"
+                id="chat-recent-chats-panel"
+                initial={isReducedMotion ? false : { opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
+                transition={
+                  isReducedMotion ? { duration: 0 } : { duration: 0.16, ease: "easeOut" }
+                }
+                className="grid gap-1"
+              >
+                <SidebarMenu className="gap-0.5">
+                  {renderThreadRows(unassignedRecentThreads)}
+                </SidebarMenu>
+                {unassignedRecentThreads.length === 0 && visiblePinnedThreads.length === 0 ? (
+                  <div className="px-2 py-6 text-center text-xs leading-5 text-sidebar-muted-foreground">
+                    {searchQuery.trim().length > 0
+                      ? "No chats found"
+                      : "Your recent chats will appear here"}
+                  </div>
+                ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </SidebarGroup>
       </SidebarContent>
       <SidebarChromeFooter />

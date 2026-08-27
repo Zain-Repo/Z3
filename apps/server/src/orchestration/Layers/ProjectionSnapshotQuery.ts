@@ -35,6 +35,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { makeConversationMemory } from "../../memory/ConversationMemory.ts";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import {
@@ -311,6 +312,7 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const recallMemory = makeConversationMemory(sql);
   const repositoryIdentityResolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const repositoryIdentityResolutionConcurrency = 4;
   const resolveRepositoryIdentitiesForProjects = Effect.fn(
@@ -1902,6 +1904,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     };
   });
 
+  const recallConversationMemory: ProjectionSnapshotQueryShape["recallConversationMemory"] =
+    (input) =>
+      recallMemory(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionSnapshotQuery.recallConversationMemory:query"),
+        ),
+      );
+
   const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
     (workspaceRoot) =>
       getActiveProjectRowByWorkspaceRoot({ workspaceRoot }).pipe(
@@ -2278,6 +2288,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getShellSnapshot,
     getArchivedShellSnapshot,
     searchThreads,
+    recallConversationMemory,
     getSnapshotSequence,
     getCounts,
     getActiveProjectByWorkspaceRoot,

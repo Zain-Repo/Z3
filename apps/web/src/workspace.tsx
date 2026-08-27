@@ -28,8 +28,8 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
     sidebarTitle: "Projects",
     sidebarDescription: "Your coding workspace",
     icon: Code2Icon,
-    topbarClassName: "bg-blue-500/[0.08]",
-    sidebarClassName: "[&_[data-workspace-context]]:text-blue-500",
+    topbarClassName: "bg-primary/[0.08]",
+    sidebarClassName: "[&_[data-workspace-context]]:text-primary",
   },
   {
     id: "chat",
@@ -38,8 +38,8 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
     sidebarTitle: "Conversations",
     sidebarDescription: "Your chat workspace",
     icon: MessageCircleIcon,
-    topbarClassName: "bg-emerald-500/[0.08]",
-    sidebarClassName: "[&_[data-workspace-context]]:text-emerald-500",
+    topbarClassName: "bg-primary/[0.08]",
+    sidebarClassName: "[&_[data-workspace-context]]:text-primary",
   },
   {
     id: "image",

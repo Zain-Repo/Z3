@@ -268,6 +268,8 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
         attachments: [],
       },
       providerText: "Project context\n\n<user-request>\nhello\n</user-request>",
+      memoryScope: "full",
+      memoryThreadIds: ["chat-thread-1", "chat-thread-2"],
       modelSelection: {
         provider: "codex",
         model: "gpt-5.4",
@@ -277,6 +279,8 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
     });
     assert.strictEqual(parsed.modelSelection?.instanceId, "codex");
     assert.strictEqual(parsed.providerText, "Project context\n\n<user-request>\nhello\n</user-request>");
+    assert.deepStrictEqual(parsed.memoryThreadIds?.map(String), ["chat-thread-1", "chat-thread-2"]);
+    assert.strictEqual(parsed.memoryScope, "full");
     assert.strictEqual(parsed.runtimeMode, "full-access");
     assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
   }),
@@ -748,12 +752,15 @@ it.effect(
         threadId: "thread-1",
         messageId: "msg-1",
         providerText: "Project context",
+        memoryThreadIds: ["chat-thread-1"],
         createdAt: "2026-01-01T00:00:00.000Z",
       });
       assert.strictEqual(parsed.providerText, "Project context");
+      assert.deepStrictEqual(parsed.memoryThreadIds?.map(String), ["chat-thread-1"]);
       assert.strictEqual(parsed.modelSelection, undefined);
       assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
       assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
+      assert.strictEqual(parsed.memoryScope, "project-only");
       assert.strictEqual(parsed.sourceProposedPlan, undefined);
     }),
 );

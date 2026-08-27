@@ -22,6 +22,18 @@ describe("project search inputs", () => {
       kind: "file",
     });
     expect(decoded.query).toBe("");
+    expect(decoded.showHiddenFiles).toBeUndefined();
+  });
+
+  it("accepts an explicit hidden-file opt-in", () => {
+    expect(
+      decodeSearchEntriesInput({
+        cwd: "/workspace",
+        query: "env",
+        limit: 10,
+        showHiddenFiles: true,
+      }).showHiddenFiles,
+    ).toBe(true);
   });
 
   it("preserves whitespace in content search queries", () => {

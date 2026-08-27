@@ -1,12 +1,27 @@
 import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import {
+  buildChatThreadCreateInput,
   findDuplicateEmptyChatThreadIds,
   resolveChatEnvironmentId,
 } from "./chatThreadCreation";
 
 const primaryEnvironmentId = EnvironmentId.make("environment-primary");
 const secondaryEnvironmentId = EnvironmentId.make("environment-secondary");
+
+describe("buildChatThreadCreateInput", () => {
+  it("defaults new chats to full access", () => {
+    const input = buildChatThreadCreateInput({
+      threadId: ThreadId.make("chat-thread"),
+      selection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      },
+    });
+
+    expect(input.runtimeMode).toBe("full-access");
+  });
+});
 
 describe("resolveChatEnvironmentId", () => {
   it("uses a valid persisted selection before active environment state", () => {

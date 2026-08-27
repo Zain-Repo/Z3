@@ -1,12 +1,15 @@
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type { SourceControlProviderDiscoveryItem, VcsStatusResult } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { assert, describe, it } from "vite-plus/test";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  getMenuActionDisabledReason,
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
+  resolveChangeRequestProviderReadiness,
   resolveQuickAction,
   resolveThreadBranchUpdate,
   resolveThreadBranchMetadataPatch,
@@ -31,6 +34,105 @@ function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
     ...overrides,
   };
 }
+
+function githubDiscovery(
+  overrides: Partial<SourceControlProviderDiscoveryItem> = {},
+): SourceControlProviderDiscoveryItem {
+  return {
+    kind: "github",
+    label: "GitHub",
+    executable: "gh",
+    status: "available",
+    version: Option.some("gh version 2.78.0"),
+    installHint: "Install GitHub CLI from https://cli.github.com/.",
+    detail: Option.none(),
+    auth: {
+      status: "authenticated",
+      account: Option.some("octocat"),
+      host: Option.some("github.com"),
+      detail: Option.none(),
+    },
+    ...overrides,
+  };
+}
+
+describe("when: change request provider readiness changes", () => {
+  const githubStatus = status({
+    aheadCount: 0,
+    aheadOfDefaultCount: 1,
+    sourceControlProvider: {
+      kind: "github",
+      name: "GitHub",
+      baseUrl: "https://github.com",
+    },
+  });
+
+  it("uses the discovery auth probe to disable PR actions with a specific reason", () => {
+    const unauthenticated = resolveChangeRequestProviderReadiness(githubStatus, [
+      githubDiscovery({
+        auth: {
+          status: "unauthenticated",
+          account: Option.none(),
+          host: Option.some("github.com"),
+          detail: Option.some("Run `gh auth login` and retry."),
+        },
+      }),
+    ]);
+
+    assert.deepEqual(unauthenticated, {
+      ready: false,
+      hint: "Run `gh auth login` and retry.",
+    });
+    assert.deepInclude(resolveQuickAction(githubStatus, false, false, true, unauthenticated), {
+      label: "Create PR",
+      disabled: true,
+      kind: "show_hint",
+      hint: "Run `gh auth login` and retry.",
+    });
+    assert.equal(buildMenuItems(githubStatus, false, true, unauthenticated)[2]?.disabled, true);
+    const createPrItem = buildMenuItems(githubStatus, false, true, unauthenticated)[2];
+    assert.equal(
+      createPrItem
+        ? getMenuActionDisabledReason({
+            item: createPrItem,
+            gitStatus: githubStatus,
+            isBusy: false,
+            hasPrimaryRemote: true,
+            changeRequestReadiness: unauthenticated,
+          })
+        : null,
+      "Run `gh auth login` and retry.",
+    );
+  });
+
+  it("re-enables PR actions when refreshed discovery reports authentication", () => {
+    const authenticated = resolveChangeRequestProviderReadiness(githubStatus, [githubDiscovery()]);
+
+    assert.deepEqual(authenticated, { ready: true, hint: null });
+    assert.deepInclude(resolveQuickAction(githubStatus, false, false, true, authenticated), {
+      label: "Create PR",
+      disabled: false,
+      kind: "run_action",
+      action: "create_pr",
+    });
+    assert.equal(buildMenuItems(githubStatus, false, true, authenticated)[2]?.disabled, false);
+  });
+
+  it("uses the install hint when the provider CLI is missing", () => {
+    const missing = resolveChangeRequestProviderReadiness(githubStatus, [
+      githubDiscovery({
+        status: "missing",
+        version: Option.none(),
+        detail: Option.some("Executable not found."),
+      }),
+    ]);
+
+    assert.deepEqual(missing, {
+      ready: false,
+      hint: "Install GitHub CLI from https://cli.github.com/.",
+    });
+  });
+});
 
 describe("when: ref is clean and has an open PR", () => {
   it("resolveQuickAction opens the existing PR", () => {

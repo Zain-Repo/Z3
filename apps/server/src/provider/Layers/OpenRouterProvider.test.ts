@@ -47,4 +47,35 @@ describe("OpenRouterProvider", () => {
     });
     expect(openRouterModelCapabilities({ id: "unknown/model" })).toBeNull();
   });
+
+  it("exposes advertised reasoning efforts without leaking OpenRouter metadata", () => {
+    expect(
+      openRouterModelCapabilities({
+        id: "z-ai/glm-5.3-flash",
+        supportedParameters: ["reasoning_effort", "tools", "tool_choice"],
+        reasoning: {
+          supported: true,
+          mandatory: true,
+          defaultEffort: "max",
+          supportedEfforts: ["max", "high", "low"],
+        },
+      }),
+    ).toEqual({
+      optionDescriptors: [
+        {
+          id: "reasoningEffort",
+          label: "Reasoning",
+          type: "select",
+          options: [
+            { id: "max", label: "Max", isDefault: true },
+            { id: "high", label: "High" },
+            { id: "low", label: "Low" },
+          ],
+          currentValue: "max",
+        },
+      ],
+      toolCalling: { tools: true, toolChoice: true },
+      reasoning: { supported: true },
+    });
+  });
 });

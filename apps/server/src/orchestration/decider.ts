@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CONVERSATION_MEMORY_SCOPE,
   EventId,
   type OrchestrationCommand,
   type OrchestrationEvent,
@@ -391,7 +392,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: command.projectId,
           title: command.title,
           modelSelection: command.modelSelection,
-          runtimeMode: scope === "chat" ? "approval-required" : command.runtimeMode,
+          runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
@@ -751,7 +752,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.runtime-mode-set",
         payload: {
           threadId: command.threadId,
-          runtimeMode: threadScope(thread) === "chat" ? "approval-required" : command.runtimeMode,
+          runtimeMode: command.runtimeMode,
           updatedAt: occurredAt,
         },
       };
@@ -843,6 +844,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.message.messageId,
           ...(command.providerText !== undefined ? { providerText: command.providerText } : {}),
+          memoryScope: command.memoryScope ?? DEFAULT_CONVERSATION_MEMORY_SCOPE,
+          ...(command.memoryThreadIds !== undefined
+            ? { memoryThreadIds: command.memoryThreadIds }
+            : {}),
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),

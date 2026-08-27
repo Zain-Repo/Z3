@@ -4,9 +4,28 @@
 
 ## Status
 
-Z3Chat project data is currently stored in the browser through the `z3chat:projects:v1`
-localStorage record. Project metadata, instructions, sources, active-project selection, and thread
-membership are therefore local to one client and are not synchronized through the Z3 server.
+Z3Chat project data is stored in the browser and is not synchronized through the Z3 server. Project
+metadata remains compatible with the `z3chat:projects:v1` localStorage record; larger project
+snapshots are additionally persisted in a dedicated IndexedDB record so source files can exceed
+Web Storage quotas without being silently lost.
+
+Project sources currently allow up to 5 MiB per file and 20 MiB per project. Provider context remains
+bounded separately at 120,000 characters, so increasing source storage does not increase the amount
+of project text injected into each turn.
+
+Source indexing currently uses the configured OpenRouter provider and its embeddings endpoint. The
+browser keeps the original source bytes and text in its local project store; the server keeps the
+generated text chunks and vectors in memory only. Re-indexing replaces the in-memory entry for the
+same project/source pair, and deleting a source removes that entry. This is intentionally temporary:
+Convex should become the durable source and vector store when that integration is implemented.
+
+Completed user/assistant rounds are indexed by the server for bounded conversation recall. Each
+ChatProject stores a `memoryMode` of `full` or `project-only`. Full mode leaves the chat retrieval
+boundary open across Z3Chat conversations; project-only mode includes the active chat project's
+known thread ids on turn start, and the server uses those ids only as a retrieval boundary. In both
+modes, the server injects up to three relevant historical rounds into provider-only context. This
+improves continuity without persisting the project's browser-local metadata in the event store. It
+does not replace the durable project integration described below.
 
 The initial SQLite schema has been drafted in migration 037, but the server and client integration
 is not complete.

@@ -123,6 +123,10 @@ export const RuntimeMode = Schema.Literals([
 ]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+export const ConversationMemoryScope = Schema.Literals(["full", "project-only"]);
+export type ConversationMemoryScope = typeof ConversationMemoryScope.Type;
+// Project-only preserves the scope used by the initial Z3Chat project-memory rollout.
+export const DEFAULT_CONVERSATION_MEMORY_SCOPE: ConversationMemoryScope = "project-only";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
@@ -765,6 +769,10 @@ export const ThreadTurnStartCommand = Schema.Struct({
   }),
   // Optional provider-only text for context that should not be rendered as a user message.
   providerText: Schema.optional(Schema.String),
+  // Controls which completed Z3Chat conversations may be recalled for this turn.
+  memoryScope: Schema.optional(ConversationMemoryScope),
+  // Optional chat-project membership used to keep conversation recall inside the active project.
+  memoryThreadIds: Schema.optional(Schema.Array(ThreadId).check(Schema.isMaxLength(500))),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -788,6 +796,8 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   }),
   // Optional provider-only text for context that should not be rendered as a user message.
   providerText: Schema.optional(Schema.String),
+  memoryScope: Schema.optional(ConversationMemoryScope),
+  memoryThreadIds: Schema.optional(Schema.Array(ThreadId).check(Schema.isMaxLength(500))),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode,
@@ -1146,6 +1156,10 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   messageId: MessageId,
   // Keep provider context available to the reactor without persisting it in the chat message.
   providerText: Schema.optional(Schema.String),
+  memoryScope: ConversationMemoryScope.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CONVERSATION_MEMORY_SCOPE)),
+  ),
+  memoryThreadIds: Schema.optional(Schema.Array(ThreadId).check(Schema.isMaxLength(500))),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),

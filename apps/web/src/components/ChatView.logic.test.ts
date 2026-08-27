@@ -13,6 +13,7 @@ import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   branchMismatchKey,
+  buildChatDraftThread,
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
@@ -37,6 +38,22 @@ const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+
+describe("buildChatDraftThread", () => {
+  it("defaults new chat drafts to full access", () => {
+    const thread = buildChatDraftThread(
+      environmentId,
+      threadId,
+      {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.4",
+      },
+      now,
+    );
+
+    expect(thread.runtimeMode).toBe("full-access");
+  });
+});
 
 describe("shouldWaitForThreadShell", () => {
   it("waits for projectless chat drafts that have no composer draft session", () => {

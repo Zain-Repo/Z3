@@ -20,6 +20,12 @@ import {
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { ComposerControl, ComposerControlChevron } from "./ComposerControl";
 
+export function shouldReopenModelConfigurationAfterSelection(
+  configurationRows: ReactNode | undefined,
+): boolean {
+  return configurationRows !== undefined && configurationRows !== null;
+}
+
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   /**
    * The instance currently selected in the composer. Drives the trigger
@@ -84,7 +90,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
 
   const setIsMenuOpen = (open: boolean) => {
     setShowModelList(
-      open && (props.configurationRows === undefined || props.configurationRows === null),
+      open && !shouldReopenModelConfigurationAfterSelection(props.configurationRows),
     );
     props.onOpenChange?.(open);
     if (props.open === undefined) {
@@ -143,6 +149,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const handleInstanceModelChange = (instanceId: ProviderInstanceId, model: string) => {
     if (props.disabled) return;
     props.onInstanceModelChange(instanceId, model);
+    if (shouldReopenModelConfigurationAfterSelection(props.configurationRows)) {
+      // Keep the picker open so the newly selected model's advertised
+      // configuration options are immediately available to the user.
+      setIsMenuOpen(true);
+      window.requestAnimationFrame(() => {
+        configurationSurfaceRef.current?.querySelector("button")?.focus();
+      });
+      return;
+    }
     setIsMenuOpen(false);
   };
 
@@ -204,9 +219,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         className="max-w-(--available-width) border-0 bg-transparent p-0 shadow-none before:hidden [-webkit-backdrop-filter:none]! [--viewport-inline-padding:0] [backdrop-filter:none]!"
         viewportClassName="rounded-lg !overflow-hidden p-0"
       >
-        {showModelList ||
-        props.configurationRows === undefined ||
-        props.configurationRows === null ? (
+        {showModelList || !shouldReopenModelConfigurationAfterSelection(props.configurationRows) ? (
           <ModelPickerContent
             activeInstanceId={activeInstanceId}
             model={props.model}
@@ -217,7 +230,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             modelOptionsByInstance={props.modelOptionsByInstance}
             terminalOpen={props.terminalOpen ?? false}
             onRequestClose={() => setIsMenuOpen(false)}
-            {...(props.configurationRows !== undefined && props.configurationRows !== null
+            {...(shouldReopenModelConfigurationAfterSelection(props.configurationRows)
               ? {
                   onRequestBack: () => {
                     setShowModelList(false);

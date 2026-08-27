@@ -4,6 +4,7 @@ import type * as EffectAcpSchema from "effect-acp/schema";
 
 import {
   decideToolCallUpdateEmission,
+  buildAcpModelOptionDescriptors,
   extractModelConfigId,
   mergeToolCallState,
   parsePermissionRequest,
@@ -15,6 +16,58 @@ import {
 } from "./AcpRuntimeModel.ts";
 
 describe("AcpRuntimeModel", () => {
+  it("exposes non-model ACP config options as model capabilities", () => {
+    const descriptors = buildAcpModelOptionDescriptors([
+      {
+        id: "effort",
+        name: "Effort",
+        category: "model_config",
+        type: "select",
+        currentValue: "high",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "high", name: "High" },
+        ],
+      },
+      {
+        id: "service_tier",
+        name: "Service Tier",
+        category: "model_config",
+        type: "select",
+        currentValue: "standard",
+        options: [{ value: "standard", name: "Standard" }],
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "gpt-5",
+        options: [{ value: "gpt-5", name: "GPT-5" }],
+      },
+    ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>);
+
+    expect(descriptors).toEqual([
+      {
+        id: "effort",
+        label: "Effort",
+        type: "select",
+        currentValue: "high",
+        options: [
+          { id: "low", label: "Low" },
+          { id: "high", label: "High", isDefault: true },
+        ],
+      },
+      {
+        id: "service_tier",
+        label: "Service Tier",
+        type: "select",
+        currentValue: "standard",
+        options: [{ id: "standard", label: "Standard", isDefault: true }],
+      },
+    ]);
+  });
+
   it("parses session mode state from typed ACP session setup responses", () => {
     const modeState = parseSessionModeState({
       sessionId: "session-1",
@@ -111,8 +164,9 @@ describe("AcpRuntimeModel", () => {
   });
 
   it("bounds cumulative tool output in both normalized state and raw payload", () => {
-    const hugeText = Array.from({ length: 2_000 }, (_, index) =>
-      `line ${index}: ${"x".repeat(50)}`,
+    const hugeText = Array.from(
+      { length: 2_000 },
+      (_, index) => `line ${index}: ${"x".repeat(50)}`,
     ).join("\n");
 
     const parsed = parseSessionUpdateEvent({

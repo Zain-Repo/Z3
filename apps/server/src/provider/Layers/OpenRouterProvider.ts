@@ -1,6 +1,7 @@
 import {
   OpenRouterSettings,
   ProviderDriverKind,
+  type ProviderOptionDescriptor,
   type ProviderInstanceId,
   type ServerProviderModel,
   type ServerProvider,
@@ -33,6 +34,24 @@ function modelsFromApi(
 
 export function openRouterModelCapabilities(model: OpenRouterModel): ModelCapabilities | null {
   const supportedParameters = model.supportedParameters;
+  const reasoningEfforts = model.reasoning?.supportedEfforts ?? [];
+  const defaultReasoningEffort = model.reasoning?.defaultEffort;
+  const optionDescriptors: Array<ProviderOptionDescriptor> = [];
+  if (reasoningEfforts.length > 0) {
+    optionDescriptors.push({
+      id: "reasoningEffort",
+      label: "Reasoning",
+      type: "select",
+      options: reasoningEfforts.map((effort) => ({
+        id: effort,
+        label: reasoningEffortLabel(effort),
+        ...(effort === defaultReasoningEffort ? { isDefault: true } : {}),
+      })),
+      ...(defaultReasoningEffort && reasoningEfforts.includes(defaultReasoningEffort)
+        ? { currentValue: defaultReasoningEffort }
+        : {}),
+    });
+  }
   const hasMetadata =
     supportedParameters !== undefined ||
     model.reasoning !== undefined ||
@@ -40,7 +59,7 @@ export function openRouterModelCapabilities(model: OpenRouterModel): ModelCapabi
     model.outputModalities !== undefined;
   if (!hasMetadata) return null;
   return createModelCapabilities({
-    optionDescriptors: [],
+    optionDescriptors,
     ...(supportedParameters !== undefined
       ? {
           toolCalling: {
@@ -49,10 +68,23 @@ export function openRouterModelCapabilities(model: OpenRouterModel): ModelCapabi
           },
         }
       : {}),
-    ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
+    ...(model.reasoning !== undefined
+      ? {
+          reasoning: {
+            supported: model.reasoning.supported,
+            ...(model.reasoning.maxTokens !== undefined
+              ? { maxTokens: model.reasoning.maxTokens }
+              : {}),
+          },
+        }
+      : {}),
     ...(model.inputModalities !== undefined ? { inputModalities: model.inputModalities } : {}),
     ...(model.outputModalities !== undefined ? { outputModalities: model.outputModalities } : {}),
   });
+}
+
+function reasoningEffortLabel(value: string): string {
+  return value.length > 0 ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : value;
 }
 
 function fallbackModels(settings: OpenRouterSettings): ReadonlyArray<ServerProviderModel> {

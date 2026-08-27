@@ -33,6 +33,13 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings hidden files", () => {
+  it("keeps hidden and ignored workspace paths off by default", () => {
+    expect(decodeClientSettings({}).showHiddenFiles).toBe(false);
+    expect(decodeClientSettingsPatch({ showHiddenFiles: true }).showHiddenFiles).toBe(true);
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

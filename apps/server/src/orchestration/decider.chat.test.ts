@@ -12,7 +12,7 @@ import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel } from "./projector.ts";
 
 it.layer(NodeServices.layer)("chat thread decider", (it) => {
-  it.effect("creates isolated approval-required chats without a project", () =>
+  it.effect("creates isolated chats with the requested runtime mode", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
         command: {
@@ -41,7 +41,7 @@ it.layer(NodeServices.layer)("chat thread decider", (it) => {
       expect(result.payload).toMatchObject({
         scope: "chat",
         projectId: null,
-        runtimeMode: "approval-required",
+        runtimeMode: "full-access",
         branch: null,
         worktreePath: null,
       });

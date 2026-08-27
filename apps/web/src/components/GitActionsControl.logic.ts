@@ -1,9 +1,11 @@
 import type {
   GitRunStackedActionResult,
   GitStackedAction,
+  SourceControlProviderDiscoveryItem,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
+import * as Option from "effect/Option";
 import {
   DEFAULT_CHANGE_REQUEST_TERMINOLOGY,
   getChangeRequestTerminology,
@@ -31,6 +33,16 @@ export interface GitQuickAction {
   hint?: string;
 }
 
+export interface ChangeRequestProviderReadiness {
+  ready: boolean;
+  hint: string | null;
+}
+
+const READY_CHANGE_REQUEST_PROVIDER: ChangeRequestProviderReadiness = {
+  ready: true,
+  hint: null,
+};
+
 export interface DefaultBranchActionDialogCopy {
   title: string;
   description: string;
@@ -49,6 +61,36 @@ function resolveChangeRequestTerminology(
   return gitStatus?.sourceControlProvider
     ? getChangeRequestTerminology(gitStatus.sourceControlProvider)
     : DEFAULT_CHANGE_REQUEST_TERMINOLOGY;
+}
+
+export function resolveChangeRequestProviderReadiness(
+  gitStatus: VcsStatusResult | null,
+  providers: ReadonlyArray<SourceControlProviderDiscoveryItem> | null,
+): ChangeRequestProviderReadiness {
+  const providerInfo = gitStatus?.sourceControlProvider;
+  if (!providerInfo || providers === null) {
+    return READY_CHANGE_REQUEST_PROVIDER;
+  }
+
+  const provider = providers.find((candidate) => candidate.kind === providerInfo.kind);
+  if (!provider) {
+    return {
+      ready: false,
+      hint: `${providerInfo.name} status is unavailable. Open Settings -> Source Control and rescan.`,
+    };
+  }
+  if (provider.status !== "available") {
+    return { ready: false, hint: provider.installHint };
+  }
+  if (provider.auth.status === "unauthenticated") {
+    return {
+      ready: false,
+      hint:
+        Option.getOrNull(provider.auth.detail) ??
+        `${provider.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
+    };
+  }
+  return READY_CHANGE_REQUEST_PROVIDER;
 }
 
 export function buildGitActionProgressStages(input: {
@@ -95,6 +137,7 @@ export function buildMenuItems(
   gitStatus: VcsStatusResult | null,
   isBusy: boolean,
   hasPrimaryRemote = true,
+  changeRequestReadiness = READY_CHANGE_REQUEST_PROVIDER,
 ): GitActionMenuItem[] {
   if (!gitStatus) return [];
   const terminology = resolveChangeRequestTerminology(gitStatus);
@@ -117,6 +160,7 @@ export function buildMenuItems(
     hasBranch &&
     !hasChanges &&
     !hasOpenPr &&
+    changeRequestReadiness.ready &&
     hasDefaultBranchDelta &&
     !isBehind &&
     (gitStatus.hasUpstream || canPushWithoutUpstream);
@@ -164,11 +208,89 @@ export function buildMenuItems(
   ];
 }
 
+export function getMenuActionDisabledReason({
+  item,
+  gitStatus,
+  isBusy,
+  hasPrimaryRemote,
+  changeRequestReadiness,
+}: {
+  item: GitActionMenuItem;
+  gitStatus: VcsStatusResult | null;
+  isBusy: boolean;
+  hasPrimaryRemote: boolean;
+  changeRequestReadiness: ChangeRequestProviderReadiness;
+}): string | null {
+  if (!item.disabled) return null;
+  if (isBusy) return "Git action in progress.";
+  if (!gitStatus) return "Git status is unavailable.";
+
+  const hasBranch = gitStatus.refName !== null;
+  const hasChanges = gitStatus.hasWorkingTreeChanges;
+  const hasOpenPr = gitStatus.pr?.state === "open";
+  const isAhead = gitStatus.aheadCount > 0;
+  const hasDefaultBranchDelta = (gitStatus.aheadOfDefaultCount ?? gitStatus.aheadCount) > 0;
+  const isBehind = gitStatus.behindCount > 0;
+  const terminology = resolveChangeRequestTerminology(gitStatus);
+
+  if (item.id === "commit") {
+    if (!hasChanges) {
+      return "Worktree is clean. Make changes before committing.";
+    }
+    return "Commit is currently unavailable.";
+  }
+
+  if (item.id === "push") {
+    if (!hasBranch) {
+      return "Detached HEAD: checkout a refName before pushing.";
+    }
+    if (hasChanges) {
+      return "Commit or stash local changes before pushing.";
+    }
+    if (isBehind) {
+      return "Branch is behind upstream. Pull/rebase before pushing.";
+    }
+    if (!gitStatus.hasUpstream && !hasPrimaryRemote) {
+      return 'Add an "origin" remote before pushing.';
+    }
+    if (!isAhead) {
+      return "No local commits to push.";
+    }
+    return "Push is currently unavailable.";
+  }
+
+  if (hasOpenPr) {
+    return `View ${terminology.singular} is currently unavailable.`;
+  }
+  if (!hasBranch) {
+    return `Detached HEAD: checkout a refName before creating a ${terminology.singular}.`;
+  }
+  if (hasChanges) {
+    return `Commit local changes before creating a ${terminology.singular}.`;
+  }
+  if (!gitStatus.hasUpstream && !hasPrimaryRemote) {
+    return `Add an "origin" remote before creating a ${terminology.singular}.`;
+  }
+  if (!hasDefaultBranchDelta) {
+    return `No local commits to include in a ${terminology.singular}.`;
+  }
+  if (isBehind) {
+    return `Branch is behind upstream. Pull/rebase before creating a ${terminology.singular}.`;
+  }
+  if (!changeRequestReadiness.ready) {
+    return (
+      changeRequestReadiness.hint ?? `Create ${terminology.singular} is currently unavailable.`
+    );
+  }
+  return `Create ${terminology.singular} is currently unavailable.`;
+}
+
 export function resolveQuickAction(
   gitStatus: VcsStatusResult | null,
   isBusy: boolean,
   isDefaultRef = false,
   hasPrimaryRemote = true,
+  changeRequestReadiness = READY_CHANGE_REQUEST_PROVIDER,
 ): GitQuickAction {
   if (isBusy) {
     return { label: "Commit", disabled: true, kind: "show_hint", hint: "Git action in progress." };
@@ -208,6 +330,14 @@ export function resolveQuickAction(
     if (hasOpenPr || isDefaultRef) {
       return { label: "Commit & push", disabled: false, kind: "run_action", action: "commit_push" };
     }
+    if (!changeRequestReadiness.ready) {
+      return {
+        label: `Commit, push & ${terminology.shortLabel}`,
+        disabled: true,
+        kind: "show_hint",
+        hint: changeRequestReadiness.hint ?? `${terminology.shortLabel} creation is unavailable.`,
+      };
+    }
     return {
       label: `Commit, push & ${terminology.shortLabel}`,
       disabled: false,
@@ -246,6 +376,14 @@ export function resolveQuickAction(
         action: isDefaultRef ? "commit_push" : "push",
       };
     }
+    if (!changeRequestReadiness.ready) {
+      return {
+        label: `Push & create ${terminology.shortLabel}`,
+        disabled: true,
+        kind: "show_hint",
+        hint: changeRequestReadiness.hint ?? `${terminology.shortLabel} creation is unavailable.`,
+      };
+    }
     return {
       label: `Push & create ${terminology.shortLabel}`,
       disabled: false,
@@ -280,6 +418,14 @@ export function resolveQuickAction(
         action: isDefaultRef ? "commit_push" : "push",
       };
     }
+    if (!changeRequestReadiness.ready) {
+      return {
+        label: `Push & create ${terminology.shortLabel}`,
+        disabled: true,
+        kind: "show_hint",
+        hint: changeRequestReadiness.hint ?? `${terminology.shortLabel} creation is unavailable.`,
+      };
+    }
     return {
       label: `Push & create ${terminology.shortLabel}`,
       disabled: false,
@@ -293,6 +439,14 @@ export function resolveQuickAction(
   }
 
   if (hasDefaultBranchDelta && !isDefaultRef) {
+    if (!changeRequestReadiness.ready) {
+      return {
+        label: `Create ${terminology.shortLabel}`,
+        disabled: true,
+        kind: "show_hint",
+        hint: changeRequestReadiness.hint ?? `${terminology.shortLabel} creation is unavailable.`,
+      };
+    }
     return {
       label: `Create ${terminology.shortLabel}`,
       disabled: false,

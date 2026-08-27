@@ -8,6 +8,7 @@ import {
   TurnId,
   ApprovalRequestId,
   type ProviderApprovalDecision,
+  type ProviderOptionSelection,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
   type ProviderSession,
@@ -188,7 +189,7 @@ export interface OpenAICompatibleAdapterConfig {
   readonly getModelCapabilities?: (
     model: string,
   ) => Effect.Effect<
-    Pick<OpenRouterModel, "supportedParameters" | "inputModalities"> | undefined,
+    Pick<OpenRouterModel, "supportedParameters" | "inputModalities" | "reasoning"> | undefined,
     Error
   >;
   readonly streamCompletion: (input: {
@@ -198,7 +199,8 @@ export interface OpenAICompatibleAdapterConfig {
     readonly model: string;
     readonly messages: ReadonlyArray<CompatibleCompletionMessage>;
     readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
-    readonly modelCapabilities?: Pick<OpenRouterModel, "supportedParameters">;
+    readonly modelCapabilities?: Pick<OpenRouterModel, "supportedParameters" | "reasoning">;
+    readonly modelOptions?: ReadonlyArray<ProviderOptionSelection>;
   }) => Effect.Effect<Stream.Stream<CompatibleCompletionChunk, Error>, Error>;
 }
 
@@ -315,7 +317,7 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
     const turnFibers = new Map<string, Fiber.Fiber<void, never>>();
     const modelCapabilitiesCache = new Map<
       string,
-      Pick<OpenRouterModel, "supportedParameters" | "inputModalities"> | null
+      Pick<OpenRouterModel, "supportedParameters" | "inputModalities" | "reasoning"> | null
     >();
     let sequence = 0;
 
@@ -466,6 +468,9 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
             httpClient: config.httpClient,
             ...(localTools ? { tools: localTools } : {}),
             ...(modelCapabilities ? { modelCapabilities } : {}),
+            ...(turnInput.modelSelection?.options
+              ? { modelOptions: turnInput.modelSelection.options }
+              : {}),
           })
           .pipe(
             Effect.flatMap((stream) =>

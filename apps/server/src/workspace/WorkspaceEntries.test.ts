@@ -77,6 +77,7 @@ const searchWorkspaceEntries = (input: {
   query: string;
   limit: number;
   kind?: "file" | "directory";
+  showHiddenFiles?: boolean;
 }) =>
   Effect.gen(function* () {
     const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
@@ -278,6 +279,67 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(paths).not.toContain("ignored.txt");
         expect(paths.some((entryPath) => entryPath.startsWith(".convex/"))).toBe(false);
         expect(paths.some((entryPath) => entryPath.startsWith("convex/"))).toBe(false);
+      }),
+    );
+
+    it.effect("includes dotfiles and gitignored paths when explicitly requested", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-hidden-", git: true });
+        yield* writeTextFile(cwd, ".gitignore", "ignored/\nignored.txt\n");
+        yield* writeTextFile(cwd, ".env.local", "TOKEN=test");
+        yield* writeTextFile(cwd, "ignored/secret.txt", "local only");
+        yield* writeTextFile(cwd, "ignored.txt", "local only");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const listed = yield* workspaceEntries.list({ cwd, showHiddenFiles: true });
+        const searched = yield* searchWorkspaceEntries({
+          cwd,
+          query: "secret",
+          limit: 10,
+          showHiddenFiles: true,
+        });
+
+        expect(listed.entries).toEqual(
+          expect.arrayContaining([
+            { path: ".env.local", kind: "file" },
+            { path: "ignored", kind: "directory" },
+            { path: "ignored.txt", kind: "file" },
+            { path: "ignored/secret.txt", kind: "file" },
+          ]),
+        );
+        expect(listed.entries.some((entry) => entry.path.startsWith(".git/"))).toBe(false);
+        expect(searched.entries).toContainEqual({ path: "ignored/secret.txt", kind: "file" });
+      }),
+    );
+
+    it.effect("reuses opted-in scans across list and search until refresh", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-hidden-cache-" });
+        yield* writeTextFile(cwd, ".notes/private.md", "local only");
+        yield* writeTextFile(cwd, ".git", "gitdir: ../linked-worktree");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const readdir = vi.mocked(NodeFSP.readdir);
+        const listed = yield* workspaceEntries.list({ cwd, showHiddenFiles: true });
+        const callsAfterList = readdir.mock.calls.length;
+        expect(listed.entries.some((entry) => entry.path === ".git")).toBe(false);
+
+        yield* workspaceEntries.search({
+          cwd,
+          query: "private",
+          limit: 10,
+          showHiddenFiles: true,
+        });
+        expect(readdir.mock.calls).toHaveLength(callsAfterList);
+
+        yield* workspaceEntries.refresh(cwd);
+        yield* workspaceEntries.search({
+          cwd,
+          query: "notes",
+          limit: 10,
+          showHiddenFiles: true,
+        });
+        expect(readdir.mock.calls.length).toBeGreaterThan(callsAfterList);
       }),
     );
 

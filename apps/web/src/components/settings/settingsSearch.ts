@@ -76,6 +76,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "show-hidden-files",
+    title: "Show hidden files",
+    to: "/settings/general",
+  },
+  {
     id: "assistant-output",
     title: "Assistant output",
     to: "/settings/general",

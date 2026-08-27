@@ -113,7 +113,6 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       return {
         ...canonicalCommand,
         scope,
-        runtimeMode: scope === "chat" ? "approval-required" : canonicalCommand.runtimeMode,
       } satisfies OrchestrationCommand;
     }
 

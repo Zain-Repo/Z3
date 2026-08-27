@@ -14,7 +14,48 @@ import {
   parseOpenRouterModels,
   parseOpenRouterVideoModels,
   streamOpenRouterCompletion,
+  createOpenRouterEmbeddings,
 } from "./OpenRouterApi.ts";
+
+it.effect("creates embeddings with the OpenRouter embeddings endpoint", () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const client = HttpClient.make((request) => {
+    const body = request.body as { readonly body?: Uint8Array };
+    if (body.body) {
+      requestBody = JSON.parse(new TextDecoder().decode(body.body)) as Record<string, unknown>;
+    }
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        Response.json({
+          data: [
+            { embedding: [0.1, 0.2], index: 0 },
+            { embedding: [0.3, 0.4], index: 1 },
+          ],
+        }),
+      ),
+    );
+  });
+
+  return createOpenRouterEmbeddings({
+    httpClient: client,
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: "test-key",
+    model: "openai/text-embedding-3-small",
+    inputs: ["first", "second"],
+  }).pipe(
+    Effect.map((embeddings) => {
+      expect(requestBody).toEqual({
+        model: "openai/text-embedding-3-small",
+        input: ["first", "second"],
+      });
+      expect(embeddings).toEqual([
+        [0.1, 0.2],
+        [0.3, 0.4],
+      ]);
+    }),
+  );
+});
 
 describe("parseOpenRouterModels", () => {
   it("keeps valid OpenRouter model IDs and ignores malformed entries", () => {
@@ -71,7 +112,9 @@ describe("parseOpenRouterModels", () => {
             reasoning: {
               mandatory: false,
               default_enabled: true,
+              default_effort: "high",
               supported_efforts: ["low", "high"],
+              supports_max_tokens: true,
             },
           },
         ],
@@ -79,7 +122,14 @@ describe("parseOpenRouterModels", () => {
     ).toEqual([
       {
         id: "deepseek/deepseek-v4-flash-vision-exp",
-        reasoning: { supported: true },
+        reasoning: {
+          supported: true,
+          supportedEfforts: ["low", "high"],
+          defaultEffort: "high",
+          defaultEnabled: true,
+          mandatory: false,
+          supportsMaxTokens: true,
+        },
         inputModalities: ["text", "image"],
       },
     ]);
@@ -228,6 +278,42 @@ describe("parseOpenRouterModels", () => {
     );
   });
 
+  it.effect("pins GPT Image 2 to OpenAI without provider fallbacks", () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const client = HttpClient.make((request) => {
+      const body = request.body as { readonly body?: Uint8Array };
+      if (body.body) {
+        requestBody = JSON.parse(new TextDecoder().decode(body.body)) as Record<string, unknown>;
+      }
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(JSON.stringify({ data: [{ b64_json: "AQID" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+    });
+
+    return generateOpenRouterImage({
+      httpClient: client,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "test-key",
+      model: "openai/gpt-image-2",
+      prompt: "A quiet studio",
+      provider: { order: ["some-other-provider"], allow_fallbacks: true },
+    }).pipe(
+      Effect.map(() => {
+        expect(requestBody?.provider).toEqual({
+          order: ["some-other-provider"],
+          only: ["openai"],
+          allow_fallbacks: false,
+        });
+      }),
+    );
+  });
+
   it.effect("collects the completed image from streaming image-generation events", () => {
     let requestBody: Record<string, unknown> | undefined;
     const client = HttpClient.make((request) => {
@@ -269,7 +355,7 @@ describe("parseOpenRouterModels", () => {
 });
 
 describe("OpenRouter chat completion routing", () => {
-  it.effect("sorts eligible providers by price for the selected model", () => {
+  it.effect("routes GLM-5.3 Flash tool calls through BaseTen", () => {
     let requestBody: Record<string, unknown> | undefined;
     const client = HttpClient.make((request) => {
       const body = request.body as { readonly body?: Uint8Array };
@@ -291,15 +377,39 @@ describe("OpenRouter chat completion routing", () => {
       httpClient: client,
       baseUrl: "https://openrouter.ai/api/v1",
       apiKey: "test-key",
-      model: "anthropic/claude-3.7-sonnet",
+      model: "z-ai/glm-5.3-flash",
       messages: [{ role: "user", content: "Hello" }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a file.",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+      modelCapabilities: {
+        supportedParameters: ["tools", "tool_choice", "reasoning", "reasoning_effort"],
+        reasoning: {
+          supported: true,
+          mandatory: true,
+          defaultEffort: "max",
+          supportedEfforts: ["max", "high", "low"],
+        },
+      },
+      modelOptions: [{ id: "reasoningEffort", value: "max" }],
     }).pipe(
       Effect.flatMap(Stream.runCollect),
       Effect.map(() => {
         expect(requestBody).toMatchObject({
-          model: "anthropic/claude-3.7-sonnet",
-          provider: { sort: "price" },
+          model: "z-ai/glm-5.3-flash",
+          provider: { order: ["baseten"], require_parameters: true },
+          reasoning_effort: "max",
         });
+        expect(requestBody?.provider).not.toHaveProperty("sort");
+        expect(requestBody).not.toHaveProperty("parallel_tool_calls");
+        expect(requestBody).not.toHaveProperty("max_tool_calls");
       }),
     );
   });
@@ -646,7 +756,6 @@ describe("streamOpenRouterCompletion", () => {
       Effect.map((chunks) => {
         expect(requestBody).toMatchObject({
           tools: [{ type: "openrouter:web_search" }, { type: "openrouter:web_fetch" }],
-          max_tool_calls: 5,
         });
         expect(Array.from(chunks)[0]?.annotations).toEqual([
           { type: "url_citation", url: "https://example.com" },
@@ -710,13 +819,14 @@ describe("streamOpenRouterCompletion", () => {
         expect(requestBody).toMatchObject({
           tool_choice: "auto",
           provider: { require_parameters: true },
-          parallel_tool_calls: true,
           tools: [
             { type: "openrouter:web_search" },
             { type: "openrouter:web_fetch" },
             { type: "function", function: { name: "read_file" } },
           ],
         });
+        expect(requestBody).not.toHaveProperty("parallel_tool_calls");
+        expect(requestBody).not.toHaveProperty("max_tool_calls");
         expect(Array.from(chunks).flatMap((chunk) => chunk.toolCallDeltas ?? [])).toEqual([
           { index: 0, id: "call-1", name: "read_file", argumentsDelta: '{"path":"src/' },
           { index: 0, argumentsDelta: 'main.ts"}' },
@@ -755,7 +865,7 @@ describe("streamOpenRouterCompletion", () => {
       Effect.flatMap((stream) => Stream.runDrain(stream)),
       Effect.map(() => {
         expect(requestBody?.tool_choice).toBeUndefined();
-        expect(requestBody?.provider).toEqual({ sort: "price" });
+        expect(requestBody?.provider).toBeUndefined();
         expect(requestBody?.tools).toEqual([
           { type: "openrouter:web_search" },
           { type: "openrouter:web_fetch" },

@@ -823,6 +823,7 @@ function OpenCommandPaletteDialog(props: {
           input: {
             partialPath: browsePath.directoryPath,
             ...(currentProjectCwdForBrowse ? { cwd: currentProjectCwdForBrowse } : {}),
+            showHiddenFiles: clientSettings.showHiddenFiles,
           },
         })
       : null,
@@ -831,8 +832,13 @@ function OpenCommandPaletteDialog(props: {
   const isBrowsePending = browseQuery.isPending;
   const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
   const { visibleEntries: visibleBrowseEntries, exactEntry: exactBrowseEntry } = useMemo(
-    () => filterFilesystemBrowseEntries(browseEntries, browsePath.filterQuery),
-    [browseEntries, browsePath.filterQuery],
+    () =>
+      filterFilesystemBrowseEntries(
+        browseEntries,
+        browsePath.filterQuery,
+        clientSettings.showHiddenFiles,
+      ),
+    [browseEntries, browsePath.filterQuery, clientSettings.showHiddenFiles],
   );
 
   const prefetchBrowsePath = useCallback(
@@ -856,10 +862,17 @@ function OpenCommandPaletteDialog(props: {
         input: {
           partialPath,
           ...(cwd ? { cwd } : {}),
+          showHiddenFiles: clientSettings.showHiddenFiles,
         },
       });
     },
-    [browseEnvironmentId, currentProjectCwdForBrowse, environments, loadBrowsePath],
+    [
+      browseEnvironmentId,
+      clientSettings.showHiddenFiles,
+      currentProjectCwdForBrowse,
+      environments,
+      loadBrowsePath,
+    ],
   );
 
   useEffect(

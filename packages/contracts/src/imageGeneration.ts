@@ -2,6 +2,9 @@ import * as Schema from "effect/Schema";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+export const OPENROUTER_GPT_IMAGE_2_MODEL = "openai/gpt-image-2";
+export const OPENROUTER_GPT_IMAGE_2_PROVIDER = "openai";
+
 export const ImageGenerationParameterDescriptor = Schema.Union([
   Schema.Struct({ type: Schema.Literal("boolean") }),
   Schema.Struct({ type: Schema.Literal("enum"), values: Schema.Array(TrimmedNonEmptyString) }),
@@ -49,38 +52,6 @@ export const ImageGenerationModelEndpoints = Schema.Struct({
 });
 export type ImageGenerationModelEndpoints = typeof ImageGenerationModelEndpoints.Type;
 
-export const ImageGenerationAsset = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  mediaType: TrimmedNonEmptyString,
-  sizeBytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  revisedPrompt: Schema.optionalKey(Schema.String),
-  createdAt: TrimmedNonEmptyString,
-  url: TrimmedNonEmptyString,
-});
-export type ImageGenerationAsset = typeof ImageGenerationAsset.Type;
-
-export const ImageGenerationAssetContent = Schema.Struct({
-  mediaType: TrimmedNonEmptyString,
-  data: TrimmedNonEmptyString,
-});
-export type ImageGenerationAssetContent = typeof ImageGenerationAssetContent.Type;
-
-export const ImageGenerationRecord = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  model: TrimmedNonEmptyString,
-  prompt: TrimmedNonEmptyString,
-  createdAt: TrimmedNonEmptyString,
-  completedAt: Schema.optionalKey(TrimmedNonEmptyString),
-  usage: Schema.optionalKey(Schema.Unknown),
-  assets: Schema.Array(ImageGenerationAsset),
-});
-export type ImageGenerationRecord = typeof ImageGenerationRecord.Type;
-
-export const ImageGenerationList = Schema.Struct({
-  generations: Schema.Array(ImageGenerationRecord),
-});
-export type ImageGenerationList = typeof ImageGenerationList.Type;
-
 export const ImageGenerationInput = Schema.Struct({
   providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
@@ -103,3 +74,36 @@ export const ImageGenerationInput = Schema.Struct({
   provider: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type ImageGenerationInput = typeof ImageGenerationInput.Type;
+
+export const ImageGenerationAsset = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  mediaType: TrimmedNonEmptyString,
+  sizeBytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  revisedPrompt: Schema.optionalKey(Schema.String),
+  createdAt: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+});
+export type ImageGenerationAsset = typeof ImageGenerationAsset.Type;
+
+export const ImageGenerationAssetContent = Schema.Struct({
+  mediaType: TrimmedNonEmptyString,
+  data: TrimmedNonEmptyString,
+});
+export type ImageGenerationAssetContent = typeof ImageGenerationAssetContent.Type;
+
+export const ImageGenerationRecord = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  input: Schema.optionalKey(ImageGenerationInput),
+  createdAt: TrimmedNonEmptyString,
+  completedAt: Schema.optionalKey(TrimmedNonEmptyString),
+  usage: Schema.optionalKey(Schema.Unknown),
+  assets: Schema.Array(ImageGenerationAsset),
+});
+export type ImageGenerationRecord = typeof ImageGenerationRecord.Type;
+
+export const ImageGenerationList = Schema.Struct({
+  generations: Schema.Array(ImageGenerationRecord),
+});
+export type ImageGenerationList = typeof ImageGenerationList.Type;

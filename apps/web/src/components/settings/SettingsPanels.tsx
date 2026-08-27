@@ -86,9 +86,11 @@ import {
   serverEnvironment,
 } from "../../state/server";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
+import { useEnvironmentQuery } from "../../state/query";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   Dialog,
   DialogDescription,
@@ -143,9 +145,6 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   embeddingModelsForProvider,
-  embeddingProviderForModel,
-  Z3CHAT_EMBEDDING_PROVIDERS,
-  Z3CHAT_EMBEDDING_PROVIDER_LABELS,
 } from "../../lib/z3chatEmbeddingModels";
 
 const THEME_OPTIONS = [
@@ -1035,9 +1034,18 @@ export function AppearanceSettingsPanel() {
                     type="button"
                   >
                     <span className="mb-2 flex items-center gap-1.5" aria-hidden="true">
-                      <span className="size-2.5 rounded-full" style={{ backgroundColor: colors.accent }} />
-                      <span className="size-2.5 rounded-full" style={{ backgroundColor: colors.surfaceRaised }} />
-                      <span className="size-2.5 rounded-full" style={{ backgroundColor: colors.border }} />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: colors.accent }}
+                      />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: colors.surfaceRaised }}
+                      />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: colors.border }}
+                      />
                     </span>
                     <span className="block truncate text-xs font-medium">{option.label}</span>
                   </button>
@@ -1215,11 +1223,7 @@ export function GeneralSettingsPanel() {
     settings.backgroundActivity,
     DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
   );
-  const embeddingProvider =
-    Z3CHAT_EMBEDDING_PROVIDER_LABELS[settings.z3chatEmbeddingProvider] !== undefined
-      ? settings.z3chatEmbeddingProvider
-      : (embeddingProviderForModel(settings.z3chatEmbeddingModel) ??
-        DEFAULT_Z3CHAT_EMBEDDING_PROVIDER);
+  const embeddingProvider = DEFAULT_Z3CHAT_EMBEDDING_PROVIDER;
   const embeddingModels = embeddingModelsForProvider(embeddingProvider);
 
   return (
@@ -1325,6 +1329,30 @@ export function GeneralSettingsPanel() {
                 updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
               }
               aria-label="Hide whitespace changes by default"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("show-hidden-files")}
+          description="Include dotfiles and git-ignored paths in the Files view and file pickers."
+          resetAction={
+            settings.showHiddenFiles !== DEFAULT_UNIFIED_SETTINGS.showHiddenFiles ? (
+              <SettingResetButton
+                label="hidden files"
+                onClick={() =>
+                  updateSettings({
+                    showHiddenFiles: DEFAULT_UNIFIED_SETTINGS.showHiddenFiles,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showHiddenFiles}
+              onCheckedChange={(checked) => updateSettings({ showHiddenFiles: Boolean(checked) })}
+              aria-label="Show hidden and git-ignored files"
             />
           }
         />
@@ -1725,7 +1753,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection title="Z3Chat">
         <SettingsRow
           {...searchableSetting("z3chat-project-embeddings")}
-          description={`Background embeddings are always enabled for Z3Chat project sources and routed through OpenRouter. Default: Voyage AI / ${DEFAULT_Z3CHAT_EMBEDDING_MODEL}.`}
+          description={`Choose the OpenRouter embedding model used for Z3Chat project sources. Configure the OpenRouter API key in Providers. Default: ${DEFAULT_Z3CHAT_EMBEDDING_MODEL}.`}
           resetAction={
             settings.z3chatEmbeddingProvider !== DEFAULT_UNIFIED_SETTINGS.z3chatEmbeddingProvider ||
             settings.z3chatEmbeddingModel !== DEFAULT_UNIFIED_SETTINGS.z3chatEmbeddingModel ? (
@@ -1742,31 +1770,9 @@ export function GeneralSettingsPanel() {
           }
           control={
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-              <Select
-                value={embeddingProvider}
-                onValueChange={(value) => {
-                  const nextProvider = String(value);
-                  const nextModel = embeddingModelsForProvider(nextProvider)[0];
-                  if (!nextModel) return;
-                  updateSettings({
-                    z3chatEmbeddingProvider: nextProvider,
-                    z3chatEmbeddingModel: nextModel.id,
-                  });
-                }}
-              >
-                <SelectTrigger className="w-full sm:w-44" aria-label="Z3Chat embedding provider">
-                  <SelectValue>
-                    {Z3CHAT_EMBEDDING_PROVIDER_LABELS[embeddingProvider] ?? embeddingProvider}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {Z3CHAT_EMBEDDING_PROVIDERS.map((provider) => (
-                    <SelectItem key={provider.id} value={provider.id}>
-                      {provider.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+              <span className="rounded-md border border-border/70 bg-muted/30 px-2.5 py-1.5 text-sm text-muted-foreground">
+                OpenRouter
+              </span>
               <Select
                 value={
                   embeddingModels.some((model) => model.id === settings.z3chatEmbeddingModel)
@@ -2126,10 +2132,14 @@ export function ProviderSettingsPanel() {
     });
   };
 
+  const enabledProviderCount = rows.filter((row) => row.instance.enabled ?? true).length;
+  const providerListSummary = `${rows.length} ${rows.length === 1 ? "connection" : "connections"} · ${enabledProviderCount} enabled`;
+
   return (
     <SettingsPageContainer>
       <SettingsSection
         {...searchableSetting("providers")}
+        icon={<SettingsIcon className="size-4 text-muted-foreground" aria-hidden />}
         headerAction={
           <div className="flex items-center gap-1.5">
             <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
@@ -2236,104 +2246,127 @@ export function ProviderSettingsPanel() {
           }
         />
 
-        {rows.map((row) => {
-          const driverOption = getDriverOption(row.driver);
-          const liveProvider = serverProviders.find(
-            (candidate) => candidate.instanceId === row.instanceId,
-          );
-          const updateCandidate = liveProvider
-            ? providerUpdateCandidateByInstanceId.get(liveProvider.instanceId)
-            : undefined;
-          const isDriverUpdateRunning =
-            updateCandidate !== undefined &&
-            (updatingProviderDrivers.has(updateCandidate.driver) ||
-              serverProviders.some(
-                (provider) =>
-                  provider.driver === updateCandidate.driver && isProviderUpdateActive(provider),
-              ));
-          const showInlineUpdateButton =
-            updateCandidate !== undefined &&
-            hasOneClickUpdateProviderCandidate(updateCandidate, serverProviders);
-          const canRunInlineUpdate =
-            updateCandidate !== undefined &&
-            canOneClickUpdateProviderCandidate(updateCandidate, serverProviders) &&
-            !updatingProviderDrivers.has(updateCandidate.driver);
-          const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
-            hiddenModels: [],
-            modelOrder: [],
-          };
-          const favoriteModels = Arr.filterMap(settings.favorites ?? [], (favorite) =>
-            favorite.provider === row.instanceId ? Result.succeed(favorite.model) : Result.failVoid,
-          );
-          const resetLabel = driverOption?.label ?? String(row.driver);
-          const headerAction =
-            row.isDefault && row.isDirty ? (
-              <SettingResetButton
-                label={`${resetLabel} provider settings`}
-                onClick={() => resetDefaultInstance(row.driver)}
-              />
-            ) : null;
-          return (
-            <ProviderInstanceCard
-              key={row.instanceId}
-              instanceId={row.instanceId}
-              instance={row.instance}
-              driverOption={driverOption}
-              liveProvider={liveProvider}
-              isExpanded={openInstanceDetails[row.instanceId] ?? false}
-              onExpandedChange={(open) =>
-                setOpenInstanceDetails((existing) => ({
-                  ...existing,
-                  [row.instanceId]: open,
-                }))
-              }
-              onUpdate={(next) => {
-                const wasEnabled = row.instance.enabled ?? true;
-                const isDisabling = next.enabled === false && wasEnabled;
-                const shouldClearTextGen = isDisabling && textGenInstanceId === row.instanceId;
-                if (shouldClearTextGen) {
-                  updateProviderInstance(row, next, {
-                    textGenerationModelSelection:
-                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                  });
-                } else {
-                  updateProviderInstance(row, next);
-                }
-              }}
-              onDelete={row.isDefault ? undefined : () => deleteProviderInstance(row.instanceId)}
-              headerAction={headerAction}
-              hiddenModels={modelPreferences.hiddenModels}
-              favoriteModels={favoriteModels}
-              modelOrder={modelPreferences.modelOrder}
-              onHiddenModelsChange={(hiddenModels) =>
-                updateProviderModelPreferences(row.instanceId, {
-                  ...modelPreferences,
-                  hiddenModels,
-                })
-              }
-              onFavoriteModelsChange={(favoriteModels) =>
-                updateProviderFavoriteModels(row.instanceId, favoriteModels)
-              }
-              onModelOrderChange={(modelOrder) =>
-                updateProviderModelPreferences(row.instanceId, {
-                  ...modelPreferences,
-                  modelOrder,
-                })
-              }
-              onRunUpdate={
-                showInlineUpdateButton && updateCandidate
-                  ? () => {
-                      if (!canRunInlineUpdate) {
-                        return;
-                      }
-                      void runProviderUpdate(updateCandidate);
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-card/20">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5 sm:px-4">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                Provider connections
+              </p>
+              <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground/80">
+                Configure access, models, and availability for each provider instance.
+              </p>
+            </div>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground" role="status">
+              {providerListSummary}
+            </span>
+          </div>
+          <div className="divide-y divide-border/60">
+            {rows.map((row) => {
+              const driverOption = getDriverOption(row.driver);
+              const liveProvider = serverProviders.find(
+                (candidate) => candidate.instanceId === row.instanceId,
+              );
+              const updateCandidate = liveProvider
+                ? providerUpdateCandidateByInstanceId.get(liveProvider.instanceId)
+                : undefined;
+              const isDriverUpdateRunning =
+                updateCandidate !== undefined &&
+                (updatingProviderDrivers.has(updateCandidate.driver) ||
+                  serverProviders.some(
+                    (provider) =>
+                      provider.driver === updateCandidate.driver &&
+                      isProviderUpdateActive(provider),
+                  ));
+              const showInlineUpdateButton =
+                updateCandidate !== undefined &&
+                hasOneClickUpdateProviderCandidate(updateCandidate, serverProviders);
+              const canRunInlineUpdate =
+                updateCandidate !== undefined &&
+                canOneClickUpdateProviderCandidate(updateCandidate, serverProviders) &&
+                !updatingProviderDrivers.has(updateCandidate.driver);
+              const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
+                hiddenModels: [],
+                modelOrder: [],
+              };
+              const favoriteModels = Arr.filterMap(settings.favorites ?? [], (favorite) =>
+                favorite.provider === row.instanceId
+                  ? Result.succeed(favorite.model)
+                  : Result.failVoid,
+              );
+              const resetLabel = driverOption?.label ?? String(row.driver);
+              const headerAction =
+                row.isDefault && row.isDirty ? (
+                  <SettingResetButton
+                    label={`${resetLabel} provider settings`}
+                    onClick={() => resetDefaultInstance(row.driver)}
+                  />
+                ) : null;
+              return (
+                <ProviderInstanceCard
+                  key={row.instanceId}
+                  className="rounded-none hover:bg-muted/30"
+                  instanceId={row.instanceId}
+                  instance={row.instance}
+                  driverOption={driverOption}
+                  liveProvider={liveProvider}
+                  isExpanded={openInstanceDetails[row.instanceId] ?? false}
+                  onExpandedChange={(open) =>
+                    setOpenInstanceDetails((existing) => ({
+                      ...existing,
+                      [row.instanceId]: open,
+                    }))
+                  }
+                  onUpdate={(next) => {
+                    const wasEnabled = row.instance.enabled ?? true;
+                    const isDisabling = next.enabled === false && wasEnabled;
+                    const shouldClearTextGen = isDisabling && textGenInstanceId === row.instanceId;
+                    if (shouldClearTextGen) {
+                      updateProviderInstance(row, next, {
+                        textGenerationModelSelection:
+                          DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                      });
+                    } else {
+                      updateProviderInstance(row, next);
                     }
-                  : undefined
-              }
-              isUpdating={showInlineUpdateButton ? isDriverUpdateRunning : undefined}
-            />
-          );
-        })}
+                  }}
+                  onDelete={
+                    row.isDefault ? undefined : () => deleteProviderInstance(row.instanceId)
+                  }
+                  headerAction={headerAction}
+                  hiddenModels={modelPreferences.hiddenModels}
+                  favoriteModels={favoriteModels}
+                  modelOrder={modelPreferences.modelOrder}
+                  onHiddenModelsChange={(hiddenModels) =>
+                    updateProviderModelPreferences(row.instanceId, {
+                      ...modelPreferences,
+                      hiddenModels,
+                    })
+                  }
+                  onFavoriteModelsChange={(favoriteModels) =>
+                    updateProviderFavoriteModels(row.instanceId, favoriteModels)
+                  }
+                  onModelOrderChange={(modelOrder) =>
+                    updateProviderModelPreferences(row.instanceId, {
+                      ...modelPreferences,
+                      modelOrder,
+                    })
+                  }
+                  onRunUpdate={
+                    showInlineUpdateButton && updateCandidate
+                      ? () => {
+                          if (!canRunInlineUpdate) {
+                            return;
+                          }
+                          void runProviderUpdate(updateCandidate);
+                        }
+                      : undefined
+                  }
+                  isUpdating={showInlineUpdateButton ? isDriverUpdateRunning : undefined}
+                />
+              );
+            })}
+          </div>
+        </div>
       </SettingsSection>
 
       {isAddInstanceDialogOpen ? (

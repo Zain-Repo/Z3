@@ -13,6 +13,8 @@ import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
@@ -25,9 +27,7 @@ import {
   type OpenRouterImageModel,
   type OpenRouterImageModelEndpoint,
 } from "../provider/Layers/OpenRouterApi.ts";
-import {
-  resolveOpenRouterConnection,
-} from "../provider/Layers/OpenRouterConnection.ts";
+import { resolveOpenRouterConnection } from "../provider/Layers/OpenRouterConnection.ts";
 
 export class ImageGenerationServiceError extends Data.TaggedError("ImageGenerationServiceError")<{
   readonly message: string;
@@ -40,6 +40,7 @@ interface GenerationRow {
   readonly created_at: string;
   readonly completed_at: string;
   readonly usage_json: string | null;
+  readonly input_json: string | null;
 }
 
 interface AssetRow {
@@ -118,6 +119,18 @@ function decodeUsage(value: string | null): unknown | undefined {
   }
 }
 
+const ImageGenerationInputJson = Schema.fromJsonString(ImageGenerationInput);
+const decodeInput = Schema.decodeUnknownOption(ImageGenerationInputJson);
+
+function decodeGenerationInput(value: string | null): ImageGenerationInput | undefined {
+  if (!value) return undefined;
+  try {
+    return Option.getOrUndefined(decodeInput(value));
+  } catch {
+    return undefined;
+  }
+}
+
 function bytesFromSql(value: unknown): Uint8Array {
   if (value instanceof Uint8Array) return value;
   if (Array.isArray(value)) return Uint8Array.from(value);
@@ -188,26 +201,30 @@ const make = Effect.gen(function* () {
   const toRecord = (
     generation: GenerationRow,
     assets: ReadonlyArray<AssetRow>,
-  ): ImageGenerationRecord => ({
-    id: generation.generation_id,
-    model: generation.model,
-    prompt: generation.prompt,
-    createdAt: generation.created_at,
-    completedAt: generation.completed_at,
-    ...(decodeUsage(generation.usage_json) !== undefined
-      ? { usage: decodeUsage(generation.usage_json) }
-      : {}),
-    assets: assets
-      .filter((asset) => asset.generation_id === generation.generation_id)
-      .map((asset) => ({
-        id: asset.asset_id,
-        mediaType: asset.media_type,
-        sizeBytes: asset.size_bytes,
-        ...(asset.revised_prompt ? { revisedPrompt: asset.revised_prompt } : {}),
-        createdAt: asset.created_at,
-        url: `/api/images/assets/${encodeURIComponent(asset.asset_id)}`,
-      })),
-  });
+  ): ImageGenerationRecord => {
+    const input = decodeGenerationInput(generation.input_json);
+    return {
+      id: generation.generation_id,
+      model: generation.model,
+      prompt: generation.prompt,
+      ...(input ? { input } : {}),
+      createdAt: generation.created_at,
+      completedAt: generation.completed_at,
+      ...(decodeUsage(generation.usage_json) !== undefined
+        ? { usage: decodeUsage(generation.usage_json) }
+        : {}),
+      assets: assets
+        .filter((asset) => asset.generation_id === generation.generation_id)
+        .map((asset) => ({
+          id: asset.asset_id,
+          mediaType: asset.media_type,
+          sizeBytes: asset.size_bytes,
+          ...(asset.revised_prompt ? { revisedPrompt: asset.revised_prompt } : {}),
+          createdAt: asset.created_at,
+          url: `/api/images/assets/${encodeURIComponent(asset.asset_id)}`,
+        })),
+    };
+  };
 
   const service: ImageGenerationServiceShape = {
     listModels: (providerInstanceId) =>
@@ -257,7 +274,7 @@ const make = Effect.gen(function* () {
     listGenerations: () =>
       Effect.gen(function* () {
         const generations = yield* sql<GenerationRow>`
-          SELECT generation_id, model, prompt, created_at, completed_at, usage_json
+          SELECT generation_id, model, prompt, created_at, completed_at, usage_json, input_json
           FROM projection_image_generations
           ORDER BY created_at DESC, generation_id DESC
         `;
@@ -304,8 +321,8 @@ const make = Effect.gen(function* () {
         const usageJson = result.usage === undefined ? null : JSON.stringify(result.usage);
         yield* sql`
           INSERT INTO projection_image_generations
-            (generation_id, model, prompt, created_at, completed_at, usage_json)
-          VALUES (${generationId}, ${input.model}, ${input.prompt}, ${createdAt}, ${createdAt}, ${usageJson})
+            (generation_id, model, prompt, created_at, completed_at, usage_json, input_json)
+          VALUES (${generationId}, ${input.model}, ${input.prompt}, ${createdAt}, ${createdAt}, ${usageJson}, ${JSON.stringify(input)})
         `;
         const assetRows: Array<AssetRow> = [];
         for (const image of result.data) {
@@ -335,6 +352,7 @@ const make = Effect.gen(function* () {
             created_at: createdAt,
             completed_at: createdAt,
             usage_json: usageJson,
+            input_json: JSON.stringify(input),
           },
           assetRows,
         );

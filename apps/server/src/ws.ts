@@ -85,6 +85,7 @@ import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import * as Z3ChatProjectSources from "./z3chatProjectSources.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
@@ -358,6 +359,7 @@ const makeWsRpcLayer = (
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
+      const z3chatProjectSources = yield* Z3ChatProjectSources.Z3ChatProjectSourceService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
@@ -1224,6 +1226,18 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverUploadZ3ChatProjectSource]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverUploadZ3ChatProjectSource,
+            z3chatProjectSources.uploadAndIndex(input),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverDeleteZ3ChatProjectSource]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverDeleteZ3ChatProjectSource,
+            z3chatProjectSources.remove(input),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverDiscoverSourceControl,
@@ -1895,6 +1909,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             makeWsRpcLayer(session, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(ProviderMaintenanceRunner.layer),
+              Layer.provide(Z3ChatProjectSources.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               Layer.provide(
                 Layer.succeed(TurnStartBootstrap.TurnStartBootstrap, turnStartBootstrap),

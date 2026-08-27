@@ -157,7 +157,12 @@ export function ChatProjectContentTabs({
     try {
       await callback(source);
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : "Please try again.";
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : typeof error === "string" && error.length > 0
+            ? error
+            : "Please try again.";
       setSourceActionErrors((current) => ({ ...current, [source.id]: message }));
     } finally {
       setPendingSourceAction(null);

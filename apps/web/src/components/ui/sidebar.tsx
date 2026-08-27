@@ -811,6 +811,7 @@ const sidebarMenuButtonVariants = cva(
       },
       variant: {
         default: "font-medium text-sidebar-muted-foreground/80",
+        chat: "h-8 rounded-md px-2 py-1 text-sm font-normal text-sidebar-foreground/75 transition-[background-color,color,box-shadow] duration-150 ease-out hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none",
         outline: "bg-sidebar-control-surface ring-1 ring-sidebar-border",
       },
     },
