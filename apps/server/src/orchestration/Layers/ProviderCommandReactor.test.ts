@@ -568,6 +568,7 @@ describe("ProviderCommandReactor", () => {
         scope: "project",
         projectId: ProjectId.make("project-1"),
         query: "hello reactor",
+        candidateThreadIds: [],
       },
     ]);
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.make("thread-1"));
