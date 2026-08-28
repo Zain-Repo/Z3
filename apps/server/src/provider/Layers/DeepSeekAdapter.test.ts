@@ -26,7 +26,7 @@ describe("DeepSeekAdapter", () => {
   it.effect("rejects image attachments for non-vision models before making a request", () => {
     const threadId = ThreadId.make("deepseek-image-test");
     const providerInstanceId = ProviderInstanceId.make("deepseek-test");
-    const sessionStartInput = Schema.decodeSync(ProviderSessionStartInput)({
+    const sessionStartInput = decodeSessionStartInput({
       threadId,
       provider: ProviderDriverKind.make("deepseek"),
       providerInstanceId,

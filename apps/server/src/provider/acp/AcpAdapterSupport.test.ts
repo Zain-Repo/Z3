@@ -12,104 +12,102 @@ import {
 } from "./AcpAdapterSupport.ts";
 
 describe("AcpAdapterSupport", () => {
-  it("applies selected effort and service tier values advertised by ACP", async () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const calls: Array<readonly [string, string | boolean]> = [];
-        const runtime = {
-          getConfigOptions: Effect.succeed([
-            {
-              id: "reasoning",
-              name: "Reasoning effort",
-              category: "model_config",
-              type: "select",
-              currentValue: "low",
-              options: [
-                { value: "low", name: "Low" },
-                { value: "high", name: "High" },
-              ],
-            },
-            {
-              id: "service_tier",
-              name: "Service Tier",
-              category: "model_config",
-              type: "select",
-              currentValue: "standard",
-              options: [
-                { value: "standard", name: "Standard" },
-                { value: "priority", name: "Priority" },
-              ],
-            },
-          ]),
-          setConfigOption: (id: string, value: string | boolean) => {
-            calls.push([id, value]);
-            return Effect.succeed({ configOptions: [] });
+  it.effect("applies selected effort and service tier values advertised by ACP", () =>
+    Effect.gen(function* () {
+      const calls: Array<readonly [string, string | boolean]> = [];
+      const runtime = {
+        getConfigOptions: Effect.succeed([
+          {
+            id: "reasoning",
+            name: "Reasoning effort",
+            category: "model_config",
+            type: "select",
+            currentValue: "low",
+            options: [
+              { value: "low", name: "Low" },
+              { value: "high", name: "High" },
+            ],
           },
-        } as never;
-
-        yield* applyAcpModelOptionSelections({
-          runtime,
-          selections: [
-            { id: "effort", value: "high" },
-            { id: "serviceTier", value: "priority" },
-          ] satisfies ReadonlyArray<ProviderOptionSelection>,
-          mapError: (cause) => cause,
-        });
-
-        expect(calls).toEqual([
-          ["reasoning", "high"],
-          ["service_tier", "priority"],
-        ]);
-      }),
-    ));
-
-  it("maps equivalent advertised values and ignores unsupported selections", async () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const calls: Array<readonly [string, string | boolean]> = [];
-        const runtime = {
-          getConfigOptions: Effect.succeed([
-            {
-              id: "thinking",
-              name: "Thinking",
-              category: "model_config",
-              type: "boolean",
-              currentValue: false,
-            },
-            {
-              id: "effort",
-              name: "Effort",
-              category: "model_config",
-              type: "select",
-              currentValue: "medium",
-              options: [
-                { value: "medium", name: "Medium" },
-                { value: "x-high", name: "Extra High" },
-              ],
-            },
-          ]),
-          setConfigOption: (id: string, value: string | boolean) => {
-            calls.push([id, value]);
-            return Effect.succeed({ configOptions: [] });
+          {
+            id: "service_tier",
+            name: "Service Tier",
+            category: "model_config",
+            type: "select",
+            currentValue: "standard",
+            options: [
+              { value: "standard", name: "Standard" },
+              { value: "priority", name: "Priority" },
+            ],
           },
-        } as never;
+        ]),
+        setConfigOption: (id: string, value: string | boolean) => {
+          calls.push([id, value]);
+          return Effect.succeed({ configOptions: [] });
+        },
+      } as never;
 
-        yield* applyAcpModelOptionSelections({
-          runtime,
-          selections: [
-            { id: "thinking", value: true },
-            { id: "variant", value: "x_high" },
-            { id: "missing", value: "ignored" },
-          ] satisfies ReadonlyArray<ProviderOptionSelection>,
-          mapError: (cause) => cause,
-        });
+      yield* applyAcpModelOptionSelections({
+        runtime,
+        selections: [
+          { id: "effort", value: "high" },
+          { id: "serviceTier", value: "priority" },
+        ] satisfies ReadonlyArray<ProviderOptionSelection>,
+        mapError: (cause) => cause,
+      });
 
-        expect(calls).toEqual([
-          ["thinking", true],
-          ["effort", "x-high"],
-        ]);
-      }),
-    ));
+      expect(calls).toEqual([
+        ["reasoning", "high"],
+        ["service_tier", "priority"],
+      ]);
+    }),
+  );
+
+  it.effect("maps equivalent advertised values and ignores unsupported selections", () =>
+    Effect.gen(function* () {
+      const calls: Array<readonly [string, string | boolean]> = [];
+      const runtime = {
+        getConfigOptions: Effect.succeed([
+          {
+            id: "thinking",
+            name: "Thinking",
+            category: "model_config",
+            type: "boolean",
+            currentValue: false,
+          },
+          {
+            id: "effort",
+            name: "Effort",
+            category: "model_config",
+            type: "select",
+            currentValue: "medium",
+            options: [
+              { value: "medium", name: "Medium" },
+              { value: "x-high", name: "Extra High" },
+            ],
+          },
+        ]),
+        setConfigOption: (id: string, value: string | boolean) => {
+          calls.push([id, value]);
+          return Effect.succeed({ configOptions: [] });
+        },
+      } as never;
+
+      yield* applyAcpModelOptionSelections({
+        runtime,
+        selections: [
+          { id: "thinking", value: true },
+          { id: "variant", value: "x_high" },
+          { id: "missing", value: "ignored" },
+        ] satisfies ReadonlyArray<ProviderOptionSelection>,
+        mapError: (cause) => cause,
+      });
+
+      expect(calls).toEqual([
+        ["thinking", true],
+        ["effort", "x-high"],
+      ]);
+    }),
+  );
 
   it("maps ACP approval decisions to permission outcomes", () => {
     expect(acpPermissionOutcome("accept")).toBe("allow-once");
