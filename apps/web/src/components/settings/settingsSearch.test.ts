@@ -65,6 +65,7 @@ describe("searchSettings", () => {
       title: "WSL backend",
       to: "/settings/connections",
       desktopOnly: true,
+      windowsOnly: true,
     });
   });
   it("keeps catalog result ids unique", () => {
