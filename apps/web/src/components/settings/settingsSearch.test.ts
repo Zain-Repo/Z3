@@ -59,6 +59,14 @@ describe("searchSettings", () => {
     expect(searchSettings("   ", ITEMS)).toEqual([]);
   });
 
+  it("registers the WSL backend as a desktop-only setting", () => {
+    expect(SETTINGS_SEARCH_ITEMS).toContainEqual({
+      id: "wsl-backend",
+      title: "WSL backend",
+      to: "/settings/connections",
+      desktopOnly: true,
+    });
+  });
   it("keeps catalog result ids unique", () => {
     const ids = SETTINGS_SEARCH_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
