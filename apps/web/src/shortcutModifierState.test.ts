@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   areShortcutModifierStatesEqual,
+  shortcutModifierStateAfterPaste,
   shortcutModifierStateAfterKeyboardEvent,
   type ShortcutModifierState,
 } from "./shortcutModifierState";
@@ -131,5 +132,58 @@ describe("shortcutModifierState", () => {
       keyboardEventLike("keydown", { key: "a", metaKey: false }),
     );
     expect(state).toEqual(emptyState());
+  });
+
+  it("preserves a held modifier during a normal modified paste", () => {
+    const heldMeta: ShortcutModifierState = {
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    expect(
+      shortcutModifierStateAfterPaste(heldMeta, {
+        metaKey: true,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(heldMeta);
+  });
+
+  it("clears stale modifiers from an unmodified synthetic paste", () => {
+    const heldMeta: ShortcutModifierState = {
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    expect(
+      shortcutModifierStateAfterPaste(heldMeta, {
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+      }),
+    ).toEqual(emptyState());
+  });
+
+  it("tracks AltGraph as a combined Control and Alt modifier", () => {
+    const state = shortcutModifierStateAfterKeyboardEvent(
+      emptyState(),
+      keyboardEventLike("keydown", { key: "AltGraph" }),
+    );
+    expect(state).toEqual({
+      metaKey: false,
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: false,
+    });
+    expect(
+      shortcutModifierStateAfterKeyboardEvent(
+        state,
+        keyboardEventLike("keyup", { key: "AltGraph" }),
+      ),
+    ).toEqual(emptyState());
   });
 });
