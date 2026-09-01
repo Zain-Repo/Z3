@@ -411,10 +411,15 @@ const CLAUDE_ROOT_PATH_SEGMENTS = new Set([
   "usr",
   "var",
   "volumes",
+  "users",
 ]);
 
 function isClaudeSlashCommand(text: string): boolean {
   const match = /^\/([^\s/]+)(?:\s|$)/u.exec(text);
   const token = match?.[1];
-  return token !== undefined && !token.includes(".") && !CLAUDE_ROOT_PATH_SEGMENTS.has(token);
+  return (
+    token !== undefined &&
+    !token.includes(".") &&
+    !CLAUDE_ROOT_PATH_SEGMENTS.has(token.toLowerCase())
+  );
 }

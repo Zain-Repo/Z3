@@ -173,5 +173,8 @@ describe("Claude prompt effort prefixes", () => {
     expect(applyClaudePromptEffortPrefix("/tmp is full; investigate", "ultrathink")).toBe(
       "Ultrathink:\n/tmp is full; investigate",
     );
+    expect(applyClaudePromptEffortPrefix("/Users is unavailable", "ultrathink")).toBe(
+      "Ultrathink:\n/Users is unavailable",
+    );
   });
 });

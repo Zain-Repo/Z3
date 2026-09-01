@@ -30,15 +30,15 @@ CLAUDE_CONFIG_DIR path: empty
 
 An empty `CLAUDE_CONFIG_DIR path` means Z3 uses Claude Code's normal config directory.
 
+When you set `CLAUDE_CONFIG_DIR path`, Z3 points Claude Code at that directory with the
+`CLAUDE_CONFIG_DIR` environment variable. It does not change `HOME`, so your system keychain and
+the rest of your environment stay as they are.
+
 ### Tune Automatic Compaction
 
 If long conversations run out of context sooner than expected, set `Auto-compact after` on the
 Claude provider to an integer from `100000` through `1000000`. Z3 passes that threshold to Claude
 Code for new sessions. Leave it empty to use Claude Code's default behavior.
-
-When you set this field, Z3 points Claude Code at that directory with the
-`CLAUDE_CONFIG_DIR` environment variable. It does not change `HOME`, so your system keychain and
-the rest of your environment stay as they are.
 
 ## I Want Work And Personal Claude Accounts
 
