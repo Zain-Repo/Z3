@@ -42,6 +42,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
 import * as ServerConfig from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
@@ -181,6 +182,72 @@ export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
+const PersistedOptionalProviderSettings = Schema.Struct({
+  providers: Schema.optionalKey(
+    Schema.Struct({
+      cursor: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+      grok: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+      opencode: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+    }),
+  ),
+});
+const decodePersistedOptionalProviderSettingsJsonExit = Schema.decodeUnknownExit(
+  fromLenientJson(PersistedOptionalProviderSettings),
+);
+
+function restoreUsedProviders(
+  settings: ServerSettings,
+  persisted: typeof PersistedOptionalProviderSettings.Type,
+  providerHistory: ReadonlyArray<{
+    readonly providerName: string;
+    readonly providerInstanceId: string | null;
+  }>,
+): ServerSettings {
+  const usedProviders = new Set(providerHistory.map(({ providerName }) => providerName));
+  const usedProviderInstances = new Set(
+    providerHistory.map(
+      ({ providerName, providerInstanceId }) => providerInstanceId ?? providerName,
+    ),
+  );
+  const providerInstances = Object.fromEntries(
+    Object.entries(settings.providerInstances).map(([instanceId, instance]) => [
+      instanceId,
+      instance.enabled === undefined &&
+      (instance.driver === "cursor" ||
+        instance.driver === "grok" ||
+        instance.driver === "opencode") &&
+      usedProviderInstances.has(instanceId)
+        ? { ...instance, enabled: true }
+        : instance,
+    ]),
+  );
+
+  return {
+    ...settings,
+    providers: {
+      ...settings.providers,
+      cursor: {
+        ...settings.providers.cursor,
+        enabled:
+          persisted.providers?.cursor?.enabled ??
+          (usedProviders.has("cursor") ? true : settings.providers.cursor.enabled),
+      },
+      grok: {
+        ...settings.providers.grok,
+        enabled:
+          persisted.providers?.grok?.enabled ??
+          (usedProviders.has("grok") ? true : settings.providers.grok.enabled),
+      },
+      opencode: {
+        ...settings.providers.opencode,
+        enabled:
+          persisted.providers?.opencode?.enabled ??
+          (usedProviders.has("opencode") ? true : settings.providers.opencode.enabled),
+      },
+    },
+    providerInstances,
+  };
+}
 
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   return isModelSelectionProviderEnabled(settings, settings.textGenerationModelSelection)
@@ -215,6 +282,16 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "sourceControlWriterModelSelection",
   "textGenerationModelSelection",
 ]);
+
+// Optional providers are enabled by history on load, so their persisted
+// defaults must remain distinguishable from an explicit user choice.
+const PERSISTED_SERVER_SETTINGS_DEFAULTS = {
+  ...DEFAULT_SERVER_SETTINGS,
+  providers: {
+    ...DEFAULT_SERVER_SETTINGS.providers,
+    cursor: { ...DEFAULT_SERVER_SETTINGS.providers.cursor, enabled: undefined },
+  },
+};
 
 function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
   if (Array.isArray(current) || Array.isArray(defaults)) {
@@ -255,6 +332,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
+  const sql = yield* SqlClient.SqlClient;
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
   const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
@@ -289,21 +367,57 @@ const make = Effect.gen(function* () {
   );
 
   const loadSettingsFromDisk = Effect.gen(function* () {
-    if (!(yield* readConfigExists)) {
-      return DEFAULT_SERVER_SETTINGS;
+    let settings = DEFAULT_SERVER_SETTINGS;
+    let persisted: typeof PersistedOptionalProviderSettings.Type = {};
+
+    if (yield* readConfigExists) {
+      const raw = yield* readRawConfig;
+      const decoded = decodeServerSettingsJsonExit(raw);
+      const persistedSettings = decodePersistedOptionalProviderSettingsJsonExit(raw);
+      if (persistedSettings._tag === "Success") {
+        persisted = persistedSettings.value;
+      }
+      if (decoded._tag === "Failure" || persistedSettings._tag === "Failure") {
+        const failure = decoded._tag === "Failure" ? decoded : persistedSettings;
+        if (failure._tag === "Failure") {
+          yield* Effect.logWarning("failed to parse settings.json, using defaults", {
+            path: settingsPath,
+            issues: Cause.pretty(failure.cause),
+            cause: failure.cause,
+          });
+        }
+      } else {
+        settings = decoded.value;
+      }
     }
 
-    const raw = yield* readRawConfig;
-    const decoded = decodeServerSettingsJsonExit(raw);
-    if (decoded._tag === "Failure") {
-      yield* Effect.logWarning("failed to parse settings.json, using defaults", {
-        path: settingsPath,
-        issues: Cause.pretty(decoded.cause),
-        cause: decoded.cause,
-      });
-      return DEFAULT_SERVER_SETTINGS;
-    }
-    return decoded.value;
+    const providerHistory = yield* sql<{
+      readonly providerName: string;
+      readonly providerInstanceId: string | null;
+    }>`
+      SELECT DISTINCT
+        provider_name AS "providerName",
+        provider_instance_id AS "providerInstanceId"
+      FROM projection_thread_sessions
+      WHERE provider_name IN ('cursor', 'grok', 'opencode')
+      UNION
+      SELECT DISTINCT
+        provider_name AS "providerName",
+        provider_instance_id AS "providerInstanceId"
+      FROM provider_session_runtime
+      WHERE provider_name IN ('cursor', 'grok', 'opencode')
+    `.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ServerSettingsError({
+            settingsPath,
+            operation: "read-provider-history",
+            cause,
+          }),
+      ),
+    );
+
+    return restoreUsedProviders(settings, persisted, providerHistory);
   });
 
   const settingsCache = yield* Cache.make<typeof cacheKey, ServerSettings, ServerSettingsError>({
@@ -479,7 +593,7 @@ const make = Effect.gen(function* () {
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {},
+        stripDefaultServerSettings(settings, PERSISTED_SERVER_SETTINGS_DEFAULTS) ?? {},
       );
 
       return yield* writeFileStringAtomically({

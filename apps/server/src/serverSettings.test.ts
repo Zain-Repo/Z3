@@ -16,16 +16,45 @@ import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfig from "./config.ts";
+import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
 
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 
+const recordProviderUsage = (
+  providerName: string,
+  providerInstanceId: string | null = providerName,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      INSERT INTO provider_session_runtime (
+        thread_id,
+        provider_name,
+        provider_instance_id,
+        adapter_key,
+        status,
+        last_seen_at
+      )
+      VALUES (
+        ${`thread-${providerInstanceId ?? providerName}`},
+        ${providerName},
+        ${providerInstanceId},
+        ${providerName},
+        ${"ready"},
+        ${"2026-08-31T00:00:00.000Z"}
+      )
+    `;
+  });
+
 const makeServerSettingsLayer = () =>
   ServerSettingsModule.layer.pipe(
     Layer.provide(ServerSecretStore.layer),
+    Layer.provideMerge(Layer.fresh(SqlitePersistenceMemory)),
     Layer.provideMerge(
       Layer.fresh(
         ServerConfig.layerTest(process.cwd(), {
@@ -67,6 +96,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     );
     const settingsLayer = ServerSettingsModule.layer.pipe(
       Layer.provide(makeFailingSecretStoreLayer(cause)),
+      Layer.provideMerge(Layer.fresh(SqlitePersistenceMemory)),
       Layer.provideMerge(configLayer),
     );
 
@@ -190,6 +220,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         homePath: "",
         customModels: ["claude-custom"],
         launchArgs: "",
+        autoCompactWindow: "",
       });
       assert.deepEqual(
         next.textGenerationModelSelection,
@@ -522,6 +553,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         homePath: "",
         customModels: [],
         launchArgs: "",
+        autoCompactWindow: "",
       });
       assert.deepEqual(next.providers.opencode, {
         enabled: true,
@@ -588,6 +620,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           codex: {
             binaryPath: "/opt/homebrew/bin/codex",
           },
+          cursor: {
+            enabled: false,
+          },
           opencode: {
             serverUrl: "http://127.0.0.1:4096",
             serverPassword: "secret-password",
@@ -610,6 +645,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           codex: {
             binaryPath: "/opt/homebrew/bin/codex",
           },
+          cursor: {
+            enabled: false,
+          },
           opencode: {
             serverUrl: "http://127.0.0.1:4096",
             serverPassword: "secret-password",
@@ -625,6 +663,42 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
         automaticGitFetchInterval: 10_000,
       });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("restores used optional providers and instances from persisted runtime history", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        '{"providerInstances":{"cursor_work":{"driver":"cursor","config":{}}}}',
+      );
+      yield* recordProviderUsage("cursor", "cursor_work");
+
+      const settings = yield* serverSettings.getSettings;
+
+      assert.isTrue(settings.providers.cursor.enabled);
+      assert.isTrue(settings.providerInstances[ProviderInstanceId.make("cursor_work")]?.enabled);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps explicit provider disables authoritative over runtime history", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        '{"providers":{"cursor":{"enabled":false}},"providerInstances":{"cursor_work":{"driver":"cursor","enabled":false,"config":{}}}}',
+      );
+      yield* recordProviderUsage("cursor", "cursor_work");
+
+      const settings = yield* serverSettings.getSettings;
+
+      assert.isFalse(settings.providers.cursor.enabled);
+      assert.isFalse(settings.providerInstances[ProviderInstanceId.make("cursor_work")]?.enabled);
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
