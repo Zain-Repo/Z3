@@ -380,13 +380,41 @@ export function applyClaudePromptEffortPrefix(
     return trimmed;
   }
   // Slash commands must reach Claude unchanged; adding the prompt prefix
-  // would turn a command into ordinary prose. Only treat the first token as
-  // a command so normal paths such as /home/user/project remain eligible.
-  if (effort !== "ultrathink" || /^\/[^\s/]+(?:\s|$)/u.test(trimmed)) {
+  // would turn a command into ordinary prose. Only treat a single-segment
+  // token as a command so root-level paths such as /tmp remain eligible.
+  if (effort !== "ultrathink" || isClaudeSlashCommand(trimmed)) {
     return trimmed;
   }
   if (trimmed.startsWith("Ultrathink:")) {
     return trimmed;
   }
   return `Ultrathink:\n${trimmed}`;
+}
+
+const CLAUDE_ROOT_PATH_SEGMENTS = new Set([
+  "bin",
+  "boot",
+  "dev",
+  "etc",
+  "home",
+  "lib",
+  "media",
+  "mnt",
+  "opt",
+  "proc",
+  "root",
+  "run",
+  "sbin",
+  "srv",
+  "sys",
+  "tmp",
+  "usr",
+  "var",
+  "volumes",
+]);
+
+function isClaudeSlashCommand(text: string): boolean {
+  const match = /^\/([^\s/]+)(?:\s|$)/u.exec(text);
+  const token = match?.[1];
+  return token !== undefined && !token.includes(".") && !CLAUDE_ROOT_PATH_SEGMENTS.has(token);
 }

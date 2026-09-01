@@ -170,5 +170,8 @@ describe("Claude prompt effort prefixes", () => {
     expect(applyClaudePromptEffortPrefix("/home/user/app.ts", "ultrathink")).toBe(
       "Ultrathink:\n/home/user/app.ts",
     );
+    expect(applyClaudePromptEffortPrefix("/tmp is full; investigate", "ultrathink")).toBe(
+      "Ultrathink:\n/tmp is full; investigate",
+    );
   });
 });
