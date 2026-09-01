@@ -134,21 +134,14 @@ describe("shortcutModifierState", () => {
     expect(state).toEqual(emptyState());
   });
 
-  it("preserves a held modifier during a normal modified paste", () => {
+  it("preserves a held modifier during a keyboard paste", () => {
     const heldMeta: ShortcutModifierState = {
       metaKey: true,
       ctrlKey: false,
       altKey: false,
       shiftKey: false,
     };
-    expect(
-      shortcutModifierStateAfterPaste(heldMeta, {
-        metaKey: true,
-        ctrlKey: false,
-        altKey: false,
-        shiftKey: false,
-      }),
-    ).toBe(heldMeta);
+    expect(shortcutModifierStateAfterPaste(heldMeta, true)).toBe(heldMeta);
   });
 
   it("clears stale modifiers from an unmodified synthetic paste", () => {
@@ -158,14 +151,7 @@ describe("shortcutModifierState", () => {
       altKey: false,
       shiftKey: false,
     };
-    expect(
-      shortcutModifierStateAfterPaste(heldMeta, {
-        metaKey: false,
-        ctrlKey: false,
-        altKey: false,
-        shiftKey: false,
-      }),
-    ).toEqual(emptyState());
+    expect(shortcutModifierStateAfterPaste(heldMeta, false)).toEqual(emptyState());
   });
 
   it("tracks AltGraph as a combined Control and Alt modifier", () => {

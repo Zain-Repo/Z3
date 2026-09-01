@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface ShortcutModifierState {
   metaKey: boolean;
@@ -6,8 +6,6 @@ export interface ShortcutModifierState {
   altKey: boolean;
   shiftKey: boolean;
 }
-
-type ShortcutModifierFlags = Pick<ShortcutModifierState, keyof ShortcutModifierState>;
 
 const EMPTY_SHORTCUT_MODIFIER_STATE: ShortcutModifierState = {
   metaKey: false,
@@ -30,15 +28,25 @@ export function areShortcutModifierStatesEqual(
 
 export function useShortcutModifierState(): ShortcutModifierState {
   const [state, setState] = useState(EMPTY_SHORTCUT_MODIFIER_STATE);
+  const keyboardPastePendingRef = useRef(false);
 
   useEffect(() => {
     const onKeyboardEvent = (event: KeyboardEvent) => {
+      if (event.type === "keydown") {
+        keyboardPastePendingRef.current =
+          event.key.toLowerCase() === "v" && (event.metaKey || event.ctrlKey);
+      } else if (event.key.toLowerCase() === "v") {
+        keyboardPastePendingRef.current = false;
+      }
       setState((current) => shortcutModifierStateAfterKeyboardEvent(current, event));
     };
-    const onPaste = (event: ClipboardEvent) => {
-      setState((current) => shortcutModifierStateAfterPaste(current, getPasteModifierFlags(event)));
+    const onPaste = () => {
+      const wasKeyboardInitiated = keyboardPastePendingRef.current;
+      keyboardPastePendingRef.current = false;
+      setState((current) => shortcutModifierStateAfterPaste(current, wasKeyboardInitiated));
     };
     const onWindowBlur = () => {
+      keyboardPastePendingRef.current = false;
       setState((current) =>
         areShortcutModifierStatesEqual(current, EMPTY_SHORTCUT_MODIFIER_STATE)
           ? current
@@ -114,28 +122,13 @@ export function shortcutModifierStateAfterKeyboardEvent(
 
 export function shortcutModifierStateAfterPaste(
   currentState: ShortcutModifierState,
-  event: ShortcutModifierFlags,
+  wasKeyboardInitiated: boolean,
 ): ShortcutModifierState {
-  // Preserve a real Cmd/Ctrl+V chord. Synthetic dictation pastes normally
-  // report no modifier flags, so those still clear a stuck shortcut state.
-  const hasReportedModifier = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
   if (
-    hasReportedModifier ||
+    wasKeyboardInitiated ||
     areShortcutModifierStatesEqual(currentState, EMPTY_SHORTCUT_MODIFIER_STATE)
   ) {
     return currentState;
   }
   return EMPTY_SHORTCUT_MODIFIER_STATE;
-}
-
-function getPasteModifierFlags(event: ClipboardEvent): ShortcutModifierFlags {
-  // Modifier flags are present on browser paste events in practice, but are
-  // not part of the ClipboardEvent TypeScript definition.
-  const eventWithModifierFlags = event as ClipboardEvent & Partial<ShortcutModifierFlags>;
-  return {
-    metaKey: eventWithModifierFlags.metaKey === true,
-    ctrlKey: eventWithModifierFlags.ctrlKey === true,
-    altKey: eventWithModifierFlags.altKey === true,
-    shiftKey: eventWithModifierFlags.shiftKey === true,
-  };
 }
