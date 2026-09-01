@@ -139,6 +139,19 @@ export function defaultExpandedTreePaths(nodes: ReadonlyArray<FileTreeNode>): Re
   return expanded;
 }
 
+export function allDirectoryTreePaths(nodes: ReadonlyArray<FileTreeNode>): ReadonlyArray<string> {
+  const paths: string[] = [];
+
+  const visit = (node: FileTreeNode) => {
+    if (node.kind !== "directory") return;
+    paths.push(node.path);
+    for (const child of node.children) visit(child);
+  };
+
+  for (const node of nodes) visit(node);
+  return paths;
+}
+
 function valueMatchesSearchToken(value: string, token: string, fuzzy: boolean): boolean {
   return (
     scoreQueryMatch({

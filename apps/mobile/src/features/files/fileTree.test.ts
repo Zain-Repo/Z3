@@ -3,6 +3,7 @@ import type { ProjectEntry } from "@t3tools/contracts";
 
 import {
   buildFileTree,
+  allDirectoryTreePaths,
   countFileNodes,
   defaultExpandedTreePaths,
   firstFilePath,
@@ -105,5 +106,11 @@ describe("mobile file tree helpers", () => {
     const tree = buildFileTree(entries);
 
     expect([...defaultExpandedTreePaths(tree)]).toEqual(["src"]);
+  });
+
+  it("lists every directory for expand and collapse all actions", () => {
+    const tree = buildFileTree(entries);
+
+    expect(allDirectoryTreePaths(tree)).toEqual(["src", "src/components"]);
   });
 });
