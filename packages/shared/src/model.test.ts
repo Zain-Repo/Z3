@@ -3,6 +3,7 @@ import { ProviderDriverKind, ProviderInstanceId, type ModelCapabilities } from "
 
 import {
   buildProviderOptionSelectionsFromDescriptors,
+  applyClaudePromptEffortPrefix,
   createModelCapabilities,
   createModelSelection,
   getModelSelectionBooleanOptionValue,
@@ -153,5 +154,21 @@ describe("model slug normalization", () => {
 
     expect(normalizeModelSlug("opus", claude)).toBe("claude-opus-5");
     expect(normalizeCustomModelSlug(" opus ")).toBe("opus");
+  });
+});
+
+describe("Claude prompt effort prefixes", () => {
+  it("preserves Claude slash commands when ultrathink is selected", () => {
+    expect(applyClaudePromptEffortPrefix("/compact", "ultrathink")).toBe("/compact");
+    expect(applyClaudePromptEffortPrefix("/plugin:skill", "ultrathink")).toBe("/plugin:skill");
+  });
+
+  it("still prefixes ordinary prompts and file paths", () => {
+    expect(applyClaudePromptEffortPrefix("Investigate the edge cases", "ultrathink")).toBe(
+      "Ultrathink:\nInvestigate the edge cases",
+    );
+    expect(applyClaudePromptEffortPrefix("/home/user/app.ts", "ultrathink")).toBe(
+      "Ultrathink:\n/home/user/app.ts",
+    );
   });
 });

@@ -3284,6 +3284,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           once: true,
         });
 
+        // The signal can abort while the requested event is being emitted,
+        // before the abort listener is registered.
+        if (callbackOptions.signal.aborted) {
+          onAbort();
+        }
+
         // Block until the user provides answers.
         const answers = yield* Deferred.await(answersDeferred);
         pendingUserInputs.delete(requestId);
@@ -3437,6 +3443,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           once: true,
         });
 
+        // The signal can abort while the request event is being emitted,
+        // before the abort listener is registered.
+        if (callbackOptions.signal.aborted) {
+          onAbort();
+        }
+
         const decision = yield* Deferred.await(decisionDeferred);
         pendingApprovals.delete(requestId);
 
@@ -3523,6 +3535,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(fastMode ? { fastMode: true } : {}),
         ...(ultracode ? { ultracode: true } : {}),
+        ...(claudeSettings.autoCompactWindow
+          ? { autoCompactWindow: Number(claudeSettings.autoCompactWindow) }
+          : {}),
       };
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
       const queryOptions: ClaudeQueryOptions = {

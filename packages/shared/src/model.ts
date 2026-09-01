@@ -379,7 +379,10 @@ export function applyClaudePromptEffortPrefix(
   if (!trimmed) {
     return trimmed;
   }
-  if (effort !== "ultrathink") {
+  // Slash commands must reach Claude unchanged; adding the prompt prefix
+  // would turn a command into ordinary prose. Only treat the first token as
+  // a command so normal paths such as /home/user/project remain eligible.
+  if (effort !== "ultrathink" || /^\/[^\s/]+(?:\s|$)/u.test(trimmed)) {
     return trimmed;
   }
   if (trimmed.startsWith("Ultrathink:")) {
