@@ -203,7 +203,14 @@ function restoreUsedProviders(
     readonly providerInstanceId: string | null;
   }>,
 ): ServerSettings {
-  const usedProviders = new Set(providerHistory.map(({ providerName }) => providerName));
+  const usedProviders = new Set(
+    providerHistory
+      .filter(
+        ({ providerName, providerInstanceId }) =>
+          providerInstanceId === null || providerInstanceId === providerName,
+      )
+      .map(({ providerName }) => providerName),
+  );
   const usedProviderInstances = new Set(
     providerHistory.map(
       ({ providerName, providerInstanceId }) => providerInstanceId ?? providerName,
