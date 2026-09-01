@@ -256,7 +256,7 @@ export default function FileBrowserPanel({
     areAllDirectoriesExpanded(currentModel, directoryPaths),
   );
   const toggleAllDirectories = () => {
-    setAllDirectoriesExpanded(model, directoryPaths, !allDirectoriesExpanded);
+    setAllDirectoriesExpanded(model, directoryPaths, !allDirectoriesExpanded, treePaths);
   };
   const handleSearchValueChange = (value: string) => {
     if (value.trim().length === 0) {

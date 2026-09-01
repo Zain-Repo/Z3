@@ -57,4 +57,31 @@ describe("file tree expansion", () => {
     setAllDirectoriesExpanded(model, ["src/"], true);
     expect(collapse).not.toHaveBeenCalled();
   });
+
+  it("initializes bulk expansion with one store reset", () => {
+    const expanded: Record<string, boolean> = { "src/": false, "src/lib/": false };
+    let resetCount = 0;
+    const model = {
+      ...makeModel(expanded),
+      resetPaths: (
+        _paths: readonly string[],
+        options?: { initialExpandedPaths?: readonly string[] },
+      ) => {
+        resetCount += 1;
+        for (const path of Object.keys(expanded)) {
+          expanded[path] = options?.initialExpandedPaths?.includes(path) ?? false;
+        }
+      },
+    };
+
+    setAllDirectoriesExpanded(model, ["src/", "src/lib/"], true, [
+      "src/",
+      "src/a.ts",
+      "src/lib/",
+      "src/lib/b.ts",
+    ]);
+
+    expect(resetCount).toBe(1);
+    expect(expanded).toEqual({ "src/": true, "src/lib/": true });
+  });
 });

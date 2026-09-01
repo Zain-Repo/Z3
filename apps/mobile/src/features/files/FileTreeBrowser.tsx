@@ -11,6 +11,7 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import {
   buildFileTree,
+  allDirectoryTreePaths,
   defaultExpandedTreePaths,
   flattenFileTree,
   type FileTreeNode,
@@ -136,6 +137,9 @@ export function FileTreeBrowser(props: {
       : controlledSelectedPath;
   const tree = useMemo(() => cachedFileTree(props.entries), [props.entries]);
   const defaultExpanded = useMemo(() => defaultExpandedTreePaths(tree), [tree]);
+  const directoryPaths = useMemo(() => allDirectoryTreePaths(tree), [tree]);
+  const allDirectoriesExpanded =
+    directoryPaths.length > 0 && directoryPaths.every((path) => expandedPaths.has(path));
   const visibleNodes = useMemo(
     () =>
       flattenFileTree({
@@ -192,6 +196,9 @@ export function FileTreeBrowser(props: {
       return next;
     });
   }, []);
+  const toggleAllDirectories = useCallback(() => {
+    setExpandedPaths(allDirectoriesExpanded ? new Set() : new Set(directoryPaths));
+  }, [allDirectoriesExpanded, directoryPaths]);
   const handleSelectFile = useCallback(
     (path: string) => {
       if (pendingSelectionTimeoutRef.current !== null) {
@@ -258,6 +265,23 @@ export function FileTreeBrowser(props: {
       contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
       refreshControl={<RefreshControl refreshing={props.isPending} onRefresh={props.onRefresh} />}
       renderItem={renderItem}
+      ListHeaderComponent={
+        directoryPaths.length > 0 ? (
+          <Pressable
+            accessibilityLabel={
+              allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
+            }
+            accessibilityRole="button"
+            accessibilityState={{ expanded: allDirectoriesExpanded }}
+            onPress={toggleAllDirectories}
+            className="mx-2 mb-1 min-h-10 flex-row items-center justify-center rounded-[12px] bg-subtle px-3 active:opacity-70"
+          >
+            <Text className="text-xs font-t3-bold text-foreground-secondary">
+              {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
+            </Text>
+          </Pressable>
+        ) : null
+      }
       ListEmptyComponent={
         <View className="px-4 py-5">
           {props.isPending ? (

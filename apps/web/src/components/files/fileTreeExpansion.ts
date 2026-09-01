@@ -1,5 +1,9 @@
 export interface FileTreeExpansionModel {
   getItem(path: string): unknown;
+  resetPaths?: (
+    paths: readonly string[],
+    options?: { readonly initialExpandedPaths?: readonly string[] },
+  ) => void;
 }
 
 type DirectoryHandle = {
@@ -45,7 +49,28 @@ export function setAllDirectoriesExpanded(
   model: FileTreeExpansionModel,
   directoryPaths: readonly string[],
   expanded: boolean,
+  allPaths?: readonly string[],
 ): void {
+  // Rebuilding the store once lets the tree initialize expansion state in one
+  // pass. Calling every item handle separately causes a projection rebuild for
+  // each directory, which becomes noticeably expensive in large workspaces.
+  if (model.resetPaths !== undefined && allPaths !== undefined) {
+    model.resetPaths(allPaths, {
+      initialExpandedPaths: expanded ? directoryPaths : [],
+    });
+
+    // The file browser uses one-level initial expansion. Collapse those root
+    // directories explicitly when the requested final state is fully closed.
+    if (!expanded) {
+      for (const path of directoryPaths) {
+        if (path.slice(0, -1).includes("/")) continue;
+        const item = asDirectoryHandle(model.getItem(path));
+        if (item?.isExpanded()) item.collapse();
+      }
+    }
+    return;
+  }
+
   for (const path of directoryPaths) {
     const item = asDirectoryHandle(model.getItem(path));
     if (item === null || item.isExpanded() === expanded) continue;
