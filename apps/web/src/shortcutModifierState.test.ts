@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   areShortcutModifierStatesEqual,
+  shortcutModifierStateAfterPaste,
   shortcutModifierStateAfterKeyboardEvent,
   type ShortcutModifierState,
 } from "./shortcutModifierState";
@@ -109,5 +110,66 @@ describe("shortcutModifierState", () => {
       altKey: false,
       shiftKey: false,
     });
+  });
+
+  it("ignores poisoned modifier flags on non-modifier keys", () => {
+    const state = shortcutModifierStateAfterKeyboardEvent(
+      emptyState(),
+      keyboardEventLike("keydown", { key: "Enter", metaKey: true }),
+    );
+    expect(state).toEqual(emptyState());
+  });
+
+  it("clears a held modifier when a non-modifier key reports it released", () => {
+    const heldMeta: ShortcutModifierState = {
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    const state = shortcutModifierStateAfterKeyboardEvent(
+      heldMeta,
+      keyboardEventLike("keydown", { key: "a", metaKey: false }),
+    );
+    expect(state).toEqual(emptyState());
+  });
+
+  it("preserves a held modifier during a keyboard paste", () => {
+    const heldMeta: ShortcutModifierState = {
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    expect(shortcutModifierStateAfterPaste(heldMeta, true)).toBe(heldMeta);
+  });
+
+  it("clears stale modifiers from an unmodified synthetic paste", () => {
+    const heldMeta: ShortcutModifierState = {
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    expect(shortcutModifierStateAfterPaste(heldMeta, false)).toEqual(emptyState());
+  });
+
+  it("tracks AltGraph as a combined Control and Alt modifier", () => {
+    const state = shortcutModifierStateAfterKeyboardEvent(
+      emptyState(),
+      keyboardEventLike("keydown", { key: "AltGraph" }),
+    );
+    expect(state).toEqual({
+      metaKey: false,
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: false,
+    });
+    expect(
+      shortcutModifierStateAfterKeyboardEvent(
+        state,
+        keyboardEventLike("keyup", { key: "AltGraph" }),
+      ),
+    ).toEqual(emptyState());
   });
 });

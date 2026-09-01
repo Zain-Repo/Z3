@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface ShortcutModifierState {
   metaKey: boolean;
@@ -28,12 +28,25 @@ export function areShortcutModifierStatesEqual(
 
 export function useShortcutModifierState(): ShortcutModifierState {
   const [state, setState] = useState(EMPTY_SHORTCUT_MODIFIER_STATE);
+  const keyboardPastePendingRef = useRef(false);
 
   useEffect(() => {
     const onKeyboardEvent = (event: KeyboardEvent) => {
+      if (event.type === "keydown") {
+        keyboardPastePendingRef.current =
+          event.key.toLowerCase() === "v" && (event.metaKey || event.ctrlKey);
+      } else if (event.key.toLowerCase() === "v") {
+        keyboardPastePendingRef.current = false;
+      }
       setState((current) => shortcutModifierStateAfterKeyboardEvent(current, event));
     };
+    const onPaste = () => {
+      const wasKeyboardInitiated = keyboardPastePendingRef.current;
+      keyboardPastePendingRef.current = false;
+      setState((current) => shortcutModifierStateAfterPaste(current, wasKeyboardInitiated));
+    };
     const onWindowBlur = () => {
+      keyboardPastePendingRef.current = false;
       setState((current) =>
         areShortcutModifierStatesEqual(current, EMPTY_SHORTCUT_MODIFIER_STATE)
           ? current
@@ -43,10 +56,12 @@ export function useShortcutModifierState(): ShortcutModifierState {
 
     window.addEventListener("keydown", onKeyboardEvent, true);
     window.addEventListener("keyup", onKeyboardEvent, true);
+    window.addEventListener("paste", onPaste, true);
     window.addEventListener("blur", onWindowBlur);
     return () => {
       window.removeEventListener("keydown", onKeyboardEvent, true);
       window.removeEventListener("keyup", onKeyboardEvent, true);
+      window.removeEventListener("paste", onPaste, true);
       window.removeEventListener("blur", onWindowBlur);
     };
   }, []);
@@ -54,7 +69,7 @@ export function useShortcutModifierState(): ShortcutModifierState {
   return state;
 }
 
-function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {
+function normalizeModifierKey(key: string): keyof ShortcutModifierState | "altGraph" | null {
   switch (key) {
     case "Meta":
     case "OS":
@@ -65,6 +80,8 @@ function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {
     case "Alt":
     case "Option":
       return "altKey";
+    case "AltGraph":
+      return "altGraph";
     case "Shift":
       return "shiftKey";
     default:
@@ -78,19 +95,40 @@ export function shortcutModifierStateAfterKeyboardEvent(
 ): ShortcutModifierState {
   const normalizedModifierKey = normalizeModifierKey(event.key);
   let nextState: ShortcutModifierState;
-  if (normalizedModifierKey) {
+  if (normalizedModifierKey === "altGraph") {
+    nextState = {
+      ...currentState,
+      ctrlKey: event.type === "keydown",
+      altKey: event.type === "keydown",
+    };
+  } else if (normalizedModifierKey) {
     nextState = {
       ...currentState,
       [normalizedModifierKey]: event.type === "keydown",
     };
   } else {
+    // Non-modifier events can clear stale browser flags, but only a real
+    // modifier keydown may mark a modifier as held.
     nextState = {
-      metaKey: event.metaKey,
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      shiftKey: event.shiftKey,
+      metaKey: currentState.metaKey && event.metaKey,
+      ctrlKey: currentState.ctrlKey && event.ctrlKey,
+      altKey: currentState.altKey && event.altKey,
+      shiftKey: currentState.shiftKey && event.shiftKey,
     };
   }
 
   return areShortcutModifierStatesEqual(currentState, nextState) ? currentState : nextState;
+}
+
+export function shortcutModifierStateAfterPaste(
+  currentState: ShortcutModifierState,
+  wasKeyboardInitiated: boolean,
+): ShortcutModifierState {
+  if (
+    wasKeyboardInitiated ||
+    areShortcutModifierStatesEqual(currentState, EMPTY_SHORTCUT_MODIFIER_STATE)
+  ) {
+    return currentState;
+  }
+  return EMPTY_SHORTCUT_MODIFIER_STATE;
 }
