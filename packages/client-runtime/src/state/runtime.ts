@@ -537,9 +537,7 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
             return Effect.fail(
               new EnvironmentRpcUnavailableError({
                 environmentId: target.environmentId,
-                message: `Environment ${target.environmentId} is ${
-                  connectionState.phase === "available" ? "not connected" : connectionState.phase
-                }.`,
+                message: `Environment ${target.environmentId} is ${connectionState.phase}.`,
               }),
             );
         }
