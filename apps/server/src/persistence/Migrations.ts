@@ -55,6 +55,7 @@ import Migration0039 from "./Migrations/039_ProjectionImageGenerations.ts";
 import Migration0040 from "./Migrations/040_ProjectionVideoGenerations.ts";
 import Migration0041 from "./Migrations/041_ProjectionConversationMemorySearch.ts";
 import Migration0042 from "./Migrations/042_ProjectionImageGenerationInput.ts";
+import Migration0043 from "./Migrations/043_ProjectionTurnsAssistantMessageIndex.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -109,6 +110,7 @@ export const migrationEntries = [
   [40, "ProjectionVideoGenerations", Migration0040],
   [41, "ProjectionConversationMemorySearch", Migration0041],
   [42, "ProjectionImageGenerationInput", Migration0042],
+  [43, "ProjectionTurnsAssistantMessageIndex", Migration0043],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
