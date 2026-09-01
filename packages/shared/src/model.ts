@@ -391,27 +391,32 @@ export function applyClaudePromptEffortPrefix(
   return `Ultrathink:\n${trimmed}`;
 }
 
-const CLAUDE_ROOT_PATH_SEGMENTS = new Set([
-  "bin",
-  "boot",
-  "dev",
-  "etc",
-  "home",
-  "lib",
-  "media",
-  "mnt",
-  "opt",
-  "proc",
-  "root",
-  "run",
-  "sbin",
-  "srv",
-  "sys",
-  "tmp",
-  "usr",
-  "var",
-  "volumes",
-  "users",
+const CLAUDE_BUILT_IN_SLASH_COMMANDS = new Set([
+  "clear",
+  "compact",
+  "config",
+  "context",
+  "cost",
+  "doctor",
+  "exit",
+  "help",
+  "init",
+  "mcp",
+  "memory",
+  "model",
+  "permissions",
+  "plan",
+  "pr-comments",
+  "release-notes",
+  "resume",
+  "rewind",
+  "review",
+  "security-review",
+  "status",
+  "terminal-setup",
+  "todos",
+  "usage",
+  "vim",
 ]);
 
 function isClaudeSlashCommand(text: string): boolean {
@@ -420,6 +425,7 @@ function isClaudeSlashCommand(text: string): boolean {
   return (
     token !== undefined &&
     !token.includes(".") &&
-    !CLAUDE_ROOT_PATH_SEGMENTS.has(token.toLowerCase())
+    (CLAUDE_BUILT_IN_SLASH_COMMANDS.has(token.toLowerCase()) ||
+      token.toLowerCase().startsWith("plugin:"))
   );
 }

@@ -176,5 +176,11 @@ describe("Claude prompt effort prefixes", () => {
     expect(applyClaudePromptEffortPrefix("/Users is unavailable", "ultrathink")).toBe(
       "Ultrathink:\n/Users is unavailable",
     );
+    expect(
+      applyClaudePromptEffortPrefix("/workspace is read-only; investigate", "ultrathink"),
+    ).toBe("Ultrathink:\n/workspace is read-only; investigate");
+    expect(applyClaudePromptEffortPrefix("/Applications is unavailable", "ultrathink")).toBe(
+      "Ultrathink:\n/Applications is unavailable",
+    );
   });
 });
