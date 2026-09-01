@@ -526,6 +526,9 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
           case "backoff":
             return Effect.never;
           case "available":
+            return connectionState.lastFailure !== null
+              ? Effect.fail(connectionState.lastFailure)
+              : Effect.never;
           case "offline":
           case "blocked":
             if (connectionState.lastFailure !== null) {

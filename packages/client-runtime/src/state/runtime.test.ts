@@ -259,6 +259,36 @@ describe("environmentRpcKey", () => {
 });
 
 describe("environment query lifecycle", () => {
+  it.effect("keeps the initial available state waiting for a connection", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeEnvironmentQueryHarness(Effect.succeed("unexpected"));
+        yield* SubscriptionRef.set(harness.supervisorSession, Option.none());
+        yield* SubscriptionRef.set(
+          harness.supervisorState,
+          queryConnectionState({
+            desired: false,
+            phase: "available",
+            generation: 0,
+          }),
+        );
+        const registry = AtomRegistry.make();
+        const unsubscribe = registry.subscribe(harness.atom, () => undefined, { immediate: true });
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            unsubscribe();
+            registry.dispose();
+          }),
+        );
+        yield* Effect.yieldNow;
+
+        const result = registry.get(harness.atom);
+        expect(result.waiting).toBe(true);
+        expect(AsyncResult.isFailure(result)).toBe(false);
+      }),
+    ),
+  );
+
   it.effect("retries an interrupted query after the session is replaced", () =>
     Effect.scoped(
       Effect.gen(function* () {
