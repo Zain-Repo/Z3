@@ -231,6 +231,7 @@ export function useThreadOutboxDrain(): void {
           modelSelection: settings.modelSelection,
           runtimeMode: settings.runtimeMode,
           interactionMode: settings.interactionMode,
+          providerSlashCommandNames: queuedMessage.providerSlashCommandNames,
           createdAt: queuedMessage.createdAt,
         },
       });
@@ -270,6 +271,7 @@ export function useThreadOutboxDrain(): void {
           modelSelection,
           runtimeMode: queuedMessage.runtimeMode ?? DEFAULT_RUNTIME_MODE,
           interactionMode: queuedMessage.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
+          providerSlashCommandNames: queuedMessage.providerSlashCommandNames,
           workspaceMode: creation.workspaceMode,
           branch: creation.branch,
           worktreePath: creation.worktreePath,

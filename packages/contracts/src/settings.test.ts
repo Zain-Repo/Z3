@@ -190,6 +190,36 @@ describe("ServerSettings worktree defaults", () => {
   });
 });
 
+describe("ClaudeSettings auto-compaction window", () => {
+  it("accepts an empty value or a window from 100,000 through 1,000,000 tokens", () => {
+    expect(decodeServerSettings({}).providers.claudeAgent.autoCompactWindow).toBe("");
+    expect(
+      decodeServerSettings({
+        providers: { claudeAgent: { autoCompactWindow: " 300000 " } },
+      }).providers.claudeAgent.autoCompactWindow,
+    ).toBe("300000");
+    expect(
+      decodeServerSettingsPatch({
+        providers: { claudeAgent: { autoCompactWindow: "1000000" } },
+      }).providers?.claudeAgent?.autoCompactWindow,
+    ).toBe("1000000");
+  });
+
+  it.each(["99999", "1000001", "300000.5", "abc"])(
+    "rejects an invalid compaction window: %s",
+    (value) => {
+      expect(() =>
+        decodeServerSettings({ providers: { claudeAgent: { autoCompactWindow: value } } }),
+      ).toThrow();
+      expect(() =>
+        decodeServerSettingsPatch({
+          providers: { claudeAgent: { autoCompactWindow: value } },
+        }),
+      ).toThrow();
+    },
+  );
+});
+
 describe("ServerSettings.sourceControlWritingStyle", () => {
   it("defaults all style settings for legacy configs", () => {
     const settings = decodeServerSettings({});

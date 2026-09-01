@@ -395,6 +395,28 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("forwards the configured auto-compaction window to Claude", () => {
+    const harness = makeHarness({
+      claudeConfig: { autoCompactWindow: "300000" },
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      assert.deepEqual(createInput?.options.settings, {
+        autoCompactWindow: 300000,
+      });
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("uses bypass permissions for full-access claude sessions", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -3836,7 +3858,6 @@ describe("ClaudeAdapterLive", () => {
         return;
       }
       assert.equal(requestedEvent.value.threadId, session.threadId);
-
       controller.abort();
 
       const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
@@ -3852,6 +3873,130 @@ describe("ClaudeAdapterLive", () => {
         behavior: "deny",
         message: "User cancelled tool execution.",
       } satisfies PermissionResult);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("denies AskUserQuestion when already aborted before listener registration", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+      const createInput = harness.getLastCreateQueryInput();
+      const canUseTool = createInput?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 2).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const controller = new AbortController();
+      controller.abort();
+      const permissionPromise = canUseTool(
+        "AskUserQuestion",
+        {
+          questions: [
+            {
+              question: "Continue?",
+              header: "Continue",
+              options: [{ label: "Yes", description: "Proceed" }],
+              multiSelect: false,
+            },
+          ],
+        },
+        {
+          signal: controller.signal,
+          toolUseID: "tool-ask-pre-abort",
+        },
+      );
+
+      const permissionResult = yield* Effect.promise(() => permissionPromise);
+      assert.deepEqual(permissionResult, {
+        behavior: "deny",
+        message: "User cancelled tool execution.",
+      } satisfies PermissionResult);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.type),
+        ["user-input.requested", "user-input.resolved"],
+      );
+      const requestedEvent = runtimeEvents[0];
+      if (requestedEvent?.type === "user-input.requested") {
+        assert.equal(requestedEvent.threadId, session.threadId);
+      }
+      const resolvedEvent = runtimeEvents[1];
+      if (resolvedEvent?.type === "user-input.resolved") {
+        assert.deepEqual(resolvedEvent.payload.answers, {});
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("denies approval requests when already aborted before listener registration", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 2).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const controller = new AbortController();
+      controller.abort();
+      const permissionPromise = canUseTool(
+        "Bash",
+        { command: "pwd" },
+        {
+          signal: controller.signal,
+          toolUseID: "tool-approval-pre-abort",
+        },
+      );
+
+      const permissionResult = yield* Effect.promise(() => permissionPromise);
+      assert.deepEqual(permissionResult, {
+        behavior: "deny",
+        message: "User cancelled tool execution.",
+      } satisfies PermissionResult);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.type),
+        ["request.opened", "request.resolved"],
+      );
+      const resolvedEvent = runtimeEvents[1];
+      if (resolvedEvent?.type === "request.resolved") {
+        assert.equal(resolvedEvent.payload.decision, "cancel");
+      }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

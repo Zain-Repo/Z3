@@ -374,16 +374,67 @@ export function resolvePromptInjectedEffort(
 export function applyClaudePromptEffortPrefix(
   text: string,
   effort: string | null | undefined,
+  options?: {
+    readonly slashCommandNames?: ReadonlyArray<string>;
+  },
 ): string {
   const trimmed = text.trim();
   if (!trimmed) {
     return trimmed;
   }
-  if (effort !== "ultrathink") {
+  // Slash commands must reach Claude unchanged; adding the prompt prefix
+  // would turn a command into ordinary prose. Only treat a single-segment
+  // token as a command so root-level paths such as /tmp remain eligible.
+  if (effort !== "ultrathink" || isClaudeSlashCommand(trimmed, options?.slashCommandNames)) {
     return trimmed;
   }
   if (trimmed.startsWith("Ultrathink:")) {
     return trimmed;
   }
   return `Ultrathink:\n${trimmed}`;
+}
+
+const CLAUDE_BUILT_IN_SLASH_COMMANDS = new Set([
+  "clear",
+  "compact",
+  "config",
+  "context",
+  "cost",
+  "doctor",
+  "exit",
+  "help",
+  "init",
+  "mcp",
+  "memory",
+  "model",
+  "permissions",
+  "plan",
+  "pr-comments",
+  "release-notes",
+  "resume",
+  "rewind",
+  "review",
+  "security-review",
+  "status",
+  "terminal-setup",
+  "todos",
+  "usage",
+  "vim",
+]);
+
+function isClaudeSlashCommand(
+  text: string,
+  slashCommandNames: ReadonlyArray<string> = [],
+): boolean {
+  const match = /^\/([^\s/]+)(?:\s|$)/u.exec(text);
+  const token = match?.[1];
+  const normalizedToken = token?.toLowerCase();
+  return (
+    token !== undefined &&
+    normalizedToken !== undefined &&
+    !token.includes(".") &&
+    (CLAUDE_BUILT_IN_SLASH_COMMANDS.has(normalizedToken) ||
+      normalizedToken.startsWith("plugin:") ||
+      slashCommandNames.some((name) => name.trim().toLowerCase() === normalizedToken))
+  );
 }

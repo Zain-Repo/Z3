@@ -791,6 +791,7 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
+    readonly providerSlashCommandNames?: ReadonlyArray<string>;
     readonly interactionMode?: "default" | "plan";
     readonly createdAt: string;
   }) {
@@ -899,6 +900,9 @@ const make = Effect.gen(function* () {
       ...(providerAttachments.length > 0 ? { attachments: providerAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+      ...(input.providerSlashCommandNames !== undefined
+        ? { providerSlashCommandNames: input.providerSlashCommandNames }
+        : {}),
     };
   });
 
@@ -1305,8 +1309,9 @@ const make = Effect.gen(function* () {
           }
         : {}),
     });
-    const recalledMemory = yield* (recallMemoryEffect ??
-      Effect.succeed({ context: "", count: 0 })).pipe(
+    const recalledMemory = yield* (
+      recallMemoryEffect ?? Effect.succeed({ context: "", count: 0 })
+    ).pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("conversation memory recall failed; continuing without memory", {
           threadId: thread.id,
@@ -1327,6 +1332,9 @@ const make = Effect.gen(function* () {
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }
+        : {}),
+      ...(event.payload.providerSlashCommandNames !== undefined
+        ? { providerSlashCommandNames: event.payload.providerSlashCommandNames }
         : {}),
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,

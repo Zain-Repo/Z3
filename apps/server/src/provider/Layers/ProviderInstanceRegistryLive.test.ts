@@ -110,6 +110,7 @@ const makeClaudeConfig = (overrides: Partial<ClaudeSettings>): ClaudeSettings =>
   homePath: "",
   customModels: [],
   launchArgs: "",
+  autoCompactWindow: "",
   ...overrides,
 });
 
@@ -137,9 +138,7 @@ const makeOpenCodeConfig = (overrides: Partial<OpenCodeSettings>): OpenCodeSetti
   ...overrides,
 });
 
-const makeOpenRouterConfig = (
-  overrides: Partial<OpenRouterSettings>,
-): OpenRouterSettings => ({
+const makeOpenRouterConfig = (overrides: Partial<OpenRouterSettings>): OpenRouterSettings => ({
   enabled: false,
   apiEndpoint: "https://openrouter.ai/api/v1",
   apiKey: "",

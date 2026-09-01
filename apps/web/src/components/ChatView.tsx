@@ -468,12 +468,15 @@ function formatOutgoingPrompt(params: {
   provider: ProviderDriverKind;
   model: string | null;
   models: ReadonlyArray<ServerProvider["models"][number]>;
+  slashCommandNames: ReadonlyArray<string>;
   effort: string | null;
   text: string;
 }): string {
   const caps = getProviderModelCapabilities(params.models, params.model, params.provider);
   const promptEffort = resolvePromptInjectedEffort(caps, params.effort);
-  return applyClaudePromptEffortPrefix(params.text, promptEffort);
+  return applyClaudePromptEffortPrefix(params.text, promptEffort, {
+    slashCommandNames: params.slashCommandNames,
+  });
 }
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
@@ -4746,6 +4749,10 @@ function ChatViewContent(props: ChatViewProps) {
               providerStatuses.find(
                 (provider) => provider.instanceId === activeThread.modelSelection.instanceId,
               )?.models ?? [],
+            selectedProviderSlashCommandNames:
+              providerStatuses
+                .find((provider) => provider.instanceId === activeThread.modelSelection.instanceId)
+                ?.slashCommands.map((command) => command.name) ?? [],
           }
         : null);
     if (!sendCtx?.providerAvailable) return;
@@ -4759,6 +4766,7 @@ function ChatViewContent(props: ChatViewProps) {
       selectedProvider: ctxSelectedProvider,
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
+      selectedProviderSlashCommandNames: ctxSelectedProviderSlashCommandNames,
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
@@ -4900,6 +4908,7 @@ function ChatViewContent(props: ChatViewProps) {
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
+      slashCommandNames: ctxSelectedProviderSlashCommandNames,
       effort: ctxSelectedPromptEffort,
       text: messageTextWithProjectContext || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
@@ -5106,6 +5115,7 @@ function ChatViewContent(props: ChatViewProps) {
                   : {}),
               }
             : {}),
+          providerSlashCommandNames: ctxSelectedProviderSlashCommandNames,
           modelSelection: ctxSelectedModelSelection,
           titleSeed: title,
           runtimeMode,
@@ -5388,6 +5398,7 @@ function ChatViewContent(props: ChatViewProps) {
         selectedProvider: ctxSelectedProvider,
         selectedModel: ctxSelectedModel,
         selectedProviderModels: ctxSelectedProviderModels,
+        selectedProviderSlashCommandNames: ctxSelectedProviderSlashCommandNames,
         selectedPromptEffort: ctxSelectedPromptEffort,
         selectedModelSelection: ctxSelectedModelSelection,
       } = sendCtx;
@@ -5399,6 +5410,7 @@ function ChatViewContent(props: ChatViewProps) {
         provider: ctxSelectedProvider,
         model: ctxSelectedModel,
         models: ctxSelectedProviderModels,
+        slashCommandNames: ctxSelectedProviderSlashCommandNames,
         effort: ctxSelectedPromptEffort,
         text: trimmed,
       });
@@ -5464,6 +5476,7 @@ function ChatViewContent(props: ChatViewProps) {
               text: outgoingMessageText,
               attachments: [],
             },
+            providerSlashCommandNames: ctxSelectedProviderSlashCommandNames,
             modelSelection: ctxSelectedModelSelection,
             titleSeed: activeThread.title,
             runtimeMode,
@@ -5551,6 +5564,7 @@ function ChatViewContent(props: ChatViewProps) {
       selectedProvider: ctxSelectedProvider,
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
+      selectedProviderSlashCommandNames: ctxSelectedProviderSlashCommandNames,
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
@@ -5563,6 +5577,7 @@ function ChatViewContent(props: ChatViewProps) {
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
+      slashCommandNames: ctxSelectedProviderSlashCommandNames,
       effort: ctxSelectedPromptEffort,
       text: implementationPrompt,
     });
@@ -5604,6 +5619,7 @@ function ChatViewContent(props: ChatViewProps) {
             text: outgoingImplementationPrompt,
             attachments: [],
           },
+          providerSlashCommandNames: ctxSelectedProviderSlashCommandNames,
           modelSelection: ctxSelectedModelSelection,
           titleSeed: nextThreadTitle,
           runtimeMode,

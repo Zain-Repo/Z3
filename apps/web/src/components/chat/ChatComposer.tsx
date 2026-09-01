@@ -514,6 +514,7 @@ export interface ChatComposerHandle {
     selectedProvider: ProviderDriverKind;
     selectedModel: string;
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
+    selectedProviderSlashCommandNames: ReadonlyArray<string>;
   };
 }
 
@@ -898,6 +899,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],
+  );
+  const selectedProviderSlashCommandNames = useMemo<ReadonlyArray<string>>(
+    () => (selectedProviderStatus?.slashCommands ?? []).map((command) => command.name),
+    [selectedProviderStatus],
   );
 
   const composerPromptInjectionState = useMemo(
@@ -2744,6 +2749,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedProvider,
         selectedModel,
         selectedProviderModels,
+        selectedProviderSlashCommandNames,
       }),
     }),
     [

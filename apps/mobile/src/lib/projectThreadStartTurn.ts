@@ -32,6 +32,7 @@ export interface ProjectThreadStartTurnSpec {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly providerSlashCommandNames?: ReadonlyArray<string>;
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
@@ -61,6 +62,9 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
     titleSeed: title,
     runtimeMode: spec.runtimeMode,
     interactionMode: spec.interactionMode,
+    ...(spec.providerSlashCommandNames !== undefined
+      ? { providerSlashCommandNames: spec.providerSlashCommandNames }
+      : {}),
     bootstrap: {
       createThread: {
         projectId: spec.projectId,

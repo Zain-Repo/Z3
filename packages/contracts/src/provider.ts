@@ -74,6 +74,11 @@ export const ProviderSendTurnInput = Schema.Struct({
   ),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  // Provider-reported commands let adapters distinguish custom slash commands
+  // from ordinary root-relative paths without relying on text heuristics.
+  providerSlashCommandNames: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100)),
+  ),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
 
