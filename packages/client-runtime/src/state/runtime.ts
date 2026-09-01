@@ -3,6 +3,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
@@ -520,7 +521,16 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
         switch (connectionState.phase) {
           case "connected":
             return Option.isSome(session)
-              ? runInEnvironment(target.environmentId, options.execute(target.input))
+              ? runInEnvironment(target.environmentId, options.execute(target.input)).pipe(
+                  // A session can disappear between the state/session snapshot
+                  // above and request execution. Treat that race as waiting so
+                  // transient transport state cannot replace a query result.
+                  Effect.catch((error) =>
+                    Schema.is(EnvironmentRpcUnavailableError)(error)
+                      ? Effect.never
+                      : Effect.fail(error),
+                  ),
+                )
               : Effect.never;
           case "connecting":
           case "backoff":

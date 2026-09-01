@@ -333,6 +333,7 @@ describe("environment query lifecycle", () => {
         // while the connection supervisor transitions back to a usable state.
         const interrupted = observed.at(-1);
         expect(interrupted?.waiting).toBe(true);
+        expect(interrupted && AsyncResult.isFailure(interrupted)).toBe(false);
 
         yield* SubscriptionRef.set(
           harness.supervisorState,
