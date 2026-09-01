@@ -900,7 +900,13 @@ function buildPromptText(
   const caps = getClaudeModelCapabilities(claudeModel);
 
   const promptEffort = resolvePromptInjectedEffort(caps, rawEffort);
-  return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
+  return applyClaudePromptEffortPrefix(
+    input.input?.trim() ?? "",
+    promptEffort,
+    input.providerSlashCommandNames === undefined
+      ? undefined
+      : { slashCommandNames: input.providerSlashCommandNames },
+  );
 }
 
 function buildUserMessage(input: {

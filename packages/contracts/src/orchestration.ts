@@ -771,6 +771,9 @@ export const ThreadTurnStartCommand = Schema.Struct({
   }),
   // Optional provider-only text for context that should not be rendered as a user message.
   providerText: Schema.optional(Schema.String),
+  providerSlashCommandNames: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100)),
+  ),
   // Controls which completed Z3Chat conversations may be recalled for this turn.
   memoryScope: Schema.optional(ConversationMemoryScope),
   // Optional chat-project membership used to keep conversation recall inside the active project.
@@ -798,6 +801,9 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   }),
   // Optional provider-only text for context that should not be rendered as a user message.
   providerText: Schema.optional(Schema.String),
+  providerSlashCommandNames: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100)),
+  ),
   memoryScope: Schema.optional(ConversationMemoryScope),
   memoryThreadIds: Schema.optional(Schema.Array(ThreadId).check(Schema.isMaxLength(500))),
   modelSelection: Schema.optional(ModelSelection),
@@ -1159,6 +1165,9 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   messageId: MessageId,
   // Keep provider context available to the reactor without persisting it in the chat message.
   providerText: Schema.optional(Schema.String),
+  providerSlashCommandNames: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100)),
+  ),
   memoryScope: ConversationMemoryScope.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_CONVERSATION_MEMORY_SCOPE)),
   ),

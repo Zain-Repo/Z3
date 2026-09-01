@@ -47,6 +47,11 @@ export const QueuedThreadMessageSchema = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   runtimeMode: Schema.optional(RuntimeMode),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  // Snapshot provider commands with the queued prompt so offline delivery
+  // preserves the same Claude command handling as an immediate send.
+  providerSlashCommandNames: Schema.optional(
+    Schema.Array(Schema.String).check(Schema.isMaxLength(100)),
+  ),
   // Present when the queued item creates a brand-new thread (pending task)
   // instead of appending a turn to an existing one.
   creation: Schema.optional(QueuedThreadCreationSchema),
@@ -76,6 +81,7 @@ export interface QueuedThreadMessage {
   readonly modelSelection?: ModelSelectionType;
   readonly runtimeMode?: RuntimeModeType;
   readonly interactionMode?: ProviderInteractionModeType;
+  readonly providerSlashCommandNames?: ReadonlyArray<string>;
   readonly creation?: QueuedThreadCreation;
   readonly createdAt: string;
 }

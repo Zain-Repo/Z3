@@ -133,7 +133,7 @@ export function useThreadComposerState() {
     !!selectedThread &&
     (selectedThread.session?.status === "running" || selectedThread.session?.status === "starting");
 
-  const onSendMessage = useCallback(async () => {
+  const onSendMessage = useCallback(async (providerSlashCommandNames?: ReadonlyArray<string>) => {
     if (!selectedThreadShell) {
       return null;
     }
@@ -164,6 +164,7 @@ export function useThreadComposerState() {
       modelSelection: draft.modelSelection ?? thread.modelSelection,
       runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
       interactionMode: draft.interactionMode ?? thread.interactionMode,
+      ...(providerSlashCommandNames !== undefined ? { providerSlashCommandNames } : {}),
       createdAt: metadata.createdAt,
     });
     clearComposerDraftContent(threadKey);

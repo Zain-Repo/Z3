@@ -844,6 +844,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.message.messageId,
           ...(command.providerText !== undefined ? { providerText: command.providerText } : {}),
+          ...(command.providerSlashCommandNames !== undefined
+            ? { providerSlashCommandNames: command.providerSlashCommandNames }
+            : {}),
           memoryScope: command.memoryScope ?? DEFAULT_CONVERSATION_MEMORY_SCOPE,
           ...(command.memoryThreadIds !== undefined
             ? { memoryThreadIds: command.memoryThreadIds }

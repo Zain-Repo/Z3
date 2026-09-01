@@ -374,6 +374,9 @@ export function resolvePromptInjectedEffort(
 export function applyClaudePromptEffortPrefix(
   text: string,
   effort: string | null | undefined,
+  options?: {
+    readonly slashCommandNames?: ReadonlyArray<string>;
+  },
 ): string {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -382,7 +385,7 @@ export function applyClaudePromptEffortPrefix(
   // Slash commands must reach Claude unchanged; adding the prompt prefix
   // would turn a command into ordinary prose. Only treat a single-segment
   // token as a command so root-level paths such as /tmp remain eligible.
-  if (effort !== "ultrathink" || isClaudeSlashCommand(trimmed)) {
+  if (effort !== "ultrathink" || isClaudeSlashCommand(trimmed, options?.slashCommandNames)) {
     return trimmed;
   }
   if (trimmed.startsWith("Ultrathink:")) {
@@ -419,13 +422,19 @@ const CLAUDE_BUILT_IN_SLASH_COMMANDS = new Set([
   "vim",
 ]);
 
-function isClaudeSlashCommand(text: string): boolean {
+function isClaudeSlashCommand(
+  text: string,
+  slashCommandNames: ReadonlyArray<string> = [],
+): boolean {
   const match = /^\/([^\s/]+)(?:\s|$)/u.exec(text);
   const token = match?.[1];
+  const normalizedToken = token?.toLowerCase();
   return (
     token !== undefined &&
+    normalizedToken !== undefined &&
     !token.includes(".") &&
-    (CLAUDE_BUILT_IN_SLASH_COMMANDS.has(token.toLowerCase()) ||
-      token.toLowerCase().startsWith("plugin:"))
+    (CLAUDE_BUILT_IN_SLASH_COMMANDS.has(normalizedToken) ||
+      normalizedToken.startsWith("plugin:") ||
+      slashCommandNames.some((name) => name.trim().toLowerCase() === normalizedToken))
   );
 }

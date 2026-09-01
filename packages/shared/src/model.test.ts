@@ -183,4 +183,17 @@ describe("Claude prompt effort prefixes", () => {
       "Ultrathink:\n/Applications is unavailable",
     );
   });
+
+  it("preserves dynamically discovered commands while still prefixing unknown root paths", () => {
+    expect(
+      applyClaudePromptEffortPrefix("/workspace inspect the deployment", "ultrathink", {
+        slashCommandNames: ["workspace"],
+      }),
+    ).toBe("/workspace inspect the deployment");
+    expect(
+      applyClaudePromptEffortPrefix("/workspace inspect the deployment", "ultrathink", {
+        slashCommandNames: ["deploy"],
+      }),
+    ).toBe("Ultrathink:\n/workspace inspect the deployment");
+  });
 });
