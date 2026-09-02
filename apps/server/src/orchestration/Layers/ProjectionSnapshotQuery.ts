@@ -136,6 +136,9 @@ const ProjectionProjectLookupRowSchema = ProjectionProjectDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
 });
+const WorktreePathLookupInput = Schema.Struct({
+  worktreePath: Schema.String,
+});
 const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -855,6 +858,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND archived_at IS NULL
         ORDER BY created_at ASC, thread_id ASC
         LIMIT 1
+      `,
+  });
+
+  // Includes archived threads: any non-deleted row keeps its worktree alive.
+  const listThreadIdRowsByWorktreePath = SqlSchema.findAll({
+    Request: WorktreePathLookupInput,
+    Result: ProjectionThreadIdLookupRowSchema,
+    execute: ({ worktreePath }) =>
+      sql`
+        SELECT
+          thread_id AS "threadId"
+        FROM projection_threads
+        WHERE worktree_path = ${worktreePath}
+          AND deleted_at IS NULL
+        ORDER BY created_at ASC, thread_id ASC
       `,
   });
 
@@ -1904,13 +1922,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     };
   });
 
-  const recallConversationMemory: ProjectionSnapshotQueryShape["recallConversationMemory"] =
-    (input) =>
-      recallMemory(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlError("ProjectionSnapshotQuery.recallConversationMemory:query"),
-        ),
-      );
+  const recallConversationMemory: ProjectionSnapshotQueryShape["recallConversationMemory"] = (
+    input,
+  ) =>
+    recallMemory(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlError("ProjectionSnapshotQuery.recallConversationMemory:query"),
+      ),
+    );
 
   const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
     (workspaceRoot) =>
@@ -1974,6 +1993,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
         Effect.map(Option.map((row) => row.threadId)),
       );
+
+  const listThreadIdsByWorktreePath: ProjectionSnapshotQueryShape["listThreadIdsByWorktreePath"] = (
+    worktreePath,
+  ) =>
+    listThreadIdRowsByWorktreePath({ worktreePath }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.listThreadIdsByWorktreePath:query",
+          "ProjectionSnapshotQuery.listThreadIdsByWorktreePath:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.map((row) => row.threadId)),
+    );
 
   const getThreadCheckpointContext: ProjectionSnapshotQueryShape["getThreadCheckpointContext"] = (
     threadId,
@@ -2299,6 +2331,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadShellById,
     getThreadDetailById,
     getThreadDetailSnapshot,
+    listThreadIdsByWorktreePath,
   } satisfies ProjectionSnapshotQueryShape;
 });
 
