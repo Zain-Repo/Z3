@@ -1,3 +1,5 @@
+import { isElectron } from "~/env";
+import { isWindowsPlatform } from "~/lib/utils";
 export type SettingsPath =
   | "/settings/general"
   | "/settings/appearance"
@@ -13,6 +15,12 @@ export interface SettingsSearchItem {
   readonly title: string;
   readonly to: SettingsPath;
   readonly targetId?: string;
+  // Its row only renders in the desktop app, so a browser result would land on
+  // an anchor that isn't there.
+  readonly desktopOnly?: boolean;
+  // Its row only renders on Windows desktop, so other desktop platforms must
+  // not expose a result that points to a missing anchor.
+  readonly windowsOnly?: boolean;
 }
 
 /**
@@ -168,6 +176,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "sidebar-v2",
   },
   {
+    id: "wsl-backend",
+    title: "WSL backend",
+    to: "/settings/connections",
+    desktopOnly: true,
+    windowsOnly: true,
+  },
+  {
     id: "archive",
     title: "Archived threads",
     to: "/settings/archived",
@@ -209,5 +224,11 @@ export function searchSettings(
   const normalizedQuery = normalizeSearchText(query);
   if (normalizedQuery.length === 0) return [];
 
-  return items.filter((item) => normalizeSearchText(item.title).includes(normalizedQuery));
+  return items.filter(
+    (item) =>
+      (isElectron || item.desktopOnly !== true) &&
+      (!item.windowsOnly ||
+        isWindowsPlatform(typeof navigator === "undefined" ? "" : navigator.platform)) &&
+      normalizeSearchText(item.title).includes(normalizedQuery),
+  );
 }

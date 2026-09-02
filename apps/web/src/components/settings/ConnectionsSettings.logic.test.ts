@@ -1,6 +1,11 @@
 import type { DesktopWslState } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { applyWslEnableSelection } from "./ConnectionsSettings.logic";
+import {
+  applyWslEnableSelection,
+  isQrShareableEndpoint,
+  isWslSettingsRowVisible,
+  selectQrEndpointOption,
+} from "./ConnectionsSettings.logic";
 
 const baseWslState: DesktopWslState = {
   enabled: false,
@@ -10,6 +15,25 @@ const baseWslState: DesktopWslState = {
   distros: [],
   preflightError: null,
 };
+
+describe("isWslSettingsRowVisible", () => {
+  it("shows the retry row when the WSL state failed to load", () => {
+    expect(isWslSettingsRowVisible({ state: null, error: "load failed" })).toBe(true);
+  });
+
+  it("hides an unavailable and unused WSL snapshot", () => {
+    expect(
+      isWslSettingsRowVisible({
+        state: { ...baseWslState, available: false, wslOnly: false },
+        error: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows an available WSL snapshot", () => {
+    expect(isWslSettingsRowVisible({ state: baseWslState, error: null })).toBe(true);
+  });
+});
 
 describe("applyWslEnableSelection", () => {
   it("clears WSL-only and updates the distro before enabling both backends", async () => {

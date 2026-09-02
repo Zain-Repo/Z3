@@ -1720,6 +1720,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '2026-05-01T00:00:13.000Z'
           ),
           (
+            'message-orphan-assistant',
+            'thread-active',
+            NULL,
+            'assistant',
+            'Orphan assistant needle must not be searchable.',
+            0,
+            '2026-05-01T00:00:13.500Z',
+            '2026-05-01T00:00:13.500Z'
+          ),
+          (
             'message-interim',
             'thread-active',
             'turn-active',
@@ -1797,6 +1807,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       assert.deepStrictEqual(
         (yield* snapshotQuery.searchThreads({ query: "interim needle" })).matches,
+        [],
+      );
+      assert.deepStrictEqual(
+        (yield* snapshotQuery.searchThreads({ query: "orphan assistant needle" })).matches,
         [],
       );
       assert.deepStrictEqual(
