@@ -739,6 +739,7 @@ const buildAppUnderTest = (options?: {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+          listThreadIdsByWorktreePath: () => Effect.succeed([]),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
@@ -5343,6 +5344,49 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(diffPreview.sources[0]?.diff, "dirty-diff");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("refuses vcs.removeWorktree while a thread still references the worktree", () =>
+    Effect.gen(function* () {
+      let removeCalls = 0;
+      yield* buildAppUnderTest({
+        config: {
+          cwd: "/tmp/repo",
+        },
+        layers: {
+          gitVcsDriver: {
+            removeWorktree: () =>
+              Effect.sync(() => {
+                removeCalls += 1;
+              }),
+          },
+          projectionSnapshotQuery: {
+            // An archived thread still counts: any non-deleted thread at the
+            // path keeps the worktree alive.
+            listThreadIdsByWorktreePath: () =>
+              Effect.succeed([ThreadId.make("thread-archived-owner")]),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsRemoveWorktree]({ cwd: "/tmp/repo", path: "/tmp/wt" }),
+        ).pipe(Effect.result),
+      );
+
+      assertFailure(
+        result,
+        new GitCommandError({
+          operation: "ws.vcsRemoveWorktree",
+          command: "git",
+          cwd: "/tmp/repo",
+          detail: "refused to remove worktree /tmp/wt: 1 thread(s) still reference it",
+        }),
+      );
+      assert.equal(removeCalls, 0);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

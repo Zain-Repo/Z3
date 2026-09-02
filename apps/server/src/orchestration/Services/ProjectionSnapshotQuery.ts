@@ -187,6 +187,15 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailSnapshot: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
+
+  /**
+   * Read the ids of all non-deleted threads (archived included) whose
+   * worktree path matches exactly. Guards worktree removal while any thread
+   * still references the path.
+   */
+  readonly listThreadIdsByWorktreePath: (
+    worktreePath: string,
+  ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionRepositoryError>;
 }
 
 /**
