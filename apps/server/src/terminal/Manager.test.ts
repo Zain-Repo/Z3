@@ -991,6 +991,173 @@ it.layer(
     }),
   );
 
+  it.effect("clears Kitty keyboard flags a dead process left in inherited history", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      // Codex CLI pushes event-type reporting, then the shell dies before it
+      // can pop (server restart). The query is stripped; the push survives.
+      process.emitData("prompt % codex\n\u001b[>7u\u001b[?u");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+      assert.equal(reopened.history, "prompt % codex\n\u001b[>7u\u001b[=0;1u");
+    }),
+  );
+
+  it.effect("resets mouse and focus modes a dead process left in inherited history", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      // Claude Code tracks mouse motion and focus; replaying that into a fresh
+      // shell would make the client send reports the shell echoes as junk.
+      process.emitData("prompt % claude\n\u001b[?1004h\u001b[?1003;1006h");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      assert.equal(
+        reopened.history,
+        "prompt % claude\n\u001b[?1004h\u001b[?1003;1006h\u001b[?1004l\u001b[?1003l\u001b[?1006l",
+      );
+    }),
+  );
+
+  it.effect("leaves the alternate screen before restoring the cursor in inherited history", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      // DECSTR leaves every tracked mode alone in libghostty-vt, so it must not
+      // be mistaken for a reset.
+      process.emitData("prompt % nvim\n\u001b[?25l\u001b[?1049h\u001b[!p");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      assert.equal(
+        reopened.history,
+        "prompt % nvim\n\u001b[?25l\u001b[?1049h\u001b[!p\u001b[?1049l\u001b[?25h",
+      );
+    }),
+  );
+
+  it.effect("leaves inherited history alone when its process restored the terminal", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      // A clean exit pops its flags and resets its modes; a later RIS wipes
+      // everything before it, including a dangling alternate screen.
+      process.emitData("\u001b[>7u\u001b[?1003h\u001b[<u\u001b[?1003l");
+      process.emitData("\u001b[?1049h\u001b[=1;1u\u001bc");
+      process.emitData("prompt % ");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      assert.equal(
+        reopened.history,
+        "\u001b[>7u\u001b[?1003h\u001b[<u\u001b[?1003l\u001b[?1049h\u001b[=1;1u\u001bcprompt % ",
+      );
+    }),
+  );
+
+  it.effect("neutralizes inherited history once across repeated restarts", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      // Two pushes with one pop, as a TUI that spawned a child and then died leaves.
+      process.emitData("\u001b[>1u\u001b[>7u\u001b[<u\u001b[?1004h");
+
+      yield* manager.close({ threadId: "thread-1" });
+      const first = yield* manager.open(openInput());
+      yield* manager.close({ threadId: "thread-1" });
+      const second = yield* manager.open(openInput());
+
+      assert.equal(
+        first.history,
+        "\u001b[>1u\u001b[>7u\u001b[<u\u001b[?1004h\u001b[?1004l\u001b[=0;1u",
+      );
+      assert.equal(second.history, first.history);
+    }),
+  );
+
+  it.effect("strips replayable CSI and DCS traffic while preserving setters", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      process.emitData("prompt ");
+      // DECRQM/DECRPM, XTVERSION, and kitty-keyboard CSI query/reply traffic.
+      process.emitData("\u001b[?2026$p\u001b[?2026;2$y\u001b[>q\u001b[?u\u001b[?31u");
+      // DECRQSS and XTGETTCAP query/reply traffic in 7-bit DCS form.
+      process.emitData("\u001bP$q m\u001b\\\u001bP1$r0m\u001b\\");
+      process.emitData("\u001bP+q544e\u001b\\\u001bP1+r544e=1b\u001b\\");
+      // The same DCS traffic in 8-bit form.
+      process.emitData("\u0090$q m\u009c\u00901$r0m\u009c");
+      process.emitData("\u0090+q544e\u009c\u00901+r544e=1b\u009c");
+      // Setters and cursor movement share final bytes with query families but
+      // have visible terminal-state value and must survive replay.
+      process.emitData('\u001b[!p\u001b["p\u001b[4 q\u001b[u');
+      process.emitData("done\n");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      assert.equal(reopened.history, 'prompt \u001b[!p\u001b["p\u001b[4 q\u001b[udone\n');
+    }),
+  );
+
+  it.effect("handles CSI and DCS query sequences split across output chunks", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      process.emitData("before ");
+      process.emitData("\u001b[?2026$");
+      process.emitData("pafter ");
+      process.emitData("\u001bP$q ");
+      process.emitData("m\u001b");
+      process.emitData("\\after ");
+      process.emitData("\u009b?3");
+      process.emitData("1uafter ");
+      process.emitData("\u0090+q544e");
+      process.emitData("\u009cafter\n");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      assert.equal(reopened.history, "before after after after after\n");
+    }),
+  );
+
   it.effect(
     "preserves clear and style control sequences while dropping chunk-split query traffic",
     () =>
