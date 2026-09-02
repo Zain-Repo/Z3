@@ -28,6 +28,7 @@ export interface OpenRouterReasoningMetadata {
 
 const OPENROUTER_GLM_5_3_FLASH_MODEL = "z-ai/glm-5.3-flash";
 const OPENROUTER_BASETEN_PROVIDER = "baseten";
+const OPENROUTER_MUSE_IMAGE_MODEL = "meta/muse-image";
 
 export interface OpenRouterImageModel extends OpenRouterModel {
   readonly imageGeneration: {
@@ -203,6 +204,55 @@ export function normalizeOpenRouterImageMimeType(mimeType: string): string | und
   if (!normalized) return undefined;
   if (normalized === "image/jpg") return "image/jpeg";
   return OPENROUTER_SUPPORTED_IMAGE_MIME_TYPES.has(normalized) ? normalized : undefined;
+}
+
+/**
+ * Detects the common image encodings returned by image providers. OpenRouter
+ * normally supplies `media_type`, but its image contract permits omitting it
+ * when the upstream format cannot be identified.
+ */
+export function detectOpenRouterImageMimeType(bytes: Uint8Array): string | undefined {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 6 &&
+    ((bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) ||
+      (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes.length >= 12 &&
+        bytes[8] === 0x57 &&
+        bytes[9] === 0x45 &&
+        bytes[10] === 0x42 &&
+        bytes[11] === 0x50))
+  ) {
+    return bytes[0] === 0x47 ? "image/gif" : "image/webp";
+  }
+  return undefined;
+}
+
+/** Resolves the MIME type used when serving a persisted generated image. */
+export function resolveOpenRouterImageMimeType(
+  mimeType: string | undefined,
+  bytes: Uint8Array,
+): string {
+  return (
+    detectOpenRouterImageMimeType(bytes) ??
+    (mimeType === undefined ? undefined : normalizeOpenRouterImageMimeType(mimeType)) ??
+    "image/png"
+  );
 }
 
 export interface OpenRouterCompletionMessage {
@@ -1282,6 +1332,10 @@ export function sanitizeOpenRouterImageInput(
 export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(function* (
   input: OpenRouterImageGenerationInput,
 ): Effect.fn.Return<OpenRouterImageGenerationResult, OpenRouterApiError> {
+  // Muse Image is listed by OpenRouter as a buffered-only image endpoint.
+  // Do not let a client payload force the SSE parser for this model.
+  const isMuseImage = input.model === OPENROUTER_MUSE_IMAGE_MODEL;
+  const stream = isMuseImage ? undefined : input.stream;
   yield* Effect.try({
     try: () => validateImageGenerationInput(input),
     catch: (cause) =>
@@ -1290,31 +1344,33 @@ export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(func
   let request = HttpClientRequest.post(endpointUrl(input.baseUrl, "images")).pipe(
     HttpClientRequest.bearerToken(input.apiKey),
     HttpClientRequest.setHeader("Content-Type", "application/json"),
+    HttpClientRequest.setHeader("Accept", stream ? "text/event-stream" : "application/json"),
   );
-  if (input.stream) {
-    request = request.pipe(HttpClientRequest.setHeader("Accept", "text/event-stream"));
-  }
   request = request.pipe(
     HttpClientRequest.bodyJsonUnsafe({
       model: input.model,
       prompt: input.prompt,
-      ...(input.stream !== undefined ? { stream: input.stream } : {}),
-      ...(input.n !== undefined ? { n: input.n } : {}),
-      ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
-      ...(input.aspectRatio !== undefined ? { aspect_ratio: input.aspectRatio } : {}),
-      ...(input.size !== undefined ? { size: input.size } : {}),
-      ...(input.quality !== undefined ? { quality: input.quality } : {}),
-      ...(input.outputFormat !== undefined ? { output_format: input.outputFormat } : {}),
-      ...(input.background !== undefined ? { background: input.background } : {}),
-      ...(input.outputCompression !== undefined
+      ...(stream !== undefined ? { stream } : {}),
+      ...(!isMuseImage && input.n !== undefined ? { n: input.n } : {}),
+      ...(!isMuseImage && input.resolution !== undefined ? { resolution: input.resolution } : {}),
+      ...(!isMuseImage && input.aspectRatio !== undefined
+        ? { aspect_ratio: input.aspectRatio }
+        : {}),
+      ...(!isMuseImage && input.size !== undefined ? { size: input.size } : {}),
+      ...(!isMuseImage && input.quality !== undefined ? { quality: input.quality } : {}),
+      ...(!isMuseImage && input.outputFormat !== undefined
+        ? { output_format: input.outputFormat }
+        : {}),
+      ...(!isMuseImage && input.background !== undefined ? { background: input.background } : {}),
+      ...(!isMuseImage && input.outputCompression !== undefined
         ? { output_compression: input.outputCompression }
         : {}),
-      ...(input.seed !== undefined ? { seed: input.seed } : {}),
+      ...(!isMuseImage && input.seed !== undefined ? { seed: input.seed } : {}),
       ...(input.inputReferences !== undefined ? { input_references: input.inputReferences } : {}),
       ...(input.provider !== undefined ? { provider: input.provider } : {}),
     }),
   );
-  const payload = yield* (input.stream ? requestStreamingImage : requestJson)({
+  const payload = yield* (stream ? requestStreamingImage : requestJson)({
     httpClient: input.httpClient,
     request,
   });

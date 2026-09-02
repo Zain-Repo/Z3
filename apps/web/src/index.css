@@ -1199,8 +1199,16 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown ol,
 .chat-markdown blockquote,
 .chat-markdown pre,
+.chat-markdown .katex-display,
 .chat-markdown .chat-markdown-table-container {
   margin: 0.65rem 0;
+}
+
+.chat-markdown .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.125rem 0;
 }
 
 .chat-markdown h1,

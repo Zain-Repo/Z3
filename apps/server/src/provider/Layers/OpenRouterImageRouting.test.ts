@@ -93,6 +93,10 @@ describe("OpenRouter image model routing", () => {
   });
 
   it("returns undefined for a model with no endpoints", () => {
+    expect(resolveImageModelRouting("some-lab/new-image-model", undefined, [])).toBeUndefined();
+  });
+
+  it("lets Muse Image use OpenRouter routing when endpoint metadata is unavailable", () => {
     expect(resolveImageModelRouting("meta/muse-image", undefined, [])).toBeUndefined();
   });
 });

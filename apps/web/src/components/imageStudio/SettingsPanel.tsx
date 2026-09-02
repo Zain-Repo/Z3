@@ -209,7 +209,6 @@ export function SettingsPanel(props: {
   readonly selectedEndpoint: ImageGenerationModelEndpoints["endpoints"][number] | null;
   readonly providerOptionsJson: string;
   readonly onProviderOptionsChange: (value: string) => void;
-  readonly noAvailableEndpoints: boolean;
   readonly disabled: boolean;
 }) {
   const {
@@ -252,7 +251,6 @@ export function SettingsPanel(props: {
     selectedEndpoint,
     providerOptionsJson,
     onProviderOptionsChange,
-    noAvailableEndpoints,
     disabled,
   } = props;
 
@@ -512,22 +510,17 @@ export function SettingsPanel(props: {
         </label>
       ) : null}
 
-      {noAvailableEndpoints ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          This model has no available provider endpoints on OpenRouter, so generation is
-          unavailable.
-        </p>
-      ) : null}
-
       <div className="flex items-center gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground/75">
         <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />
         <span>
           {isLoadingEndpoints
             ? "Checking provider endpoints..."
             : modelEndpoints
-              ? `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${
-                  modelEndpoints.endpoints.length === 1 ? "" : "s"
-                }${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
+              ? modelEndpoints.endpoints.length === 0
+                ? "Provider endpoint details unavailable; using model defaults"
+                : `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${
+                    modelEndpoints.endpoints.length === 1 ? "" : "s"
+                  }${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
               : "Provider endpoint details unavailable"}
         </span>
         {modelEndpoints ? (
@@ -540,4 +533,3 @@ export function SettingsPanel(props: {
     </section>
   );
 }
-

@@ -35,9 +35,12 @@ import type { Components, Options as ReactMarkdownOptions } from "react-markdown
 import ReactMarkdown from "react-markdown";
 import { defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import "katex/dist/katex.min.css";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
@@ -143,7 +146,12 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   attributes: {
     ...defaultSchema.attributes,
     "*": (defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
-    code: [...(defaultSchema.attributes?.code ?? []), "dataCodeMeta", "dataInlineCode"],
+    code: [
+      ...(defaultSchema.attributes?.code ?? []),
+      "dataCodeMeta",
+      "dataInlineCode",
+      ["className", /^language-./, "math-inline", "math-display"],
+    ],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -151,25 +159,30 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
 
-const CHAT_MARKDOWN_REMARK_PLUGINS = [
+export const CHAT_MARKDOWN_REMARK_PLUGINS: NonNullable<ReactMarkdownOptions["remarkPlugins"]> = [
   remarkGfm,
+  remarkMath,
   remarkNormalizeListItemIndentation,
   remarkPreserveCodeMeta,
   remarkTagInlineCode,
-] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+];
 
-const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
+export const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS: NonNullable<
+  ReactMarkdownOptions["remarkPlugins"]
+> = [
   remarkGfm,
+  remarkMath,
   remarkNormalizeListItemIndentation,
   remarkBreaks,
   remarkPreserveCodeMeta,
   remarkTagInlineCode,
-] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+];
 
-const CHAT_MARKDOWN_REHYPE_PLUGINS = [
+export const CHAT_MARKDOWN_REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions["rehypePlugins"]> = [
   rehypeRaw,
   [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
-] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+  rehypeKatex,
+];
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);

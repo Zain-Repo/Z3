@@ -25,7 +25,7 @@ import {
   fetchOpenRouterImageModelEndpoints,
   fetchOpenRouterImageModels,
   generateOpenRouterImage,
-  normalizeOpenRouterImageMimeType,
+  resolveOpenRouterImageMimeType,
   resolveOpenRouterImageCapabilities,
   sanitizeOpenRouterImageInput,
   type OpenRouterImageGenerationInput,
@@ -297,7 +297,8 @@ const make = Effect.gen(function* () {
         // Resolve the model's endpoint capabilities so the request only carries
         // parameters the routed provider accepts, and apply the curated
         // provider routing per model. When OpenRouter cannot describe the
-        // model, send the request unchanged and let OpenRouter validate it.
+        // model, including when it returns no endpoint metadata, send the
+        // request unchanged and let OpenRouter validate it.
         const endpoints = yield* fetchOpenRouterImageModelEndpoints(
           httpClient,
           connection.baseUrl,
@@ -307,17 +308,12 @@ const make = Effect.gen(function* () {
           Effect.result,
         );
         const resolvedEndpoints = Result.getOrUndefined(endpoints);
-        if (resolvedEndpoints !== undefined && resolvedEndpoints.endpoints.length === 0) {
-          return yield* new ImageGenerationServiceError({
-            message: `Model ${input.model} has no available provider endpoints on OpenRouter.`,
-          });
-        }
         const routedProvider =
           resolvedEndpoints === undefined
             ? input.provider
             : resolveImageModelRouting(input.model, input.provider, resolvedEndpoints.endpoints);
         const capabilities =
-          resolvedEndpoints === undefined
+          resolvedEndpoints === undefined || resolvedEndpoints.endpoints.length === 0
             ? undefined
             : resolveOpenRouterImageCapabilities(resolvedEndpoints, routedProvider);
         const candidate: OpenRouterImageGenerationInput = {
@@ -363,9 +359,8 @@ const make = Effect.gen(function* () {
         `;
         const assetRows: Array<AssetRow> = [];
         for (const image of result.data) {
-          const mediaType =
-            normalizeOpenRouterImageMimeType(image.mediaType ?? "image/png") ?? "image/png";
           const bytes = Buffer.from(image.b64Json, "base64");
+          const mediaType = resolveOpenRouterImageMimeType(image.mediaType, bytes);
           const assetId = yield* crypto.randomUUIDv4;
           yield* sql`
             INSERT INTO projection_image_assets

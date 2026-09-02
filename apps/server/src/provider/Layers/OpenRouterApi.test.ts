@@ -11,6 +11,7 @@ import {
   createOpenRouterVideo,
   generateOpenRouterImage,
   normalizeOpenRouterImageMimeType,
+  resolveOpenRouterImageMimeType,
   parseOpenRouterImageModels,
   parseOpenRouterModels,
   parseOpenRouterVideoModels,
@@ -313,6 +314,55 @@ describe("parseOpenRouterModels", () => {
           allow_fallbacks: true,
         });
       }),
+    );
+  });
+
+  it.effect("uses a buffered response for Muse Image", () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const client = HttpClient.make((request) => {
+      const body = request.body as { readonly body?: Uint8Array };
+      if (body.body) {
+        requestBody = JSON.parse(new TextDecoder().decode(body.body)) as Record<string, unknown>;
+      }
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(JSON.stringify({ data: [{ b64_json: "AQID" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+    });
+
+    return generateOpenRouterImage({
+      httpClient: client,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "test-key",
+      model: "meta/muse-image",
+      prompt: "A quiet studio",
+      stream: true,
+      n: 2,
+      outputFormat: "webp",
+    }).pipe(
+      Effect.map((result) => {
+        expect(requestBody).toEqual({ model: "meta/muse-image", prompt: "A quiet studio" });
+        expect(result.data[0]?.b64Json).toBe("AQID");
+      }),
+    );
+  });
+
+  it("resolves omitted image MIME types from returned bytes", () => {
+    expect(
+      resolveOpenRouterImageMimeType(
+        undefined,
+        Uint8Array.from([
+          0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+        ]),
+      ),
+    ).toBe("image/webp");
+    expect(resolveOpenRouterImageMimeType("image/png", Uint8Array.from([0xff, 0xd8, 0xff]))).toBe(
+      "image/jpeg",
     );
   });
 

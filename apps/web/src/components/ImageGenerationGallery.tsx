@@ -45,7 +45,7 @@ export function PendingGenerationCard({
       <div
         style={{ aspectRatio: imageGridAspectRatio(input, count) }}
         className={cn(
-          "relative grid overflow-hidden bg-muted/35",
+          "relative grid auto-rows-fr overflow-hidden bg-muted/35",
           count > 1 ? "grid-cols-2" : "grid-cols-1",
         )}
       >
@@ -170,7 +170,7 @@ export const GenerationCard = memo(function GenerationCard({
       <div
         style={{ aspectRatio: imageGridAspectRatio(generation.input, generation.assets.length) }}
         className={cn(
-          "grid overflow-hidden bg-muted/35",
+          "grid auto-rows-fr overflow-hidden bg-muted/35",
           generation.assets.length > 1 ? "grid-cols-2" : "grid-cols-1",
         )}
       >

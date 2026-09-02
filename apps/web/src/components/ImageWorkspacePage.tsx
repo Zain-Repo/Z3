@@ -126,7 +126,6 @@ export function ImageWorkspacePage() {
   const { min: minReferenceImages, max: maxReferenceImages } = referenceImageBounds(
     supportedParameters.input_references,
   );
-  const noAvailableEndpoints = modelEndpoints !== null && modelEndpoints.endpoints.length === 0;
   const countOptions = countOptionsFor(supportedParameters.n);
 
   const buildImageGenerationInput = useCallback(() => {
@@ -707,7 +706,6 @@ export function ImageWorkspacePage() {
                     setProviderOverride(undefined);
                     setProviderOptionsJson(value);
                   }}
-                  noAvailableEndpoints={noAvailableEndpoints}
                   disabled={isGenerating}
                 />
                 <Button
@@ -716,8 +714,7 @@ export function ImageWorkspacePage() {
                     isGenerating ||
                     isLoading ||
                     !modelId ||
-                    prompt.trim().length === 0 ||
-                    noAvailableEndpoints
+                    prompt.trim().length === 0
                   }
                   className="h-11 w-full gap-2 text-base"
                 >

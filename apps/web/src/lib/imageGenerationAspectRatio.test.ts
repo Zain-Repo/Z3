@@ -22,5 +22,6 @@ describe("image generation aspect ratios", () => {
     assert.equal(imageGridAspectRatio({ aspectRatio: "16:9" }, 2), 32 / 9);
     assert.equal(imageGridAspectRatio({ aspectRatio: "16:9" }, 4), 16 / 9);
     assert.equal(imageGridAspectRatio({ aspectRatio: "9:16" }, 3), 9 / 16);
+    assert.equal(imageGridAspectRatio({ aspectRatio: "1:1" }, 5), 2 / 3);
   });
 });
