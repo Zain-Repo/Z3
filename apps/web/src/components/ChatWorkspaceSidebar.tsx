@@ -168,7 +168,7 @@ function ChatSidebarThreadRow({
       )}
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring max-sm:opacity-100 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
           aria-label={`Actions for ${title}`}
         >
           <MoreHorizontalIcon className="size-4" />
@@ -273,14 +273,16 @@ function ChatSidebarProjectRow({
           </motion.span>
         </AnimatePresence>
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        {project.isPinned ? <PinIcon className="size-3 shrink-0 text-sidebar-muted-foreground" /> : null}
+        {project.isPinned ? (
+          <PinIcon className="size-3 shrink-0 text-sidebar-muted-foreground" />
+        ) : null}
         <span className="text-[10px] font-normal text-sidebar-muted-foreground/70 tabular-nums">
           {threadCount}
         </span>
       </SidebarMenuButton>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sidebar-ring max-sm:opacity-100 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
           aria-label={`Actions for ${project.name}`}
         >
           <MoreHorizontalIcon className="size-4" />
@@ -576,14 +578,17 @@ export default function ChatWorkspaceSidebar() {
     [availableEnvironmentId, deleteChatProject],
   );
 
-  const handleNewChat = useCallback(async (projectId: string | null = null) => {
-    if (!isElectron || !availableEnvironmentId) return;
-    // A plain new chat is not project-scoped. Project rows pass their id
-    // explicitly so selecting a project remains an intentional action.
-    setActiveChatProject(availableEnvironmentId, projectId);
-    if (isMobile) setOpenMobile(false);
-    await router.navigate({ to: "/new" });
-  }, [availableEnvironmentId, isMobile, router, setActiveChatProject, setOpenMobile]);
+  const handleNewChat = useCallback(
+    async (projectId: string | null = null) => {
+      if (!isElectron || !availableEnvironmentId) return;
+      // A plain new chat is not project-scoped. Project rows pass their id
+      // explicitly so selecting a project remains an intentional action.
+      setActiveChatProject(availableEnvironmentId, projectId);
+      if (isMobile) setOpenMobile(false);
+      await router.navigate({ to: "/new" });
+    },
+    [availableEnvironmentId, isMobile, router, setActiveChatProject, setOpenMobile],
+  );
 
   const navigateToThread = useCallback(
     (environmentId: EnvironmentId, threadId: ThreadId) => {
@@ -864,9 +869,7 @@ export default function ChatWorkspaceSidebar() {
                 initial={isReducedMotion ? false : { opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={isReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
-                transition={
-                  isReducedMotion ? { duration: 0 } : { duration: 0.16, ease: "easeOut" }
-                }
+                transition={isReducedMotion ? { duration: 0 } : { duration: 0.16, ease: "easeOut" }}
                 className="grid gap-1"
               >
                 <SidebarMenu className="gap-0.5">
