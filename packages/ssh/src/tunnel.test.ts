@@ -103,6 +103,16 @@ describe("ssh tunnel scripts", () => {
     assert.include(script, "function satisfiesSemverRange");
     assert.include(script, "satisfiesSemverRange(rawVersion, range)");
     assert.include(script, 'prepend_path_if_dir "$VOLTA_HOME/bin"');
+    assert.include(script, 'prepend_path_if_dir "$VP_HOME/bin"');
+    assert.include(script, 'prepend_path_if_dir "$HOME/.vite-plus/bin"');
+    assert.include(
+      script,
+      'prepend_path_if_dir "${XDG_DATA_HOME:-$HOME/.local/share}/vite-plus/bin"',
+    );
+    assert.isBelow(
+      script.indexOf('prepend_path_if_dir "$VP_HOME/bin"'),
+      script.indexOf('prepend_path_if_dir "$VOLTA_HOME/bin"'),
+    );
     assert.include(script, 'prepend_path_if_dir "$HOME/.asdf/shims"');
     assert.include(script, 'prepend_path_if_dir "$HOME/.local/share/mise/shims"');
     assert.include(script, 'eval "$(fnm env --shell bash)"');
