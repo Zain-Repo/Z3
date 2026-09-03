@@ -214,6 +214,28 @@ export function SettingsPageContainer({
     <SettingsSearchTargetProvider targetId={targetId} onTargetHandled={clearTargetHash}>
       <div className="settings-page-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto px-4 pt-10 pb-7 sm:px-8 sm:pt-12 sm:pb-10">
         <div className={cn("mx-auto flex w-full max-w-4xl flex-col gap-12", className)}>
+          <div className="relative overflow-hidden rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-background to-background px-4 py-4 shadow-sm shadow-primary/5 sm:px-5 sm:py-5">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-8 -top-10 size-28 rounded-full bg-primary/10 blur-2xl"
+            />
+            <div className="relative flex items-start gap-3">
+              <div
+                aria-hidden="true"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold tracking-[-0.04em] text-primary-foreground shadow-sm"
+              >
+                Z3
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+                  Z3 settings
+                </p>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                  Tune your workspace, tools, and connection preferences.
+                </p>
+              </div>
+            </div>
+          </div>
           {children}
         </div>
       </div>

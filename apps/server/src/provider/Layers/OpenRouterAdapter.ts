@@ -34,6 +34,7 @@ import {
   type OpenRouterModel,
   type OpenRouterToolCall,
   type OpenRouterToolDefinition,
+  openRouterWebSearchRequestCount,
   normalizeOpenRouterImageMimeType,
 } from "./OpenRouterApi.ts";
 import {
@@ -235,6 +236,22 @@ function parseToolArguments(raw: string): { readonly value?: unknown; readonly e
   } catch {
     return { error: "The model returned malformed JSON tool arguments." };
   }
+}
+
+function mergeAnnotations(
+  current: ReadonlyArray<unknown> | undefined,
+  incoming: ReadonlyArray<unknown> | undefined,
+): ReadonlyArray<unknown> | undefined {
+  if (!incoming || incoming.length === 0) return current;
+  const merged = [...(current ?? [])];
+  const seen = new Set(merged.map((annotation) => JSON.stringify(annotation)));
+  for (const annotation of incoming) {
+    const key = JSON.stringify(annotation);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(annotation);
+  }
+  return merged;
 }
 
 const buildOpenAICompatibleUserContent = Effect.fn("buildOpenAICompatibleUserContent")(function* (
@@ -494,7 +511,7 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
                     content += chunk.delta;
                     resolvedModel ??= chunk.model;
                     if (chunk.usage !== undefined) usage = chunk.usage;
-                    if (chunk.annotations !== undefined) annotations = chunk.annotations;
+                    annotations = mergeAnnotations(annotations, chunk.annotations);
                     for (const toolCallDelta of chunk.toolCallDeltas ?? []) {
                       const current = toolCallParts.get(toolCallDelta.index) ?? {
                         id: undefined,
@@ -531,6 +548,41 @@ export const makeOpenAICompatibleAdapter = (config: OpenAICompatibleAdapterConfi
                 }),
             ),
           );
+        const webSearchRequests = openRouterWebSearchRequestCount(usage);
+        if (webSearchRequests > 0) {
+          const webSearchItemId = RuntimeItemId.make(`${config.idPrefix}-web-search-${turnId}`);
+          const searchedAt = DateTime.formatIso(yield* DateTime.now);
+          yield* publish({
+            type: "item.started",
+            ...stamp(searchedAt),
+            provider: PROVIDER,
+            threadId: state.session.threadId,
+            turnId,
+            itemId: webSearchItemId,
+            payload: {
+              itemType: "web_search",
+              status: "inProgress",
+              title: "Web search",
+              data: { requestCount: webSearchRequests },
+            },
+          });
+          yield* publish({
+            type: "item.completed",
+            ...stamp(searchedAt),
+            provider: PROVIDER,
+            threadId: state.session.threadId,
+            turnId,
+            itemId: webSearchItemId,
+            payload: {
+              itemType: "web_search",
+              status: "completed",
+              title: "Web search",
+              detail: `${webSearchRequests} search${webSearchRequests === 1 ? "" : "es"} performed`,
+              data: { requestCount: webSearchRequests },
+            },
+          });
+        }
+
         if (toolCallParts.size > 0) {
           const toolCalls: Array<OpenRouterToolCall> = [];
           for (const [index, part] of [...toolCallParts.entries()].sort(

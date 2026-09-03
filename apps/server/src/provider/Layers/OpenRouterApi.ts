@@ -291,6 +291,24 @@ export interface OpenRouterToolDefinition {
   };
 }
 
+export type OpenRouterServerToolType = "openrouter:web_search" | "openrouter:web_fetch";
+
+export interface OpenRouterServerToolDefinition {
+  readonly type: OpenRouterServerToolType;
+  readonly parameters?: Record<string, unknown>;
+}
+
+export const OPENROUTER_WEB_SEARCH_TOOL: OpenRouterServerToolDefinition = {
+  type: "openrouter:web_search",
+};
+
+export const OPENROUTER_WEB_FETCH_TOOL: OpenRouterServerToolDefinition = {
+  type: "openrouter:web_fetch",
+};
+
+/** Keep server-side search work bounded so one turn cannot create unbounded cost or latency. */
+export const OPENROUTER_MAX_SERVER_TOOL_CALLS = 5;
+
 export interface OpenRouterModelOptionSelection {
   readonly id: string;
   readonly value: string | boolean;
@@ -305,6 +323,14 @@ export interface OpenRouterCompletionChunk {
   readonly usage?: unknown;
   readonly annotations?: ReadonlyArray<unknown>;
   readonly toolCallDeltas?: ReadonlyArray<OpenRouterToolCallDelta>;
+}
+
+export function openRouterWebSearchRequestCount(usage: unknown): number {
+  if (!Predicate.isObject(usage) || !Predicate.isObject(usage.server_tool_use)) return 0;
+  const requestCount = usage.server_tool_use.web_search_requests;
+  return typeof requestCount === "number" && Number.isSafeInteger(requestCount) && requestCount > 0
+    ? requestCount
+    : 0;
 }
 
 export interface OpenRouterEmbeddingInput {
@@ -1463,7 +1489,7 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
     readonly apiKey: string;
     readonly model: string;
     readonly messages: ReadonlyArray<OpenRouterCompletionMessage>;
-    readonly tools?: ReadonlyArray<OpenRouterToolDefinition>;
+    readonly tools?: ReadonlyArray<OpenRouterToolDefinition | OpenRouterServerToolDefinition>;
     readonly modelCapabilities?: Pick<OpenRouterModel, "supportedParameters" | "reasoning">;
     readonly modelOptions?: ReadonlyArray<OpenRouterModelOptionSelection>;
   }): Effect.fn.Return<
@@ -1532,11 +1558,11 @@ export const streamOpenRouterCompletion = Effect.fn("streamOpenRouterCompletion"
             stream_options: { include_usage: true },
             store: false,
             // OpenRouter selects native search or its managed fallback for the model.
-            tools: [
-              { type: "openrouter:web_search" },
-              { type: "openrouter:web_fetch" },
-              ...localTools,
-            ],
+            tools: [OPENROUTER_WEB_SEARCH_TOOL, OPENROUTER_WEB_FETCH_TOOL, ...localTools],
+            // BaseTen rejects optional tool controls when GLM 5.3 Flash is pinned to it.
+            ...(input.model !== OPENROUTER_GLM_5_3_FLASH_MODEL
+              ? { max_tool_calls: OPENROUTER_MAX_SERVER_TOOL_CALLS }
+              : {}),
             ...(input.modelCapabilities?.supportedParameters?.includes("tool_choice")
               ? { tool_choice: "auto" }
               : {}),

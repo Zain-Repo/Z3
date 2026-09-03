@@ -19,7 +19,25 @@ import {
   sanitizeOpenRouterImageInput,
   streamOpenRouterCompletion,
   createOpenRouterEmbeddings,
+  openRouterWebSearchRequestCount,
 } from "./OpenRouterApi.ts";
+
+describe("OpenRouter server-tool usage", () => {
+  it("reads valid web-search request counts and ignores malformed usage", () => {
+    expect(
+      openRouterWebSearchRequestCount({
+        server_tool_use: { web_search_requests: 3 },
+      }),
+    ).toBe(3);
+    expect(
+      openRouterWebSearchRequestCount({ server_tool_use: { web_search_requests: 0 } }),
+    ).toBe(0);
+    expect(
+      openRouterWebSearchRequestCount({ server_tool_use: { web_search_requests: 1.5 } }),
+    ).toBe(0);
+    expect(openRouterWebSearchRequestCount(undefined)).toBe(0);
+  });
+});
 
 it.effect("creates embeddings with the OpenRouter embeddings endpoint", () => {
   let requestBody: Record<string, unknown> | undefined;
@@ -1037,7 +1055,7 @@ describe("streamOpenRouterCompletion", () => {
       start(controller) {
         controller.enqueue(
           encoder.encode(
-            'data: {"choices":[{"delta":{"content":"Current answer","annotations":[{"type":"url_citation","url":"https://example.com"}]}}]}\n\ndata: [DONE]\n\n',
+            'data: {"choices":[{"delta":{"content":"Current answer","annotations":[{"type":"url_citation","url":"https://example.com"}]}}],"usage":{"server_tool_use":{"web_search_requests":2}}}\n\ndata: [DONE]\n\n',
           ),
         );
         controller.close();
@@ -1069,10 +1087,14 @@ describe("streamOpenRouterCompletion", () => {
       Effect.map((chunks) => {
         expect(requestBody).toMatchObject({
           tools: [{ type: "openrouter:web_search" }, { type: "openrouter:web_fetch" }],
+          max_tool_calls: 5,
         });
         expect(Array.from(chunks)[0]?.annotations).toEqual([
           { type: "url_citation", url: "https://example.com" },
         ]);
+        expect(Array.from(chunks)[0]?.usage).toEqual({
+          server_tool_use: { web_search_requests: 2 },
+        });
       }),
     );
   });
@@ -1139,7 +1161,7 @@ describe("streamOpenRouterCompletion", () => {
           ],
         });
         expect(requestBody).not.toHaveProperty("parallel_tool_calls");
-        expect(requestBody).not.toHaveProperty("max_tool_calls");
+        expect(requestBody).toHaveProperty("max_tool_calls", 5);
         expect(Array.from(chunks).flatMap((chunk) => chunk.toolCallDeltas ?? [])).toEqual([
           { index: 0, id: "call-1", name: "read_file", argumentsDelta: '{"path":"src/' },
           { index: 0, argumentsDelta: 'main.ts"}' },

@@ -64,6 +64,13 @@ OpenRouter server tools are also available:
 - `openrouter:web_search` searches the web and returns citation annotations.
 - `openrouter:web_fetch` fetches a specific page or documentation URL.
 
+Web search is model-directed: Z3 includes OpenRouter's `openrouter:web_search` server tool on
+every direct OpenRouter chat request, and OpenRouter decides whether a current-information lookup
+is needed. Search work is capped at five server-tool calls per turn on compatible routes. The GLM
+5.3 Flash BaseTen compatibility route omits that optional cap because the upstream route rejects
+it. When OpenRouter performs a search, Z3 records a **Web search** activity in the thread and
+keeps the returned citation metadata with the provider event stream.
+
 Tool calls are executed by the server and their results are sent back to OpenRouter so the model
 can continue the same turn. Paths are checked against the current workspace root, including the
 shared workspace filesystem's symlink and binary-file protections. File edits and commands are
@@ -82,10 +89,12 @@ Reads, searches, and listing never require approval. Accept-for-session decision
 prompts for that tool in the same session. Declined or cancelled calls return structured tool
 errors to the model, and interrupted sessions clear pending approvals safely.
 
-OpenRouter's `tools` and `tool_choice` parameters are sent only when the selected model advertises
-them. Requests containing local tools require provider routing to honor those parameters. The
-OpenRouter server-side `apply_patch` tool is not used because it is limited to the Responses API;
-Z3's local `apply_patch` tool provides workspace editing instead.
+OpenRouter's local function tools and `tool_choice` parameter are sent only when the selected model
+advertises them. The OpenRouter-managed web-search and web-fetch server tools are independent of
+that model capability check and remain available for any model supported by OpenRouter. Requests
+containing local tools require provider routing to honor those parameters. The OpenRouter
+server-side `apply_patch` tool is not used because it is limited to the Responses API; Z3's local
+`apply_patch` tool provides workspace editing instead.
 
 The direct driver still does not expose source-control text-generation helpers. Those operations
 report an explicit unsupported error rather than pretending they succeeded.

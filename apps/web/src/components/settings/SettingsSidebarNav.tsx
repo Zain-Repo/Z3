@@ -214,7 +214,23 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     <>
       <SidebarContent className="overflow-x-hidden">
         <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
-          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
+          <div className="flex items-center gap-2 px-2 pb-1">
+            <div
+              aria-hidden="true"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-[11px] font-bold tracking-[-0.04em] text-primary-foreground shadow-sm"
+            >
+              Z3
+            </div>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold tracking-[-0.01em] text-sidebar-foreground">
+                Settings
+              </p>
+              <p className="truncate text-[11px] text-sidebar-muted-foreground/75">
+                Workspace controls
+              </p>
+            </div>
+          </div>
+          <div className="flex h-8 items-center gap-2 rounded-md bg-sidebar-control-surface/70 px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground ring-1 ring-sidebar-border/70 transition-[background-color,box-shadow] focus-within:bg-sidebar-control-surface focus-within:ring-primary/40 hover:bg-sidebar-control-surface hover:text-sidebar-foreground motion-reduce:transition-none">
             <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
             <Input
               ref={searchInputRef}
@@ -238,7 +254,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   ? `settings-search-result-${results[activeResultIndex].id}`
                   : undefined
               }
-              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
+              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground [&_[data-slot=input]]:focus-visible:ring-0"
             />
             {isSearching ? (
               <Button
@@ -307,6 +323,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton
                         isActive={isActive}
+                        aria-current={isActive ? "page" : undefined}
                         onClick={() => handleSectionClick(item.to)}
                       >
                         <Icon />

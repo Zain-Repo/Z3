@@ -59,6 +59,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./ui/sidebar";
+import { ScrollArea } from "./ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import {
   DropdownMenu,
@@ -71,6 +72,7 @@ import type { ThreadShell } from "../types";
 import { ChatProjectDialog } from "./ChatProjectDialog";
 
 const CHAT_THREAD_LIMIT = 40;
+const CHAT_RECENT_THREADS_PAGE_SIZE = 10;
 const EMPTY_CHAT_PROJECTS: readonly ChatProject[] = [];
 
 function sidebarPinKeyForThread(thread: Pick<ThreadShell, "environmentId" | "id">): string {
@@ -369,6 +371,9 @@ export default function ChatWorkspaceSidebar() {
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [isRecentChatsExpanded, setIsRecentChatsExpanded] = useState(true);
+  const [recentChatsVisibleCount, setRecentChatsVisibleCount] = useState(
+    CHAT_RECENT_THREADS_PAGE_SIZE,
+  );
   const renameCancelledRef = useRef(false);
   const cleanupInFlightRef = useRef(new Set<ThreadId>());
 
@@ -526,12 +531,21 @@ export default function ChatWorkspaceSidebar() {
     () => recentThreads.filter((thread) => !projectThreadIds.has(thread.id)),
     [projectThreadIds, recentThreads],
   );
+  const visibleRecentThreads = useMemo(
+    () => unassignedRecentThreads.slice(0, recentChatsVisibleCount),
+    [recentChatsVisibleCount, unassignedRecentThreads],
+  );
+  const hasMoreRecentThreads = visibleRecentThreads.length < unassignedRecentThreads.length;
   const visiblePinnedThreads = useMemo(
     () => pinnedThreads.filter((thread) => !projectThreadIds.has(thread.id)),
     [pinnedThreads, projectThreadIds],
   );
   const projectDialogProject =
     chatProjects.find((project) => project.id === projectDialogId) ?? null;
+
+  useEffect(() => {
+    setRecentChatsVisibleCount(CHAT_RECENT_THREADS_PAGE_SIZE);
+  }, [availableEnvironmentId, searchQuery]);
 
   const projectExpansionKey = useCallback(
     (projectId: string) => `${availableEnvironmentId ?? "unknown"}:${projectId}`,
@@ -748,16 +762,17 @@ export default function ChatWorkspaceSidebar() {
             </div>
           </SidebarGroup>
         }
+        scrollable={false}
       >
         {visiblePinnedThreads.length > 0 ? (
-          <SidebarGroup className="gap-1 px-[var(--sidebar-content-inset)] pt-3">
+          <SidebarGroup className="shrink-0 gap-1 px-[var(--sidebar-content-inset)] pt-3">
             <div className="px-2 text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55">
               Pinned
             </div>
             <SidebarMenu className="gap-0.5">{renderThreadRows(visiblePinnedThreads)}</SidebarMenu>
           </SidebarGroup>
         ) : null}
-        <SidebarGroup className="gap-1 px-[var(--sidebar-content-inset)] py-3">
+        <SidebarGroup className="shrink-0 gap-1 px-[var(--sidebar-content-inset)] py-3">
           <div className="flex items-center justify-between px-2">
             <div className="text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55">
               Projects
@@ -830,7 +845,7 @@ export default function ChatWorkspaceSidebar() {
             </div>
           )}
         </SidebarGroup>
-        <SidebarGroup className="gap-1 px-[var(--sidebar-content-inset)] py-3">
+        <SidebarGroup className="min-h-0 flex-1 gap-1 px-[var(--sidebar-content-inset)] py-3">
           <div className="flex items-center justify-between px-2">
             <button
               type="button"
@@ -870,18 +885,49 @@ export default function ChatWorkspaceSidebar() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={isReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
                 transition={isReducedMotion ? { duration: 0 } : { duration: 0.16, ease: "easeOut" }}
-                className="grid gap-1"
+                className="flex min-h-0 flex-1 flex-col gap-1"
               >
-                <SidebarMenu className="gap-0.5">
-                  {renderThreadRows(unassignedRecentThreads)}
-                </SidebarMenu>
-                {unassignedRecentThreads.length === 0 && visiblePinnedThreads.length === 0 ? (
-                  <div className="px-2 py-6 text-center text-xs leading-5 text-sidebar-muted-foreground">
-                    {searchQuery.trim().length > 0
-                      ? "No chats found"
-                      : "Your recent chats will appear here"}
-                  </div>
-                ) : null}
+                <ScrollArea hideScrollbars scrollFade className="min-h-0 flex-1">
+                  <SidebarMenu className="gap-0.5">
+                    {renderThreadRows(visibleRecentThreads)}
+                  </SidebarMenu>
+                  {hasMoreRecentThreads ||
+                  visibleRecentThreads.length > CHAT_RECENT_THREADS_PAGE_SIZE ? (
+                    <div className="mt-1 flex items-center justify-center gap-1">
+                      {hasMoreRecentThreads ? (
+                        <button
+                          type="button"
+                          className="rounded-md px-2 py-1.5 text-xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none"
+                          onClick={() => {
+                            setRecentChatsVisibleCount(
+                              (count) => count + CHAT_RECENT_THREADS_PAGE_SIZE,
+                            );
+                          }}
+                        >
+                          Show More
+                        </button>
+                      ) : null}
+                      {visibleRecentThreads.length > CHAT_RECENT_THREADS_PAGE_SIZE ? (
+                        <button
+                          type="button"
+                          className="rounded-md px-2 py-1.5 text-xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none"
+                          onClick={() => {
+                            setRecentChatsVisibleCount(CHAT_RECENT_THREADS_PAGE_SIZE);
+                          }}
+                        >
+                          Show Less
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {unassignedRecentThreads.length === 0 && visiblePinnedThreads.length === 0 ? (
+                    <div className="px-2 py-6 text-center text-xs leading-5 text-sidebar-muted-foreground">
+                      {searchQuery.trim().length > 0
+                        ? "No chats found"
+                        : "Your recent chats will appear here"}
+                    </div>
+                  ) : null}
+                </ScrollArea>
               </motion.div>
             ) : null}
           </AnimatePresence>
