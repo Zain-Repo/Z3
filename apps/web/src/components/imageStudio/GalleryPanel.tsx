@@ -1,5 +1,5 @@
-import { ImageIcon, SearchIcon, SparklesIcon, XIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { HeartIcon, ImageIcon, SearchIcon, SparklesIcon, XIcon } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
 import type { ImageGenerationInput, ImageGenerationRecord } from "@t3tools/contracts";
 
@@ -16,6 +16,10 @@ import {
 import { GenerationCard, PendingGenerationCard } from "../ImageGenerationGallery";
 import type { LoadImageContent } from "../imageContentLoader";
 import { STARTER_PROMPTS } from "../../lib/imageStudioPrefs";
+import { ImageCanvas } from "./ImageCanvas";
+import { useImageLibrary } from "../useImageLibrary";
+import { matchesImageLibraryFilter } from "../../lib/imageLibrary";
+import { resolveCanvasSelection, selectCanvasAsset } from "./canvasSelection";
 
 type SortOrder = "newest" | "oldest";
 
@@ -75,6 +79,24 @@ export function GalleryPanel({
   const [search, setSearch] = useState("");
   const [modelFilter, setModelFilter] = useState("");
   const [sort, setSort] = useState<SortOrder>("newest");
+  const library = useImageLibrary();
+  const libraryGenerations = useMemo(
+    () => generations.filter((generation) => matchesImageLibraryFilter(generation.id, library)),
+    [generations, library],
+  );
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<ReadonlyArray<string>>([]);
+  const [comparing, setComparing] = useState(false);
+  const canvasImages = useMemo(() => {
+    const assets = libraryGenerations.flatMap((generation) =>
+      generation.assets.map((asset) => ({ generation, assetId: asset.id })),
+    );
+    return resolveCanvasSelection(assets, selectedAssetIds, comparing);
+  }, [libraryGenerations, selectedAssetIds, comparing]);
+  const selectAsset = (id: string) => {
+    canvasRef.current?.scrollIntoView({ block: "nearest" });
+    setSelectedAssetIds(selectCanvasAsset(id, canvasImages[0]?.assetId, comparing));
+  };
 
   const modelOptions = useMemo(
     () => Array.from(new Set(generations.map((generation) => generation.model))).sort(),
@@ -82,15 +104,38 @@ export function GalleryPanel({
   );
 
   const visibleGenerations = useMemo(
-    () => filterGenerations(generations, search, modelFilter, sort),
-    [generations, search, modelFilter, sort],
-  ).slice(0, visibleCount);
+    () => filterGenerations(libraryGenerations, search, modelFilter, sort),
+    [libraryGenerations, search, modelFilter, sort],
+  );
 
-  const hasFilters = search.trim().length > 0 || modelFilter !== "";
+  const hasFilters = search.trim().length > 0 || modelFilter !== "" || library.filter !== "all";
   const showEmptyState = !isLoading && !isGenerating && generations.length === 0;
 
   return (
     <section className={cn("flex min-h-0 flex-col", className)}>
+      {library.error ? (
+        <p role="alert" className="mb-3 text-sm text-destructive">
+          {library.error}
+        </p>
+      ) : null}
+      {isLoading && generations.length === 0 ? (
+        <p
+          role="status"
+          className="flex min-h-48 items-center justify-center text-sm text-muted-foreground"
+        >
+          Loading your image library...
+        </p>
+      ) : null}
+      {canvasImages.length > 0 ? (
+        <div ref={canvasRef}>
+          <ImageCanvas
+            images={canvasImages}
+            comparing={comparing}
+            onComparingChange={setComparing}
+            loadImageContent={loadImageContent}
+          />
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <SearchIcon
@@ -186,7 +231,7 @@ export function GalleryPanel({
           {isGenerating && pendingInput ? (
             <PendingGenerationCard input={pendingInput} onCancel={onCancel} />
           ) : null}
-          {visibleGenerations.map((generation) => (
+          {visibleGenerations.slice(0, visibleCount).map((generation) => (
             <GenerationCard
               key={generation.id}
               generation={generation}
@@ -194,6 +239,52 @@ export function GalleryPanel({
               onDelete={onDelete}
               onReuse={onReuse}
               onReroll={onReroll}
+              onSelectAsset={selectAsset}
+              libraryActions={
+                <div className="mb-2 flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={
+                      library.favoriteIds.includes(generation.id)
+                        ? "Remove from favorites"
+                        : "Add to favorites"
+                    }
+                    aria-pressed={library.favoriteIds.includes(generation.id)}
+                    disabled={!library.ready}
+                    onClick={() => library.toggleFavorite(generation.id)}
+                  >
+                    <HeartIcon
+                      className={cn(
+                        "size-4",
+                        library.favoriteIds.includes(generation.id) &&
+                          "fill-fuchsia-500 text-fuchsia-500",
+                      )}
+                      aria-hidden="true"
+                    />
+                  </Button>
+                  <select
+                    aria-label="Image collection"
+                    className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs"
+                    disabled={!library.ready}
+                    value={
+                      library.collections.find((collection) =>
+                        collection.generationIds.includes(generation.id),
+                      )?.id ?? ""
+                    }
+                    onChange={(event) =>
+                      library.setGenerationCollection(generation.id, event.target.value || null)
+                    }
+                  >
+                    <option value="">No collection</option>
+                    {library.collections.map((collection) => (
+                      <option key={collection.id} value={collection.id}>
+                        {collection.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              }
             />
           ))}
         </div>
@@ -212,6 +303,7 @@ export function GalleryPanel({
             onClick={() => {
               setSearch("");
               setModelFilter("");
+              library.setFilter("all");
             }}
           >
             Clear filters
@@ -219,7 +311,7 @@ export function GalleryPanel({
         </div>
       ) : null}
 
-      {!showEmptyState && canLoadMore ? (
+      {!showEmptyState && canLoadMore && visibleGenerations.length > visibleCount ? (
         <div className="mt-5 flex justify-center py-2">
           <Button variant="ghost" size="sm" onClick={onLoadMore}>
             Load more generations

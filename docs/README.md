@@ -9,6 +9,8 @@
 - [Keeping app and server in sync](./user/updating.md)
 - [Source control integrations](./user/source-control.md)
 - [Browse project files](./user/files.md)
+- [Z3Chat projects and context](./user/chat.md)
+- [ZImage studio and collections](./user/images.md)
 - [Background service (Linux)](./user/background-service.md)
 - Providers: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md)
 

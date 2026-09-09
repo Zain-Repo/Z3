@@ -21,6 +21,7 @@ import type { ChatProject, ChatProjectSource } from "../lib/chatProjects";
 import { useChatProjectsStore } from "../lib/chatProjects";
 import { ChatProjectDialog } from "./ChatProjectDialog";
 import { ChatProjectSourceDropzone } from "./ChatProjectSourceDropzone";
+import { ChatSourcePreview } from "./chat/ChatSourcePreview";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -39,6 +40,8 @@ interface ChatProjectHeroProps {
   readonly environmentId: EnvironmentId;
   readonly project: ChatProject;
   readonly onTogglePin: () => void;
+  readonly latestThread?: ThreadShell;
+  readonly onContinueThread?: (environmentId: EnvironmentId, threadId: ThreadId) => void;
 }
 
 export interface ChatProjectSourceActionHandlers {
@@ -49,6 +52,7 @@ export interface ChatProjectSourceActionHandlers {
 }
 
 interface ChatProjectContentTabsProps extends ChatProjectSourceActionHandlers {
+  readonly sourcesOnly?: boolean;
   readonly environmentId: EnvironmentId;
   readonly projectId: string;
   readonly recentThreads: readonly ThreadShell[];
@@ -75,7 +79,13 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ChatProjectHero({ environmentId, project, onTogglePin }: ChatProjectHeroProps) {
+export function ChatProjectHero({
+  environmentId,
+  project,
+  onTogglePin,
+  latestThread,
+  onContinueThread,
+}: ChatProjectHeroProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const isReducedMotion = useReducedMotion() ?? false;
 
@@ -113,6 +123,22 @@ export function ChatProjectHero({ environmentId, project, onTogglePin }: ChatPro
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        <p className="mt-3 px-1 text-sm leading-relaxed text-muted-foreground sm:px-2">
+          Start a conversation with your project instructions and reference sources.
+        </p>
+        {latestThread && onContinueThread ? (
+          <Button
+            variant="outline"
+            className="mt-4 max-w-full gap-2"
+            onClick={() => onContinueThread(environmentId, latestThread.id)}
+          >
+            <MessageSquareTextIcon aria-hidden="true" className="size-4 shrink-0" />
+            <span className="shrink-0">Continue latest chat</span>
+            <span className="truncate text-muted-foreground">
+              {latestThread.title || "New chat"}
+            </span>
+          </Button>
+        ) : null}
       </div>
       <ChatProjectDialog
         environmentId={environmentId}
@@ -126,6 +152,7 @@ export function ChatProjectHero({ environmentId, project, onTogglePin }: ChatPro
 }
 
 export function ChatProjectContentTabs({
+  sourcesOnly = false,
   environmentId,
   projectId,
   recentThreads,
@@ -172,9 +199,12 @@ export function ChatProjectContentTabs({
   };
 
   return (
-    <section className="mx-auto mt-5 w-full max-w-3xl px-2" aria-label="Project content">
-      <Tabs defaultValue="recent" className="gap-0">
-        <div className="border-b border-border/70">
+    <section
+      className={sourcesOnly ? "min-w-0" : "mx-auto mt-5 w-full max-w-3xl px-2"}
+      aria-label={sourcesOnly ? "Project sources" : "Project content"}
+    >
+      <Tabs defaultValue={sourcesOnly ? "sources" : "recent"} className="gap-0">
+        <div className={sourcesOnly ? "hidden" : "border-b border-border/70"}>
           <TabsList variant="underline" size="sm" aria-label="Project content views">
             <TabsTab value="recent" className="gap-1.5 px-2.5 text-xs">
               <MessageSquareTextIcon aria-hidden="true" />
@@ -265,7 +295,7 @@ export function ChatProjectContentTabs({
                             </span>
                           ) : null}
                         </span>
-                        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+                        <div className="flex shrink-0 items-center gap-0.5">
                           <Tooltip>
                             <TooltipTrigger
                               render={
@@ -382,12 +412,17 @@ export function ChatProjectContentTabs({
                           </div>
                         ) : null}
                       </div>
+                      <ChatSourcePreview source={source} />
                     </div>
                   );
                 })}
               </div>
             </ScrollArea>
-          ) : null}
+          ) : (
+            <p className="px-2 py-5 text-sm leading-relaxed text-muted-foreground">
+              No sources yet. Add reference files to give conversations reusable project context.
+            </p>
+          )}
         </TabsPanel>
       </Tabs>
     </section>

@@ -22,6 +22,21 @@ Attached files remain available from the message history. Unsupported binary for
 
 Z3Chat is not available in the web or mobile clients. Those clients continue to show project-based Z3Code threads.
 
+## Project context
+
+Choose **Project context** at the top of a project chat to inspect its sources, custom instructions,
+and memory scope without leaving the conversation. On wide windows the panel sits beside the chat;
+on smaller windows it opens as a sheet. Close it with the close button or Escape.
+
+The **Sources** view lets you upload files, preview their extracted text, re-index them, or remove
+them. Long source previews show the beginning of the text. Index status indicates whether indexing
+completed, is still running, or needs another attempt. **Instructions** shows the project's saved
+guidance. **Memory** describes the configured search scope; it does not list the excerpts recalled
+for an individual answer. Use **Edit project settings** to change instructions or memory scope.
+
+On a project's start screen, **Continue latest chat** opens its most recently updated, unarchived
+conversation. You can still start a new chat or choose another conversation from Recent chats.
+
 ## Project sources
 
 Project sources remain in the desktop client’s local project storage. When an OpenRouter provider is
