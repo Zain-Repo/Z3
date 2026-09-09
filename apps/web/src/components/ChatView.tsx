@@ -231,6 +231,7 @@ import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatProjectContentTabs, ChatProjectHero } from "./ChatProjectHero";
+import { ChatContextPanel } from "./chat/ChatContextPanel";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -1505,6 +1506,8 @@ function ChatViewContent(props: ChatViewProps) {
   // Durable thread scope identifies the rendered surface without subscribing
   // this large component to transient workspace-switcher updates.
   const isChatSurface = isChatThread;
+  const [contextProjectKey, setContextProjectKey] = useState<string | null>(null);
+  const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const chatProjects = useChatProjectsStore(
     (state) => state.projectsByEnvironment[environmentId] ?? EMPTY_CHAT_PROJECTS,
   );
@@ -1529,11 +1532,12 @@ function ChatViewContent(props: ChatViewProps) {
       .filter(
         (thread) =>
           thread.scope === "chat" &&
+          thread.environmentId === environmentId &&
           thread.archivedAt === null &&
           chatProject.threadIds.includes(thread.id),
       )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  }, [chatProject, chatThreadShells]);
+  }, [chatProject, chatThreadShells, environmentId]);
   const selectRecentChatProjectThread = useCallback(
     (nextEnvironmentId: EnvironmentId, nextThreadId: ThreadId) => {
       void navigate({
@@ -5976,6 +5980,21 @@ function ChatViewContent(props: ChatViewProps) {
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+      {isChatSurface &&
+      chatProject &&
+      contextProjectKey === `${environmentId}:${chatProject.id}` ? (
+        <ChatContextPanel
+          key={`${environmentId}:${chatProject.id}`}
+          environmentId={environmentId}
+          project={chatProject}
+          onClose={() => {
+            setContextProjectKey(null);
+            contextTriggerRef.current?.focus();
+          }}
+          onReindexSource={reindexChatProjectSource}
+          onDeleteSource={deleteChatProjectSource}
+        />
+      ) : null}
       {rightPanelOpen && !shouldUsePlanSidebarSheet ? panelLayoutControls : null}
       <div
         className={cn(
@@ -5985,6 +6004,28 @@ function ChatViewContent(props: ChatViewProps) {
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}
+        {isChatSurface && chatProject ? (
+          <div className="flex min-h-12 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-4 sm:px-6">
+            <span className="min-w-0 truncate text-sm font-medium">{chatProject.name}</span>
+            <Button
+              ref={contextTriggerRef}
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              aria-expanded={contextProjectKey === `${environmentId}:${chatProject.id}`}
+              aria-controls="chat-project-context"
+              onClick={() =>
+                setContextProjectKey((current) =>
+                  current === `${environmentId}:${chatProject.id}`
+                    ? null
+                    : `${environmentId}:${chatProject.id}`,
+                )
+              }
+            >
+              Project context · {chatProject.sources.length} sources
+            </Button>
+          </div>
+        ) : null}
         <header
           data-chat-header
           className={cn(
@@ -6146,6 +6187,10 @@ function ChatViewContent(props: ChatViewProps) {
                             key={chatProject.id}
                             environmentId={environmentId}
                             project={chatProject}
+                            {...(recentChatProjectThreads[0]
+                              ? { latestThread: recentChatProjectThreads[0] }
+                              : {})}
+                            onContinueThread={selectRecentChatProjectThread}
                             onTogglePin={() => {
                               toggleChatProjectPin(environmentId, chatProject.id);
                             }}

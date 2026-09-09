@@ -44,6 +44,7 @@ import {
 import { PromptPanel } from "./imageStudio/PromptPanel";
 import { SettingsPanel } from "./imageStudio/SettingsPanel";
 import { GalleryPanel } from "./imageStudio/GalleryPanel";
+import { useImageLibrary } from "./useImageLibrary";
 
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
 type ImageQuality = "auto" | "low" | "medium" | "high";
@@ -73,6 +74,7 @@ function referenceImageFromUrl(url: string, index: number): ReferenceImage {
 }
 
 export function ImageWorkspacePage() {
+  const removeLibraryGeneration = useImageLibrary().removeGeneration;
   const [mode, setMode] = useState<"image" | "video">("image");
   const [models, setModels] = useState<ReadonlyArray<ImageGenerationModel>>([]);
   const [generations, setGenerations] = useState<ReadonlyArray<ImageGenerationRecord>>([]);
@@ -438,6 +440,7 @@ export function ImageWorkspacePage() {
             ),
           ),
         );
+        removeLibraryGeneration(id);
         setGenerations((current) => {
           const deletedGeneration = current.find((generation) => generation.id === id);
           for (const asset of deletedGeneration?.assets ?? []) {
@@ -449,7 +452,7 @@ export function ImageWorkspacePage() {
         setError(cause instanceof Error ? cause.message : "Could not delete the generation.");
       }
     },
-    [imageContentLoader],
+    [imageContentLoader, removeLibraryGeneration],
   );
 
   const applyImageGenerationInput = useCallback((input: ImageGenerationInput) => {
@@ -551,15 +554,11 @@ export function ImageWorkspacePage() {
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground">
-      <header className="border-b border-border/70 bg-muted/20 px-5 py-4 sm:px-8">
+    <main className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden bg-background text-foreground">
+      <header className="shrink-0 border-b border-border/70 px-4 py-3 sm:px-6">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-fuchsia-500">
-              <ImageIcon className="size-4" aria-hidden="true" />
-              ZImage
-            </div>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight">Image studio</h1>
+            <h1 className="text-lg font-semibold tracking-tight">ZImage</h1>
           </div>
           <div className="flex items-center gap-1 border border-border/70 bg-background/70 p-1">
             <Button size="sm" className="gap-2">
@@ -580,7 +579,7 @@ export function ImageWorkspacePage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-5 sm:px-6 sm:py-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-3 sm:px-6">
         <p className="sr-only" role="status">
           {generationAnnouncement}
         </p>
@@ -593,7 +592,7 @@ export function ImageWorkspacePage() {
           </p>
         ) : null}
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <GalleryPanel
             generations={generations}
             visibleCount={visibleGenerationCount}
@@ -616,10 +615,10 @@ export function ImageWorkspacePage() {
             }
             canLoadMore={generations.length > visibleGenerationCount}
             onUseStarter={handleUseStarter}
-            className="order-last lg:order-none"
+            className="min-h-64 flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-2"
           />
 
-          <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0 lg:max-h-dvh lg:overflow-y-auto lg:py-1">
+          <aside className="relative order-first flex shrink-0 min-w-0 flex-col gap-2 rounded-xl border border-border bg-card p-3 lg:order-last lg:max-h-[60dvh] lg:overflow-y-auto">
             <div
               className="flex items-center gap-1 self-start border border-border/70 bg-background/70 p-1"
               role="tablist"
@@ -709,21 +708,16 @@ export function ImageWorkspacePage() {
                   disabled={isGenerating}
                 />
                 <Button
-                  onClick={() => void generate()}
-                  disabled={
-                    isGenerating ||
-                    isLoading ||
-                    !modelId ||
-                    prompt.trim().length === 0
-                  }
-                  className="h-11 w-full gap-2 text-base"
+                  onClick={() => (isGenerating ? cancelGeneration() : void generate())}
+                  disabled={!isGenerating && (isLoading || !modelId || prompt.trim().length === 0)}
+                  className="h-10 w-full gap-2 sm:w-auto sm:self-end"
                 >
                   {isGenerating ? (
                     <LoaderCircleIcon className="size-5 animate-spin" aria-hidden="true" />
                   ) : (
                     <SparklesIcon className="size-5" aria-hidden="true" />
                   )}
-                  {isGenerating ? "Generating..." : "Generate"}
+                  {isGenerating ? "Stop generation" : "Generate"}
                 </Button>
               </>
             ) : (

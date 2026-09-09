@@ -12,7 +12,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "../lib/utils";
 import { imageGridAspectRatio } from "../lib/imageGenerationAspectRatio";
@@ -122,12 +122,16 @@ export const GenerationCard = memo(function GenerationCard({
   onDelete,
   onReuse,
   onReroll,
+  onSelectAsset,
+  libraryActions,
 }: {
   readonly generation: ImageGenerationRecord;
   readonly loadImageContent: LoadImageContent;
   readonly onDelete: (id: string) => Promise<void>;
   readonly onReuse: (input: ImageGenerationInput) => void;
   readonly onReroll: (input: ImageGenerationInput) => void;
+  readonly onSelectAsset?: (assetId: string) => void;
+  readonly libraryActions?: ReactNode;
 }) {
   const [copiedAction, setCopiedAction] = useState<"prompt" | "json" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -175,19 +179,32 @@ export const GenerationCard = memo(function GenerationCard({
         )}
       >
         {generation.assets.map((asset) => (
-          <LazyGeneratedImageTile
-            key={asset.id}
-            assetId={asset.id}
-            alt={asset.revisedPrompt ?? generation.prompt}
-            loadImageContent={loadImageContent}
-          />
+          <div key={asset.id} className="relative min-h-0">
+            <LazyGeneratedImageTile
+              assetId={asset.id}
+              alt={asset.revisedPrompt ?? generation.prompt}
+              loadImageContent={loadImageContent}
+            />
+            {onSelectAsset ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="absolute bottom-2 left-2"
+                onClick={() => onSelectAsset(asset.id)}
+                aria-label={`Select image for canvas: ${generation.prompt}`}
+              >
+                Select
+              </Button>
+            ) : null}
+          </div>
         ))}
       </div>
       <div className="border-t border-border/60 p-2.5">
+        {libraryActions}
         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
           {generation.prompt}
         </p>
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/50 pt-1.5">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-1.5">
           <span className="truncate text-[10px] font-medium tabular-nums text-muted-foreground/70">
             {generation.model}
             {seed !== undefined ? ` · seed ${seed}` : ""}
@@ -291,7 +308,7 @@ function ImageSkeletonTile() {
   );
 }
 
-function LazyGeneratedImageTile({
+export function LazyGeneratedImageTile({
   assetId,
   alt,
   loadImageContent,
@@ -420,7 +437,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
           fetchPriority="low"
           onLoad={() => setIsLoaded(true)}
           className={cn(
-            "size-full object-cover opacity-0 outline outline-1 -outline-offset-1 outline-black/10 transition-opacity duration-150 motion-reduce:transition-none dark:outline-white/10",
+            "size-full object-contain opacity-0 outline outline-1 -outline-offset-1 outline-black/10 transition-opacity duration-150 motion-reduce:transition-none dark:outline-white/10",
             isLoaded && "opacity-100",
           )}
         />
