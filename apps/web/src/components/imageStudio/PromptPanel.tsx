@@ -43,7 +43,7 @@ export function PromptPanel({
         value={prompt}
         onChange={(event) => onChange(event.target.value)}
         placeholder="Describe the image you want to create..."
-        className="mt-2 min-h-16 max-h-32 resize-y bg-background/70 [&>textarea]:max-h-32 [&>textarea]:resize-y [&>textarea]:overflow-y-auto [&>textarea]:scrollbar-gutter-stable"
+        className="mt-2 min-h-32 max-h-64 resize-y bg-background [&>textarea]:max-h-64 [&>textarea]:resize-y [&>textarea]:overflow-y-auto [&>textarea]:scrollbar-gutter-stable"
         disabled={disabled}
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">

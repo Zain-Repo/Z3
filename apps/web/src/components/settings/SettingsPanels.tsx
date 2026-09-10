@@ -146,6 +146,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import {
   embeddingModelsForProvider,
 } from "../../lib/z3chatEmbeddingModels";
+import { CivitaiProviderSettings } from "./CivitaiProviderSettings";
 
 const THEME_OPTIONS = [
   {
@@ -1974,6 +1975,7 @@ export function ProviderSettingsPanel() {
     Array<[ProviderInstanceId, ProviderInstanceConfig]>
   >();
   for (const [rawId, instance] of Object.entries(settings.providerInstances ?? {})) {
+    if (instance.driver === "civitai") continue;
     const driver = instance.driver;
     const list = instancesByDriver.get(driver) ?? [];
     list.push([rawId as ProviderInstanceId, instance]);
@@ -2246,6 +2248,7 @@ export function ProviderSettingsPanel() {
           }
         />
 
+        <CivitaiProviderSettings />
         <div className="overflow-hidden rounded-xl border border-border/70 bg-card/20">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5 sm:px-4">
             <div className="min-w-0">

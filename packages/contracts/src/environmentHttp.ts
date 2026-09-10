@@ -32,6 +32,7 @@ import {
 } from "./auth.ts";
 import { AuthSessionId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientOrchestrationCommand,
   DispatchResult,
@@ -49,6 +50,8 @@ import {
   RelayLinkProofRequest,
 } from "./relay.ts";
 import {
+  CivitaiResourceSearchInput,
+  CivitaiResourceSearchResult,
   ImageGenerationInput,
   ImageGenerationAssetContent,
   ImageGenerationList,
@@ -375,8 +378,17 @@ export class EnvironmentChatLibraryHttpApi extends HttpApiGroup.make("chatLibrar
 
 export class EnvironmentImageGenerationHttpApi extends HttpApiGroup.make("imageGeneration")
   .add(
+    HttpApiEndpoint.get("searchCivitaiResources", "/api/images/civitai/resources", {
+      headers: OptionalBearerHeaders,
+      query: CivitaiResourceSearchInput,
+      success: CivitaiResourceSearchResult,
+      error: [EnvironmentHttpBadRequestError, ...EnvironmentScopedOperationErrors],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
     HttpApiEndpoint.get("models", "/api/images/models", {
       headers: OptionalBearerHeaders,
+      query: Schema.Struct({ providerInstanceId: Schema.optionalKey(ProviderInstanceId) }),
       success: ImageGenerationModelCatalog,
       error: EnvironmentScopedOperationErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
@@ -385,6 +397,7 @@ export class EnvironmentImageGenerationHttpApi extends HttpApiGroup.make("imageG
     HttpApiEndpoint.get("modelEndpoints", "/api/images/models/:author/:slug/endpoints", {
       headers: OptionalBearerHeaders,
       params: ImageGenerationModelParams,
+      query: Schema.Struct({ providerInstanceId: Schema.optionalKey(ProviderInstanceId) }),
       success: ImageGenerationModelEndpoints,
       error: EnvironmentScopedOperationErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
@@ -445,7 +458,11 @@ export class EnvironmentVideoGenerationHttpApi extends HttpApiGroup.make("videoG
       headers: OptionalBearerHeaders,
       payload: VideoGenerationInput,
       success: VideoGenerationRecord,
-      error: [EnvironmentHttpBadRequestError, EnvironmentRequestInvalidError, ...EnvironmentScopedOperationErrors],
+      error: [
+        EnvironmentHttpBadRequestError,
+        EnvironmentRequestInvalidError,
+        ...EnvironmentScopedOperationErrors,
+      ],
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(

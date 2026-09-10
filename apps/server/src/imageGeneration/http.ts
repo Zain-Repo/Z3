@@ -35,12 +35,26 @@ export const imageGenerationHttpApiLayer = HttpApiBuilder.group(
     const service = yield* ImageGenerationServiceTag;
     return handlers
       .handle(
+        "searchCivitaiResources",
+        Effect.fn("environment.images.searchCivitaiResources")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          return yield* service
+            .searchCivitaiResources(args.query)
+            .pipe(
+              Effect.catchTag("ImageGenerationServiceError", (error) =>
+                Effect.fail(new EnvironmentHttpBadRequestError({ message: error.message })),
+              ),
+            );
+        }),
+      )
+      .handle(
         "models",
         Effect.fn("environment.images.models")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           return yield* service
-            .listModels()
+            .listModels(args.query.providerInstanceId)
             .pipe(
               Effect.catchTag("ImageGenerationServiceError", () =>
                 failEnvironmentInternal("internal_error"),
@@ -54,7 +68,10 @@ export const imageGenerationHttpApiLayer = HttpApiBuilder.group(
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           return yield* service
-            .listModelEndpoints(`${args.params.author}/${args.params.slug}`)
+            .listModelEndpoints(
+              `${args.params.author}/${args.params.slug}`,
+              args.query.providerInstanceId,
+            )
             .pipe(
               Effect.catchTag("ImageGenerationServiceError", () =>
                 failEnvironmentInternal("internal_error"),

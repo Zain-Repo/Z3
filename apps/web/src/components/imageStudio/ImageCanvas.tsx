@@ -20,9 +20,9 @@ export function ImageCanvas({
   readonly loadImageContent: LoadImageContent;
 }) {
   return (
-    <section aria-label="Image canvas" className="mb-6">
+    <section aria-label="Image canvas" className="mt-5 rounded-xl border border-border bg-muted/20 p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">{comparing ? "Compare images" : "Canvas"}</h2>
+        <h2 className="text-sm font-medium">{comparing ? "Compare images" : "Preview"}</h2>
         <Button
           variant={comparing ? "secondary" : "ghost"}
           size="sm"

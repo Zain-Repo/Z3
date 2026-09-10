@@ -87,6 +87,7 @@ export function GalleryPanel({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<ReadonlyArray<string>>([]);
   const [comparing, setComparing] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const canvasImages = useMemo(() => {
     const assets = libraryGenerations.flatMap((generation) =>
       generation.assets.map((asset) => ({ generation, assetId: asset.id })),
@@ -94,8 +95,9 @@ export function GalleryPanel({
     return resolveCanvasSelection(assets, selectedAssetIds, comparing);
   }, [libraryGenerations, selectedAssetIds, comparing]);
   const selectAsset = (id: string) => {
-    canvasRef.current?.scrollIntoView({ block: "nearest" });
+    setPreviewOpen(true);
     setSelectedAssetIds(selectCanvasAsset(id, canvasImages[0]?.assetId, comparing));
+    requestAnimationFrame(() => canvasRef.current?.scrollIntoView({ block: "start" }));
   };
 
   const modelOptions = useMemo(
@@ -126,16 +128,25 @@ export function GalleryPanel({
           Loading your image library...
         </p>
       ) : null}
-      {canvasImages.length > 0 ? (
-        <div ref={canvasRef}>
-          <ImageCanvas
-            images={canvasImages}
-            comparing={comparing}
-            onComparingChange={setComparing}
-            loadImageContent={loadImageContent}
-          />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-base font-semibold">Your generations</h2>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {visibleGenerations.length}
+          </span>
         </div>
-      ) : null}
+        {canvasImages.length > 0 ? (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-expanded={previewOpen}
+            aria-controls="image-studio-preview"
+            onClick={() => setPreviewOpen(!previewOpen)}
+          >
+            {previewOpen ? "Hide preview" : "Show preview"}
+          </Button>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <SearchIcon
@@ -146,7 +157,7 @@ export function GalleryPanel({
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search your generations by prompt..."
+            placeholder="Search prompts..."
             aria-label="Search generations"
             className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
           />
@@ -187,13 +198,19 @@ export function GalleryPanel({
         </select>
       </div>
 
-      <div className="mt-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold">Your generations</h2>
-        <span className="text-xs tabular-nums text-muted-foreground">{generations.length}</span>
+      <div ref={canvasRef} id="image-studio-preview" className="scroll-mt-4">
+        {previewOpen && canvasImages.length > 0 ? (
+          <ImageCanvas
+            images={canvasImages}
+            comparing={comparing}
+            onComparingChange={setComparing}
+            loadImageContent={loadImageContent}
+          />
+        ) : null}
       </div>
 
       {showEmptyState ? (
-        <Empty className="rounded-xl border border-dashed border-border/70 bg-card/20">
+        <Empty className="mt-6 min-h-80 rounded-xl bg-muted/20">
           <EmptyMedia variant="icon">
             <ImageIcon className="size-4.5" aria-hidden="true" />
           </EmptyMedia>
@@ -227,7 +244,7 @@ export function GalleryPanel({
           </EmptyContent>
         </Empty>
       ) : (
-        <div className="mt-4 grid grid-cols-2 items-start gap-3 sm:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] items-start gap-4">
           {isGenerating && pendingInput ? (
             <PendingGenerationCard input={pendingInput} onCancel={onCancel} />
           ) : null}

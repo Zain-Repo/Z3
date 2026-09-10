@@ -20,9 +20,68 @@ export const ImageGenerationPricingLine = Schema.Struct({
 });
 export type ImageGenerationPricingLine = typeof ImageGenerationPricingLine.Type;
 
+const CivitaiRange = Schema.Struct({ min: Schema.Number, max: Schema.Number });
+export const CivitaiCheckpointRecommendation = Schema.Struct({
+  air: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  versionName: TrimmedNonEmptyString,
+  baseModel: TrimmedNonEmptyString,
+  trainedWords: Schema.Array(Schema.String),
+});
+export type CivitaiCheckpointRecommendation = typeof CivitaiCheckpointRecommendation.Type;
+export const CivitaiImageCapabilities = Schema.Struct({
+  recommendedCheckpoints: Schema.optionalKey(Schema.Array(CivitaiCheckpointRecommendation)),
+  checkpoint: Schema.Literals(["required", "optional", "unsupported"]),
+  ecosystems: Schema.Array(TrimmedNonEmptyString),
+  maxLoras: Schema.Int,
+  strength: CivitaiRange,
+  negativePrompt: Schema.Boolean,
+  steps: Schema.optionalKey(CivitaiRange),
+  cfgScale: Schema.optionalKey(CivitaiRange),
+});
+export type CivitaiImageCapabilities = typeof CivitaiImageCapabilities.Type;
+
+export const CivitaiImageOptions = Schema.Struct({
+  checkpoint: Schema.optionalKey(TrimmedNonEmptyString),
+  loras: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ air: TrimmedNonEmptyString, strength: Schema.Number })).check(
+      Schema.isMaxLength(10),
+    ),
+  ),
+  negativePrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(10000))),
+  steps: Schema.optionalKey(Schema.Int),
+  cfgScale: Schema.optionalKey(Schema.Number),
+});
+export type CivitaiImageOptions = typeof CivitaiImageOptions.Type;
+
+export const CivitaiResourceSearchInput = Schema.Struct({
+  checkpoint: Schema.optionalKey(TrimmedNonEmptyString),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
+  model: TrimmedNonEmptyString,
+  type: Schema.Literals(["Checkpoint", "LORA"]),
+  query: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+  cursor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+});
+export type CivitaiResourceSearchInput = typeof CivitaiResourceSearchInput.Type;
+export const CivitaiResourceSearchResult = Schema.Struct({
+  resources: Schema.Array(
+    Schema.Struct({
+      air: TrimmedNonEmptyString,
+      name: TrimmedNonEmptyString,
+      versionName: TrimmedNonEmptyString,
+      baseModel: TrimmedNonEmptyString,
+      trainedWords: Schema.Array(Schema.String),
+    }),
+  ),
+  nextCursor: Schema.optionalKey(Schema.String),
+});
+export type CivitaiResourceSearchResult = typeof CivitaiResourceSearchResult.Type;
+
 export const ImageGenerationModel = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: Schema.optionalKey(TrimmedNonEmptyString),
+  group: Schema.optionalKey(TrimmedNonEmptyString),
+  civitai: Schema.optionalKey(CivitaiImageCapabilities),
   inputModalities: Schema.Array(TrimmedNonEmptyString),
   outputModalities: Schema.Array(TrimmedNonEmptyString),
   supportedParameters: Schema.Record(TrimmedNonEmptyString, ImageGenerationParameterDescriptor),
@@ -53,6 +112,7 @@ export const ImageGenerationModelEndpoints = Schema.Struct({
 export type ImageGenerationModelEndpoints = typeof ImageGenerationModelEndpoints.Type;
 
 export const ImageGenerationInput = Schema.Struct({
+  civitai: Schema.optionalKey(CivitaiImageOptions),
   providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,

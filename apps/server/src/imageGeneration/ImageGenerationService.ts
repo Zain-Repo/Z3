@@ -1,4 +1,6 @@
 import {
+  type CivitaiResourceSearchInput,
+  type CivitaiResourceSearchResult,
   ImageGenerationInput,
   type ImageGenerationList,
   type ImageGenerationModel,
@@ -34,6 +36,11 @@ import {
 } from "../provider/Layers/OpenRouterApi.ts";
 import { resolveImageModelRouting } from "../provider/Layers/OpenRouterImageRouting.ts";
 import { resolveOpenRouterConnection } from "../provider/Layers/OpenRouterConnection.ts";
+import { CivitaiApiError, fetchCivitaiImageModels, generateCivitaiImage } from "./CivitaiApi.ts";
+import { resolveCivitaiApiKey } from "./CivitaiConnection.ts";
+import { searchCivitaiResources } from "./CivitaiResources.ts";
+
+const isCivitaiApiError = Schema.is(CivitaiApiError);
 
 export class ImageGenerationServiceError extends Data.TaggedError("ImageGenerationServiceError")<{
   readonly message: string;
@@ -64,6 +71,9 @@ interface AssetBytesRow {
 }
 
 export interface ImageGenerationServiceShape {
+  readonly searchCivitaiResources: (
+    input: CivitaiResourceSearchInput,
+  ) => Effect.Effect<CivitaiResourceSearchResult, ImageGenerationServiceError>;
   readonly listModels: (
     providerInstanceId?: ProviderInstanceId,
   ) => Effect.Effect<
@@ -85,6 +95,10 @@ export interface ImageGenerationServiceShape {
 }
 
 const unconfiguredService: ImageGenerationServiceShape = {
+  searchCivitaiResources: () =>
+    Effect.fail(
+      new ImageGenerationServiceError({ message: "Image generation is not configured." }),
+    ),
   listModels: () =>
     Effect.fail(
       new ImageGenerationServiceError({ message: "Image generation is not configured." }),
@@ -172,6 +186,19 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const settingsService = yield* ServerSettingsService;
 
+  const withCivitaiKey = Effect.fn("imageGeneration.withCivitaiKey")(function* (
+    instanceId: ProviderInstanceId = ProviderInstanceId.make("civitai"),
+  ) {
+    const settings = yield* settingsService.getSettings;
+    const apiKey = resolveCivitaiApiKey(settings, instanceId);
+    if (!apiKey) {
+      return yield* new ImageGenerationServiceError({
+        message: "Configure and enable a Civitai API key in Settings > Providers.",
+      });
+    }
+    return apiKey;
+  });
+
   const withConnection = (instanceId: ProviderInstanceId | undefined) =>
     Effect.gen(function* () {
       const settings = yield* settingsService.getSettings;
@@ -233,8 +260,26 @@ const make = Effect.gen(function* () {
   };
 
   const service: ImageGenerationServiceShape = {
+    searchCivitaiResources: (input) =>
+      withCivitaiKey(input.providerInstanceId).pipe(
+        Effect.flatMap((key) => searchCivitaiResources(httpClient, key, input)),
+        Effect.timeout("60 seconds"),
+        Effect.mapError(
+          (error) =>
+            new ImageGenerationServiceError({
+              message:
+                error._tag === "TimeoutError"
+                  ? "Civitai resource search timed out. Try a more specific search."
+                  : error.message,
+            }),
+        ),
+      ),
     listModels: (providerInstanceId) =>
       Effect.gen(function* () {
+        if (providerInstanceId === "civitai") {
+          const apiKey = yield* withCivitaiKey(providerInstanceId);
+          return { models: yield* fetchCivitaiImageModels(httpClient, apiKey) };
+        }
         const connection = yield* withConnection(providerInstanceId);
         const models = yield* fetchOpenRouterImageModels(
           httpClient,
@@ -248,13 +293,19 @@ const make = Effect.gen(function* () {
             ? Effect.fail(cause)
             : Effect.fail(
                 new ImageGenerationServiceError({
-                  message: "Could not load OpenRouter image models.",
+                  message: isCivitaiApiError(cause)
+                    ? cause.message
+                    : "Could not load OpenRouter image models.",
                 }),
               ),
         ),
       ),
     listModelEndpoints: (model, providerInstanceId) =>
       Effect.gen(function* () {
+        if (model.startsWith("civitai/")) {
+          yield* withCivitaiKey(providerInstanceId);
+          return { id: model, endpoints: [] };
+        }
         const connection = yield* withConnection(providerInstanceId);
         const result = yield* fetchOpenRouterImageModelEndpoints(
           httpClient,
@@ -293,62 +344,74 @@ const make = Effect.gen(function* () {
       ),
     generate: (input) =>
       Effect.gen(function* () {
-        const connection = yield* withConnection(input.providerInstanceId);
-        // Resolve the model's endpoint capabilities so the request only carries
-        // parameters the routed provider accepts, and apply the curated
-        // provider routing per model. When OpenRouter cannot describe the
-        // model, including when it returns no endpoint metadata, send the
-        // request unchanged and let OpenRouter validate it.
-        const endpoints = yield* fetchOpenRouterImageModelEndpoints(
-          httpClient,
-          connection.baseUrl,
-          connection.apiKey,
-          input.model,
-        ).pipe(
-          Effect.result,
-        );
-        const resolvedEndpoints = Result.getOrUndefined(endpoints);
-        const routedProvider =
-          resolvedEndpoints === undefined
-            ? input.provider
-            : resolveImageModelRouting(input.model, input.provider, resolvedEndpoints.endpoints);
-        const capabilities =
-          resolvedEndpoints === undefined || resolvedEndpoints.endpoints.length === 0
-            ? undefined
-            : resolveOpenRouterImageCapabilities(resolvedEndpoints, routedProvider);
-        const candidate: OpenRouterImageGenerationInput = {
-          httpClient,
-          baseUrl: connection.baseUrl,
-          apiKey: connection.apiKey,
-          model: input.model,
-          prompt: input.prompt,
-          ...(input.stream !== undefined ? { stream: input.stream } : {}),
-          ...(input.n !== undefined ? { n: input.n } : {}),
-          ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
-          ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
-          ...(input.size !== undefined ? { size: input.size } : {}),
-          ...(input.quality !== undefined ? { quality: input.quality } : {}),
-          ...(input.outputFormat !== undefined ? { outputFormat: input.outputFormat } : {}),
-          ...(input.background !== undefined ? { background: input.background } : {}),
-          ...(input.outputCompression !== undefined
-            ? { outputCompression: input.outputCompression }
-            : {}),
-          ...(input.seed !== undefined ? { seed: input.seed } : {}),
-          ...(input.inputReferences !== undefined
-            ? {
-                inputReferences: input.inputReferences.map((reference) => ({
-                  type: "image_url" as const,
-                  image_url: { url: reference.url },
-                })),
-              }
-            : {}),
-          ...(routedProvider !== undefined ? { provider: routedProvider } : {}),
-        };
-        const sanitized =
-          capabilities === undefined
-            ? candidate
-            : sanitizeOpenRouterImageInput(candidate, capabilities);
-        const result = yield* generateOpenRouterImage(sanitized);
+        if (!input.model.startsWith("civitai/") && input.civitai !== undefined)
+          return yield* new ImageGenerationServiceError({
+            message: "Civitai advanced settings can only be used with Civitai models.",
+          });
+        const result = yield* input.model.startsWith("civitai/")
+          ? withCivitaiKey(input.providerInstanceId).pipe(
+              Effect.flatMap((apiKey) => generateCivitaiImage(httpClient, apiKey, input)),
+            )
+          : Effect.gen(function* () {
+              const connection = yield* withConnection(input.providerInstanceId);
+              // Resolve the model's endpoint capabilities so the request only carries
+              // parameters the routed provider accepts, and apply the curated
+              // provider routing per model. When OpenRouter cannot describe the
+              // model, including when it returns no endpoint metadata, send the
+              // request unchanged and let OpenRouter validate it.
+              const endpoints = yield* fetchOpenRouterImageModelEndpoints(
+                httpClient,
+                connection.baseUrl,
+                connection.apiKey,
+                input.model,
+              ).pipe(Effect.result);
+              const resolvedEndpoints = Result.getOrUndefined(endpoints);
+              const routedProvider =
+                resolvedEndpoints === undefined
+                  ? input.provider
+                  : resolveImageModelRouting(
+                      input.model,
+                      input.provider,
+                      resolvedEndpoints.endpoints,
+                    );
+              const capabilities =
+                resolvedEndpoints === undefined || resolvedEndpoints.endpoints.length === 0
+                  ? undefined
+                  : resolveOpenRouterImageCapabilities(resolvedEndpoints, routedProvider);
+              const candidate: OpenRouterImageGenerationInput = {
+                httpClient,
+                baseUrl: connection.baseUrl,
+                apiKey: connection.apiKey,
+                model: input.model,
+                prompt: input.prompt,
+                ...(input.stream !== undefined ? { stream: input.stream } : {}),
+                ...(input.n !== undefined ? { n: input.n } : {}),
+                ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
+                ...(input.aspectRatio !== undefined ? { aspectRatio: input.aspectRatio } : {}),
+                ...(input.size !== undefined ? { size: input.size } : {}),
+                ...(input.quality !== undefined ? { quality: input.quality } : {}),
+                ...(input.outputFormat !== undefined ? { outputFormat: input.outputFormat } : {}),
+                ...(input.background !== undefined ? { background: input.background } : {}),
+                ...(input.outputCompression !== undefined
+                  ? { outputCompression: input.outputCompression }
+                  : {}),
+                ...(input.seed !== undefined ? { seed: input.seed } : {}),
+                ...(input.inputReferences !== undefined
+                  ? {
+                      inputReferences: input.inputReferences.map((reference) => ({
+                        type: "image_url" as const,
+                        image_url: { url: reference.url },
+                      })),
+                    }
+                  : {}),
+                ...(routedProvider !== undefined ? { provider: routedProvider } : {}),
+              };
+              const sanitized =
+                capabilities === undefined
+                  ? candidate
+                  : sanitizeOpenRouterImageInput(candidate, capabilities);
+              return yield* generateOpenRouterImage(sanitized);
+            });
         const generationId = yield* crypto.randomUUIDv4;
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const usageJson = result.usage === undefined ? null : JSON.stringify(result.usage);
@@ -392,9 +455,11 @@ const make = Effect.gen(function* () {
         Effect.catch((cause) =>
           cause instanceof ImageGenerationServiceError
             ? Effect.fail(cause)
-            : cause instanceof OpenRouterApiError
+            : cause instanceof OpenRouterApiError || isCivitaiApiError(cause)
               ? Effect.fail(new ImageGenerationServiceError({ message: cause.message }))
-            : Effect.fail(new ImageGenerationServiceError({ message: "Image generation failed." })),
+              : Effect.fail(
+                  new ImageGenerationServiceError({ message: "Image generation failed." }),
+                ),
         ),
       ),
     deleteGeneration: (id) =>

@@ -1,4 +1,5 @@
 import { DicesIcon, ImageIcon, RefreshCwIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import {
   type ImageGenerationInput,
@@ -13,6 +14,20 @@ import { ReferenceImageDropzone, type ReferenceImage } from "../ReferenceImageDr
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
 type ImageQuality = NonNullable<ImageGenerationInput["quality"]>;
 type ImageBackground = "auto" | "transparent" | "opaque";
+
+function sizeLabel(value: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    square_hd: "Square HD",
+    square: "Square",
+    medium: "Medium",
+    large: "Large",
+    portrait_4_3: "Portrait 3:4",
+    portrait_16_9: "Portrait 9:16",
+    landscape_4_3: "Landscape 4:3",
+    landscape_16_9: "Landscape 16:9",
+  };
+  return labels[value] ?? value;
+}
 
 function ChipGroup<T extends string>({
   label,
@@ -114,6 +129,10 @@ function enumValues(
 }
 
 export function SettingsPanel(props: {
+  readonly advancedContent?: ReactNode;
+  readonly providerId: "openrouter" | "civitai";
+  readonly onProviderChange: (provider: string) => void;
+  readonly providerDisabled: boolean;
   readonly models: ReadonlyArray<ImageGenerationModel>;
   readonly modelId: string;
   readonly onModelChange: (modelId: string) => void;
@@ -233,11 +252,30 @@ export function SettingsPanel(props: {
   const streamingEndpointCount = modelEndpoints?.endpoints.filter(
     (endpoint) => endpoint.supportsStreaming,
   ).length;
+  const modelGroups = new Map<string, Array<ImageGenerationModel>>();
+  for (const model of models) {
+    const group = model.group ?? "Models";
+    const entries = modelGroups.get(group) ?? [];
+    entries.push(model);
+    modelGroups.set(group, entries);
+  }
 
   return (
     <section aria-label="Generation settings">
-      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <label className="col-span-2 text-xs text-muted-foreground sm:col-span-1">
+      <div className="grid grid-cols-2 items-end gap-3">
+        <label className="col-span-2 text-xs text-muted-foreground">
+          Provider
+          <select
+            value={props.providerId}
+            onChange={(event) => props.onProviderChange(event.target.value)}
+            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            disabled={props.providerDisabled}
+          >
+            <option value="openrouter">OpenRouter</option>
+            <option value="civitai">Civitai</option>
+          </select>
+        </label>
+        <label className="col-span-2 text-xs text-muted-foreground">
           Model
           <select
             value={modelId}
@@ -246,11 +284,21 @@ export function SettingsPanel(props: {
             disabled={disabled}
           >
             {models.length === 0 ? <option value="">No image models available</option> : null}
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name ?? model.id}
-              </option>
-            ))}
+            {models.some((model) => model.group)
+              ? Array.from(modelGroups, ([group, entries]) => (
+                  <optgroup key={group} label={group}>
+                    {entries.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name ?? model.id}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              : models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name ?? model.id}
+                  </option>
+                ))}
           </select>
         </label>
 
@@ -277,7 +325,8 @@ export function SettingsPanel(props: {
         <summary className="cursor-pointer rounded-md py-2 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Advanced settings and references
         </summary>
-        <div className="grid max-h-64 gap-4 overflow-y-auto border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 pt-4">
+          {props.advancedContent}
           {isGptImage2Model ? (
             <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               Provider endpoint: OpenAI via OpenRouter (fixed)
@@ -303,7 +352,7 @@ export function SettingsPanel(props: {
             />
           ) : null}
 
-          {qualityOptions.length > 0 ? (
+          {supports(supportedParameters, "quality") && qualityOptions.length > 0 ? (
             <ChipGroup
               label="Quality"
               value={quality}
@@ -313,7 +362,7 @@ export function SettingsPanel(props: {
             />
           ) : null}
 
-          {formatOptions.length > 0 ? (
+          {supports(supportedParameters, "output_format") && formatOptions.length > 0 ? (
             <ChipGroup
               label="Format"
               value={outputFormat}
@@ -323,7 +372,7 @@ export function SettingsPanel(props: {
             />
           ) : null}
 
-          {backgroundOptions.length > 0 ? (
+          {supports(supportedParameters, "background") && backgroundOptions.length > 0 ? (
             <ChipGroup
               label="Background"
               value={background}
@@ -349,6 +398,7 @@ export function SettingsPanel(props: {
               label="Size"
               value={size}
               options={sizes}
+              optionLabel={sizeLabel}
               onChange={onSizeChange}
               disabled={disabled}
               includeEmpty
@@ -445,15 +495,17 @@ export function SettingsPanel(props: {
           <div className="flex items-center gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground/75">
             <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />
             <span>
-              {isLoadingEndpoints
-                ? "Checking provider endpoints..."
-                : modelEndpoints
-                  ? modelEndpoints.endpoints.length === 0
-                    ? "Provider endpoint details unavailable; using model defaults"
-                    : `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${
-                        modelEndpoints.endpoints.length === 1 ? "" : "s"
-                      }${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
-                  : "Provider endpoint details unavailable"}
+              {props.providerId === "civitai"
+                ? "Generated with Civitai. Charges use your Civitai account balance."
+                : isLoadingEndpoints
+                  ? "Checking provider endpoints..."
+                  : modelEndpoints
+                    ? modelEndpoints.endpoints.length === 0
+                      ? "Provider endpoint details unavailable; using model defaults"
+                      : `${modelEndpoints.endpoints.length} OpenRouter provider endpoint${
+                          modelEndpoints.endpoints.length === 1 ? "" : "s"
+                        }${streamingEndpointCount ? `, ${streamingEndpointCount} stream-capable` : ""}`
+                    : "Provider endpoint details unavailable"}
             </span>
             {modelEndpoints ? (
               <RefreshCwIcon

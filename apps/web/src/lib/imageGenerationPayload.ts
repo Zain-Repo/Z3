@@ -1,12 +1,16 @@
 import {
+  CivitaiImageOptions,
   ProviderInstanceId,
   type ImageGenerationInput,
   type ImageGenerationRecord,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 
 const QUALITY_VALUES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
 const OUTPUT_FORMAT_VALUES = ["png", "jpeg", "webp", "svg"] as const;
 const BACKGROUND_VALUES = ["auto", "transparent", "opaque"] as const;
+const decodeCivitaiOptions = Schema.decodeUnknownOption(CivitaiImageOptions);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -63,6 +67,7 @@ export function parseImageGenerationPayload(
     seed?: number;
     inputReferences?: Array<{ url: string }>;
     provider?: JsonRecord;
+    civitai?: NonNullable<ImageGenerationInput["civitai"]>;
   } = {};
 
   const input: ImageGenerationInput = {
@@ -153,6 +158,13 @@ export function parseImageGenerationPayload(
   if (candidate.provider !== undefined) {
     if (!isJsonRecord(candidate.provider)) return invalidField("provider", "a JSON object");
     optionalFields.provider = candidate.provider;
+  }
+  if (candidate.civitai !== undefined) {
+    const options = decodeCivitaiOptions(candidate.civitai);
+    if (Option.isNone(options)) {
+      return invalidField("civitai", "valid checkpoint, LoRA, and advanced generation settings");
+    }
+    optionalFields.civitai = options.value;
   }
 
   return { input: { ...input, ...optionalFields } };

@@ -716,6 +716,32 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("saves, replaces, and removes image-only Civitai credentials securely", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const instanceId = ProviderInstanceId.make("civitai");
+      for (const value of ["test-civitai-first", "test-civitai-replacement", ""]) {
+        yield* service.updateSettings({
+          providerInstances: {
+            [instanceId]: {
+              driver: ProviderDriverKind.make("civitai"),
+              enabled: value.length > 0,
+              config: {},
+              environment: value ? [{ name: "CIVITAI_API_KEY", value, sensitive: true }] : [],
+            },
+          },
+        });
+        const settings = yield* service.getSettings;
+        assert.equal(settings.providerInstances[instanceId]?.environment?.[0]?.value ?? "", value);
+        const raw = yield* fs.readFileString(config.settingsPath);
+        assert.notInclude(raw, "test-civitai-first");
+        assert.notInclude(raw, "test-civitai-replacement");
+      }
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("stores sensitive provider instance environment values outside settings.json", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;

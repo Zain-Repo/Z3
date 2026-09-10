@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect";
 import {
   OPENROUTER_GPT_IMAGE_2_MODEL,
   OPENROUTER_GPT_IMAGE_2_PROVIDER,
+  ProviderInstanceId,
   type ImageGenerationInput,
   type ImageGenerationModel,
   type ImageGenerationModelEndpoints,
@@ -43,6 +44,7 @@ import {
 } from "../lib/imageStudioPrefs";
 import { PromptPanel } from "./imageStudio/PromptPanel";
 import { SettingsPanel } from "./imageStudio/SettingsPanel";
+import { CivitaiAdvancedSettings } from "./imageStudio/CivitaiAdvancedSettings";
 import { GalleryPanel } from "./imageStudio/GalleryPanel";
 import { useImageLibrary } from "./useImageLibrary";
 
@@ -80,6 +82,7 @@ export function ImageWorkspacePage() {
   const [generations, setGenerations] = useState<ReadonlyArray<ImageGenerationRecord>>([]);
   const [visibleGenerationCount, setVisibleGenerationCount] = useState(GENERATION_WINDOW_SIZE);
   const [modelId, setModelId] = useState("");
+  const [providerInstanceId, setProviderInstanceId] = useState<ProviderInstanceId>();
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [quality, setQuality] = useState<ImageQuality>("auto");
@@ -88,6 +91,9 @@ export function ImageWorkspacePage() {
   const [background, setBackground] = useState<ImageBackground>("auto");
   const [outputCompression, setOutputCompression] = useState(85);
   const [seed, setSeed] = useState("");
+  const [civitaiOptions, setCivitaiOptions] = useState<
+    NonNullable<ImageGenerationInput["civitai"]>
+  >({});
   const [referenceImages, setReferenceImages] = useState<ReadonlyArray<ReferenceImage>>([]);
   const [outputFormat, setOutputFormat] = useState<ImageOutputFormat>("png");
   const [useStreaming, setUseStreaming] = useState(false);
@@ -111,9 +117,10 @@ export function ImageWorkspacePage() {
   const [generationAnnouncement, setGenerationAnnouncement] = useState("");
   const [error, setError] = useState<string | null>(null);
   const activeGenerationRef = useRef<AbortController | null>(null);
+  const catalogRequestRef = useRef(0);
 
   const selectedModel = useMemo(
-    () => models.find((model) => model.id === modelId) ?? models[0] ?? null,
+    () => models.find((model) => model.id === modelId) ?? null,
     [modelId, models],
   );
   const selectedEndpoint = useMemo(() => {
@@ -169,7 +176,17 @@ export function ImageWorkspacePage() {
       };
     }
 
+    if (Object.keys(civitaiOptions).length > 0 && !selectedModel?.civitai) {
+      return {
+        error:
+          "This model does not support Civitai resource settings. Select a compatible worker model or clear civitai in the JSON settings.",
+      } as const;
+    }
+    if (selectedModel?.civitai?.checkpoint === "required" && !civitaiOptions.checkpoint) {
+      return { error: "Choose a checkpoint in Advanced settings before generating." } as const;
+    }
     const input: ImageGenerationInput = {
+      ...(providerInstanceId ? { providerInstanceId } : {}),
       model: modelId,
       prompt: prompt.trim(),
       ...(modelSupports(supportedParameters, "n") ? { n: count } : {}),
@@ -188,6 +205,9 @@ export function ImageWorkspacePage() {
           }
         : {}),
       ...(provider ? { provider } : {}),
+      ...(selectedModel?.civitai && Object.keys(civitaiOptions).length > 0
+        ? { civitai: civitaiOptions }
+        : {}),
     };
 
     return { input } as const;
@@ -201,6 +221,7 @@ export function ImageWorkspacePage() {
     outputFormat,
     prompt,
     providerOverride,
+    providerInstanceId,
     providerOptionsJson,
     referenceImages,
     resolution,
@@ -211,6 +232,8 @@ export function ImageWorkspacePage() {
     supportsStreaming,
     useStreaming,
     quality,
+    civitaiOptions,
+    selectedModel,
   ]);
 
   const loadGenerations = useCallback(async () => {
@@ -238,31 +261,56 @@ export function ImageWorkspacePage() {
   );
 
   const load = useCallback(async () => {
+    const requestId = ++catalogRequestRef.current;
     setIsLoading(true);
     setError(null);
     try {
       const [modelResult] = await Promise.all([
         runPrimaryHttp(
           PrimaryEnvironmentHttpClient.pipe(
-            Effect.flatMap((client) => client.imageGeneration.models({ headers: {} })),
+            Effect.flatMap((client) =>
+              client.imageGeneration.models({
+                headers: {},
+                query: providerInstanceId ? { providerInstanceId } : {},
+              }),
+            ),
           ),
         ),
         loadGenerations(),
       ]);
+      if (requestId !== catalogRequestRef.current) return;
       setModels(modelResult.models);
-      setModelId((current) => current || modelResult.models[0]?.id || "");
+      setModelId((current) =>
+        modelResult.models.some((model) => model.id === current)
+          ? current
+          : (modelResult.models[0]?.id ?? ""),
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load the image workspace.");
+      if (requestId !== catalogRequestRef.current) return;
+      setModels([]);
+      setError(
+        providerInstanceId === "civitai"
+          ? "Could not load Civitai models. Check your API key in Settings > Providers."
+          : cause instanceof Error
+            ? cause.message
+            : "Could not load the image workspace.",
+      );
     } finally {
-      setIsLoading(false);
+      if (requestId === catalogRequestRef.current) setIsLoading(false);
     }
-  }, [loadGenerations]);
+  }, [loadGenerations, providerInstanceId]);
 
   useEffect(() => {
     void load();
+    return () => {
+      catalogRequestRef.current++;
+    };
   }, [load]);
 
   useEffect(() => {
+    setModelEndpoints(null);
+    setIsLoadingEndpoints(false);
+    if (providerInstanceId === "civitai") return;
     if (!selectedModel) {
       setModelEndpoints(null);
       return;
@@ -278,7 +326,11 @@ export function ImageWorkspacePage() {
     void runPrimaryHttp(
       PrimaryEnvironmentHttpClient.pipe(
         Effect.flatMap((client) =>
-          client.imageGeneration.modelEndpoints({ params: { author, slug }, headers: {} }),
+          client.imageGeneration.modelEndpoints({
+            params: { author, slug },
+            headers: {},
+            query: providerInstanceId ? { providerInstanceId } : {},
+          }),
         ),
       ),
     )
@@ -295,7 +347,7 @@ export function ImageWorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedModel]);
+  }, [selectedModel, providerInstanceId]);
 
   // Keep the form in sync with the selected model's capabilities. Switching
   // models can leave values behind that the new model rejects, so clamp every
@@ -310,6 +362,10 @@ export function ImageWorkspacePage() {
       (current) => clampEnumValue(supportedParameters.background, current) as ImageBackground,
     );
     setAspectRatio((current) => clampEnumValue(supportedParameters.aspect_ratio, current));
+    setSize((current) => (current ? clampEnumValue(supportedParameters.size, current) : ""));
+    setResolution((current) =>
+      current ? clampEnumValue(supportedParameters.resolution, current) : "",
+    );
     setCount((current) => clampNumberValue(supportedParameters.n, current, 1, 10));
     setOutputCompression((current) =>
       clampNumberValue(supportedParameters.output_compression, current, 0, 100),
@@ -349,6 +405,10 @@ export function ImageWorkspacePage() {
       if (inputOverride) {
         input = inputOverride;
       } else {
+        if (isLoading || !selectedModel) {
+          setError("Wait for the provider's models to load, then choose a model.");
+          return;
+        }
         if (!modelId || prompt.trim().length === 0) {
           setError("Choose an image model and enter a prompt.");
           return;
@@ -412,7 +472,15 @@ export function ImageWorkspacePage() {
         }
       }
     },
-    [buildImageGenerationInput, minReferenceImages, modelId, prompt, referenceImages.length],
+    [
+      buildImageGenerationInput,
+      isLoading,
+      selectedModel,
+      minReferenceImages,
+      modelId,
+      prompt,
+      referenceImages.length,
+    ],
   );
 
   const generateRef = useRef(generate);
@@ -456,7 +524,12 @@ export function ImageWorkspacePage() {
   );
 
   const applyImageGenerationInput = useCallback((input: ImageGenerationInput) => {
+    setProviderInstanceId(
+      input.providerInstanceId ??
+        (input.model.startsWith("civitai/") ? ProviderInstanceId.make("civitai") : undefined),
+    );
     setModelId(input.model);
+    setModelEndpoints(null);
     setSelectedEndpointIndex("");
     setPrompt(input.prompt);
     setAspectRatio(input.aspectRatio ?? "1:1");
@@ -466,6 +539,7 @@ export function ImageWorkspacePage() {
     setBackground(input.background ?? "auto");
     setOutputCompression(input.outputCompression ?? 85);
     setSeed(input.seed === undefined ? "" : String(input.seed));
+    setCivitaiOptions(input.civitai ?? {});
     setOutputFormat(input.outputFormat ?? "png");
     setUseStreaming(input.stream ?? false);
     setCount(input.n ?? 1);
@@ -480,17 +554,15 @@ export function ImageWorkspacePage() {
 
   const rerollGeneration = useCallback(
     (input: ImageGenerationInput) => {
-      const supportsSeed = modelSupports(supportedParameters, "seed");
-      const rerolled: ImageGenerationInput = supportsSeed
-        ? { ...input, seed: Math.floor(Math.random() * 1_000_000) }
-        : input;
+      // Let the original provider choose a fresh seed without adding unsupported parameters.
+      const { seed: _seed, ...rerolled } = input;
       applyImageGenerationInput(rerolled);
       setEditorMode("form");
       setJsonError(null);
       setError(null);
       void generate(rerolled);
     },
-    [applyImageGenerationInput, generate, supportedParameters],
+    [applyImageGenerationInput, generate],
   );
 
   const switchEditorMode = (nextMode: "form" | "json") => {
@@ -520,6 +592,8 @@ export function ImageWorkspacePage() {
   };
 
   const handleModelChange = useCallback((nextModelId: string) => {
+    setCivitaiOptions({});
+    setModelEndpoints(null);
     setSelectedEndpointIndex("");
     setProviderOverride(undefined);
     setProviderOptionsJson("");
@@ -556,11 +630,11 @@ export function ImageWorkspacePage() {
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden bg-background text-foreground">
       <header className="shrink-0 border-b border-border/70 px-4 py-3 sm:px-6">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
+        <div className="flex w-full items-center justify-between gap-4">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">ZImage</h1>
           </div>
-          <div className="flex items-center gap-1 border border-border/70 bg-background/70 p-1">
+          <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1">
             <Button size="sm" className="gap-2">
               <ImageIcon className="size-3.5" aria-hidden="true" /> Images
             </Button>
@@ -579,7 +653,7 @@ export function ImageWorkspacePage() {
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-3 sm:px-6">
+      <div className="flex min-h-0 w-full flex-1 flex-col">
         <p className="sr-only" role="status">
           {generationAnnouncement}
         </p>
@@ -592,7 +666,7 @@ export function ImageWorkspacePage() {
           </p>
         ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
           <GalleryPanel
             generations={generations}
             visibleCount={visibleGenerationCount}
@@ -615,10 +689,19 @@ export function ImageWorkspacePage() {
             }
             canLoadMore={generations.length > visibleGenerationCount}
             onUseStarter={handleUseStarter}
-            className="min-h-64 flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-2"
+            className="min-h-64 min-w-0 flex-1 p-4 sm:p-6 lg:min-h-0 lg:overflow-y-auto"
           />
 
-          <aside className="relative order-first flex shrink-0 min-w-0 flex-col gap-2 rounded-xl border border-border bg-card p-3 lg:order-last lg:max-h-[60dvh] lg:overflow-y-auto">
+          <aside
+            aria-label="Create an image"
+            className="relative order-first flex min-w-0 shrink-0 flex-col gap-5 border-b border-border bg-card/50 p-4 sm:p-6 lg:order-last lg:w-80 lg:overflow-y-auto lg:border-b-0 lg:border-l xl:w-96"
+          >
+            <div>
+              <h2 className="text-sm font-semibold">Create an image</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Describe your idea, then make it your own.
+              </p>
+            </div>
             <div
               className="flex items-center gap-1 self-start border border-border/70 bg-background/70 p-1"
               role="tablist"
@@ -658,6 +741,33 @@ export function ImageWorkspacePage() {
                   disabled={isGenerating}
                 />
                 <SettingsPanel
+                  advancedContent={
+                    selectedModel && providerInstanceId === "civitai" ? (
+                      <CivitaiAdvancedSettings
+                        key={selectedModel.id}
+                        model={selectedModel}
+                        providerInstanceId={providerInstanceId}
+                        value={civitaiOptions}
+                        onChange={setCivitaiOptions}
+                        disabled={isGenerating || isLoading}
+                      />
+                    ) : undefined
+                  }
+                  providerId={providerInstanceId === "civitai" ? "civitai" : "openrouter"}
+                  providerDisabled={isGenerating}
+                  onProviderChange={(value) => {
+                    catalogRequestRef.current++;
+                    setProviderInstanceId(
+                      value === "civitai" ? ProviderInstanceId.make("civitai") : undefined,
+                    );
+                    setModels([]);
+                    setModelEndpoints(null);
+                    setIsLoading(true);
+                    handleModelChange("");
+                    setReferenceImages([]);
+                    setSize("");
+                    setResolution("");
+                  }}
                   models={models}
                   modelId={modelId}
                   onModelChange={handleModelChange}
@@ -705,12 +815,12 @@ export function ImageWorkspacePage() {
                     setProviderOverride(undefined);
                     setProviderOptionsJson(value);
                   }}
-                  disabled={isGenerating}
+                  disabled={isGenerating || isLoading}
                 />
                 <Button
                   onClick={() => (isGenerating ? cancelGeneration() : void generate())}
                   disabled={!isGenerating && (isLoading || !modelId || prompt.trim().length === 0)}
-                  className="h-10 w-full gap-2 sm:w-auto sm:self-end"
+                  className="sticky bottom-0 z-10 h-10 w-full shrink-0 gap-2 shadow-sm"
                 >
                   {isGenerating ? (
                     <LoaderCircleIcon className="size-5 animate-spin" aria-hidden="true" />
