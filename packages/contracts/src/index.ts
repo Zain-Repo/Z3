@@ -32,3 +32,4 @@ export * from "./previewAutomation.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./chatProjectSources.ts";
+export * from "./chatLibrary.ts";

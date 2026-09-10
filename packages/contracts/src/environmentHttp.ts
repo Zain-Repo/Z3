@@ -7,6 +7,12 @@ import * as HttpApiGroup from "effect/unstable/httpapi/HttpApiGroup";
 import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import {
+  ChatLibraryItem,
+  ChatLibraryPage,
+  ChatLibraryQuery,
+  ChatLibraryUploadInput,
+} from "./chatLibrary.ts";
 
 import {
   AuthAccessTokenResult,
@@ -341,6 +347,32 @@ const ImageGenerationModelParams = Schema.Struct({
   slug: TrimmedNonEmptyString,
 });
 
+export class EnvironmentChatLibraryHttpApi extends HttpApiGroup.make("chatLibrary")
+  .add(
+    HttpApiEndpoint.get("list", "/api/chat/library", {
+      headers: OptionalBearerHeaders,
+      query: ChatLibraryQuery,
+      success: ChatLibraryPage,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("upload", "/api/chat/library", {
+      headers: OptionalBearerHeaders,
+      payload: ChatLibraryUploadInput,
+      success: ChatLibraryItem,
+      error: [EnvironmentHttpBadRequestError, ...EnvironmentScopedOperationErrors],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.delete("remove", "/api/chat/library/:attachmentId", {
+      headers: OptionalBearerHeaders,
+      params: Schema.Struct({ attachmentId: TrimmedNonEmptyString }),
+      success: Schema.Struct({ deleted: Schema.Boolean }),
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  ) {}
+
 export class EnvironmentImageGenerationHttpApi extends HttpApiGroup.make("imageGeneration")
   .add(
     HttpApiEndpoint.get("models", "/api/images/models", {
@@ -369,7 +401,11 @@ export class EnvironmentImageGenerationHttpApi extends HttpApiGroup.make("imageG
       headers: OptionalBearerHeaders,
       payload: ImageGenerationInput,
       success: ImageGenerationRecord,
-      error: [EnvironmentRequestInvalidError, ...EnvironmentScopedOperationErrors],
+      error: [
+        EnvironmentHttpBadRequestError,
+        EnvironmentRequestInvalidError,
+        ...EnvironmentScopedOperationErrors,
+      ],
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
@@ -409,7 +445,7 @@ export class EnvironmentVideoGenerationHttpApi extends HttpApiGroup.make("videoG
       headers: OptionalBearerHeaders,
       payload: VideoGenerationInput,
       success: VideoGenerationRecord,
-      error: [EnvironmentRequestInvalidError, ...EnvironmentScopedOperationErrors],
+      error: [EnvironmentHttpBadRequestError, EnvironmentRequestInvalidError, ...EnvironmentScopedOperationErrors],
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
@@ -654,5 +690,6 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentImageGenerationHttpApi)
+  .add(EnvironmentChatLibraryHttpApi)
   .add(EnvironmentVideoGenerationHttpApi)
   .add(EnvironmentConnectHttpApi) {}

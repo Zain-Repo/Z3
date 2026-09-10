@@ -46,7 +46,7 @@ import { SettingsPanel } from "./imageStudio/SettingsPanel";
 import { GalleryPanel } from "./imageStudio/GalleryPanel";
 
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
-type ImageQuality = "auto" | "low" | "medium" | "high";
+type ImageQuality = NonNullable<ImageGenerationInput["quality"]>;
 type ImageBackground = "auto" | "transparent" | "opaque";
 
 const GENERATION_WINDOW_SIZE = 24;

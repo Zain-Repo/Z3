@@ -1,8 +1,19 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { imageAspectRatio, imageGridAspectRatio } from "./imageGenerationAspectRatio";
+import {
+  imageAspectRatio,
+  imageGridAspectRatio,
+  imageToolAspectRatio,
+} from "./imageGenerationAspectRatio";
 
 describe("image generation aspect ratios", () => {
+  it("reads tool dimensions and safely falls back when providers omit them", () => {
+    assert.equal(imageToolAspectRatio({ arguments: { aspect_ratio: "16:9" } }), 16 / 9);
+    assert.equal(imageToolAspectRatio({ input: { size: "1024x1536" } }), 2 / 3);
+    assert.equal(imageToolAspectRatio({ aspectRatio: "9:16" }), 9 / 16);
+    assert.equal(imageToolAspectRatio(null), 1);
+    assert.equal(imageToolAspectRatio({ size: 123, aspect_ratio: "0:1" }), 1);
+  });
   it("uses explicit pixel dimensions before the requested aspect ratio", () => {
     assert.equal(imageAspectRatio({ size: "1536x1024", aspectRatio: "1:1" }), 1.5);
   });

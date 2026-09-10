@@ -25,6 +25,7 @@ import { Route as SettingsArchivedRouteImport } from './routes/settings.archived
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ConnectCallbackRouteImport } from './routes/connect_.callback'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
+import { Route as ChatLibraryRouteImport } from './routes/_chat.library'
 import { Route as ChatKanbanRouteImport } from './routes/_chat.kanban'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
@@ -108,6 +109,11 @@ const ChatNewRoute = ChatNewRouteImport.update({
   path: '/new',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatLibraryRoute = ChatLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatKanbanRoute = ChatKanbanRouteImport.update({
   id: '/kanban',
   path: '/kanban',
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/kanban': typeof ChatKanbanRoute
+  '/library': typeof ChatLibraryRoute
   '/new': typeof ChatNewRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/kanban': typeof ChatKanbanRoute
+  '/library': typeof ChatLibraryRoute
   '/new': typeof ChatNewRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/kanban': typeof ChatKanbanRoute
+  '/_chat/library': typeof ChatLibraryRoute
   '/_chat/new': typeof ChatNewRoute
   '/connect_/callback': typeof ConnectCallbackRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -195,6 +204,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/kanban'
+    | '/library'
     | '/new'
     | '/connect/callback'
     | '/settings/appearance'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/kanban'
+    | '/library'
     | '/new'
     | '/connect/callback'
     | '/settings/appearance'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/_chat/kanban'
+    | '/_chat/library'
     | '/_chat/new'
     | '/connect_/callback'
     | '/settings/appearance'
@@ -373,6 +385,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatNewRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/library': {
+      id: '/_chat/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof ChatLibraryRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/kanban': {
       id: '/_chat/kanban'
       path: '/kanban'
@@ -399,6 +418,7 @@ declare module '@tanstack/react-router' {
 
 interface ChatRouteChildren {
   ChatKanbanRoute: typeof ChatKanbanRoute
+  ChatLibraryRoute: typeof ChatLibraryRoute
   ChatNewRoute: typeof ChatNewRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
@@ -407,6 +427,7 @@ interface ChatRouteChildren {
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatKanbanRoute: ChatKanbanRoute,
+  ChatLibraryRoute: ChatLibraryRoute,
   ChatNewRoute: ChatNewRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,

@@ -81,7 +81,7 @@ export interface OpenRouterImageGenerationInput {
   readonly resolution?: string;
   readonly aspectRatio?: string;
   readonly size?: string;
-  readonly quality?: "auto" | "low" | "medium" | "high";
+  readonly quality?: "auto" | "low" | "medium" | "high" | "xhigh" | "max";
   readonly outputFormat?: "png" | "jpeg" | "webp" | "svg";
   readonly background?: "auto" | "transparent" | "opaque";
   readonly outputCompression?: number;
@@ -125,6 +125,8 @@ export interface OpenRouterVideoModel {
   readonly supportedSizes: ReadonlyArray<string>;
   readonly allowedPassthroughParameters: ReadonlyArray<string>;
   readonly pricingSkus: Readonly<Record<string, unknown>>;
+  readonly upscaleFactor?: { readonly min: number; readonly max: number };
+  readonly creativity?: ReadonlyArray<number>;
 }
 
 export interface OpenRouterVideoFrameImage {
@@ -138,9 +140,7 @@ export type OpenRouterVideoInputReference =
   | { readonly type: "audio_url"; readonly audio_url: { readonly url: string } }
   | { readonly type: "video_url"; readonly video_url: { readonly url: string } };
 
-export interface OpenRouterVideoProviderOption {
-  readonly parameters: Readonly<Record<string, unknown>>;
-}
+export type OpenRouterVideoProviderOption = Readonly<Record<string, unknown>>;
 
 export interface OpenRouterVideoProvider {
   readonly options: Readonly<Record<string, OpenRouterVideoProviderOption>>;
@@ -158,6 +158,8 @@ export interface OpenRouterVideoGenerationInput {
   readonly size?: string;
   readonly generateAudio?: boolean;
   readonly seed?: number;
+  readonly upscaleFactor?: number;
+  readonly creativity?: number;
   readonly frameImages?: ReadonlyArray<OpenRouterVideoFrameImage>;
   readonly inputReferences?: ReadonlyArray<OpenRouterVideoInputReference>;
   readonly provider?: OpenRouterVideoProvider;
@@ -463,7 +465,10 @@ export function parseOpenRouterImageModels(payload: unknown): ReadonlyArray<Open
     const outputModalities = Array.isArray(architecture?.output_modalities)
       ? architecture.output_modalities.filter((value): value is string => typeof value === "string")
       : undefined;
-    const supportedParameters = parseImageParameterDescriptors(entry.supported_parameters);
+    const supportedParameters = normalizeImageOutputParameters(
+      id,
+      parseImageParameterDescriptors(entry.supported_parameters),
+    );
     const endpoints = stringValue(entry.endpoints);
     return [
       {
@@ -519,6 +524,21 @@ function parseImageParameterDescriptors(
   return descriptors;
 }
 
+/** OpenRouter omits OpenAI's output_format descriptor while advertising compression. */
+function normalizeImageOutputParameters(
+  model: string,
+  parameters: Readonly<Record<string, OpenRouterImageParameterDescriptor>>,
+): Readonly<Record<string, OpenRouterImageParameterDescriptor>> {
+  if (
+    model.startsWith("openai/") &&
+    parameters.output_compression !== undefined &&
+    parameters.output_format === undefined
+  ) {
+    return { ...parameters, output_format: { type: "enum", values: ["png", "jpeg", "webp"] } };
+  }
+  return parameters;
+}
+
 function parseOpenRouterImageModelEndpoints(payload: unknown): OpenRouterImageModelEndpoints {
   if (!Predicate.isObject(payload) || !Array.isArray(payload.endpoints)) {
     throw new OpenRouterApiError("OpenRouter returned invalid image model endpoint records.");
@@ -559,7 +579,10 @@ function parseOpenRouterImageModelEndpoints(payload: unknown): OpenRouterImageMo
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          supportedParameters: parseImageParameterDescriptors(entry.supported_parameters),
+          supportedParameters: normalizeImageOutputParameters(
+            stringValue(payload.id) ?? "",
+            parseImageParameterDescriptors(entry.supported_parameters),
+          ),
           supportsStreaming: entry.supports_streaming === true,
           pricing,
         },
@@ -874,6 +897,22 @@ function parseVideoModelEntry(entry: unknown): OpenRouterVideoModel | undefined 
       )
     : [];
   const pricingSkus = Predicate.isObject(entry.pricing_skus) ? entry.pricing_skus : {};
+  const upscale = entry.upscale_factor;
+  const upscaleFactor =
+    Predicate.isObject(upscale) &&
+    typeof upscale.min === "number" &&
+    Number.isFinite(upscale.min) &&
+    typeof upscale.max === "number" &&
+    Number.isFinite(upscale.max) &&
+    upscale.min > 0 &&
+    upscale.max >= upscale.min
+      ? { min: upscale.min, max: upscale.max }
+      : undefined;
+  const creativity = Array.isArray(entry.creativity)
+    ? entry.creativity.filter(
+        (value): value is number => typeof value === "number" && Number.isSafeInteger(value),
+      )
+    : undefined;
   return {
     id,
     ...(canonicalSlug !== undefined ? { canonicalSlug } : {}),
@@ -888,6 +927,8 @@ function parseVideoModelEntry(entry: unknown): OpenRouterVideoModel | undefined 
     supportedSizes,
     allowedPassthroughParameters,
     pricingSkus,
+    ...(upscaleFactor ? { upscaleFactor } : {}),
+    ...(creativity ? { creativity } : {}),
   };
 }
 
@@ -958,6 +999,18 @@ function validateVideoGenerationInput(input: OpenRouterVideoGenerationInput): vo
   if (input.duration !== undefined && (!Number.isInteger(input.duration) || input.duration < 1)) {
     throw new OpenRouterApiError("Video duration must be an integer of at least one second.");
   }
+  if (input.seed !== undefined && !Number.isSafeInteger(input.seed)) {
+    throw new OpenRouterApiError("Video seed must be a safe integer.");
+  }
+  if (
+    input.upscaleFactor !== undefined &&
+    (!Number.isFinite(input.upscaleFactor) || input.upscaleFactor <= 0)
+  ) {
+    throw new OpenRouterApiError("Video upscale factor must be a positive number.");
+  }
+  if (input.creativity !== undefined && !Number.isSafeInteger(input.creativity)) {
+    throw new OpenRouterApiError("Video creativity must be an integer.");
+  }
   if (input.frameImages && input.frameImages.length > 2) {
     throw new OpenRouterApiError(
       "Video generation accepts at most one first frame and one last frame.",
@@ -1001,9 +1054,6 @@ function validateVideoGenerationInput(input: OpenRouterVideoGenerationInput): vo
       if (providerSlug.trim().length === 0 || !Predicate.isObject(option)) {
         throw new OpenRouterApiError("Video provider options must use non-empty provider slugs.");
       }
-      if (!Predicate.isObject(option.parameters)) {
-        throw new OpenRouterApiError("Video provider options must include a parameters object.");
-      }
     }
   }
 }
@@ -1031,6 +1081,8 @@ export const createOpenRouterVideo = Effect.fn("createOpenRouterVideo")(function
       ...(input.inputReferences !== undefined ? { input_references: input.inputReferences } : {}),
       ...(input.provider !== undefined ? { provider: input.provider } : {}),
       ...(input.callbackUrl?.trim() ? { callback_url: input.callbackUrl.trim() } : {}),
+      ...(input.upscaleFactor !== undefined ? { upscale_factor: input.upscaleFactor } : {}),
+      ...(input.creativity !== undefined ? { creativity: input.creativity } : {}),
     }),
   );
   const payload = yield* requestJson({ httpClient: input.httpClient, request });
@@ -1092,9 +1144,19 @@ export const downloadOpenRouterVideo = Effect.fn("downloadOpenRouterVideo")(func
       (cause) => new OpenRouterApiError(`OpenRouter video download failed: ${String(cause)}`),
     ),
   );
+  const mediaType =
+    response.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() ?? "video/mp4";
+  if (
+    bytes.byteLength === 0 ||
+    (!mediaType.startsWith("video/") && mediaType !== "application/octet-stream")
+  ) {
+    return yield* Effect.fail(
+      new OpenRouterApiError("OpenRouter returned empty or non-video content."),
+    );
+  }
   return {
     bytes: new Uint8Array(bytes),
-    mediaType: response.headers["content-type"]?.split(";", 1)[0] ?? "video/mp4",
+    mediaType: mediaType === "application/octet-stream" ? "video/mp4" : mediaType,
   };
 });
 
@@ -1312,7 +1374,7 @@ export function sanitizeOpenRouterImageInput(
   input: OpenRouterImageGenerationInput,
   capabilities: OpenRouterImageCapabilities,
 ): OpenRouterImageGenerationInput {
-  const supported = capabilities.supportedParameters;
+  const supported = normalizeImageOutputParameters(input.model, capabilities.supportedParameters);
   const resolution = sanitizeImageEnumValue(input.resolution, supported.resolution);
   const aspectRatio = sanitizeImageEnumValue(input.aspectRatio, supported.aspect_ratio);
   const size = sanitizeImageEnumValue(input.size, supported.size);
@@ -1388,7 +1450,9 @@ export const generateOpenRouterImage = Effect.fn("generateOpenRouterImage")(func
         ? { output_format: input.outputFormat }
         : {}),
       ...(!isMuseImage && input.background !== undefined ? { background: input.background } : {}),
-      ...(!isMuseImage && input.outputCompression !== undefined
+      ...(!isMuseImage &&
+      input.outputCompression !== undefined &&
+      (input.outputFormat === "jpeg" || input.outputFormat === "webp")
         ? { output_compression: input.outputCompression }
         : {}),
       ...(!isMuseImage && input.seed !== undefined ? { seed: input.seed } : {}),

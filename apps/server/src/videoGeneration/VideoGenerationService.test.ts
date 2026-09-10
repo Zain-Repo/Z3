@@ -4,6 +4,8 @@ import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
@@ -48,7 +50,7 @@ const makeHttpClient = (state: VideoGenerationTestState) =>
                 Effect.as(
                   HttpClientResponse.fromWeb(
                     request,
-                    new Response("temporary failure", { status: 503 }),
+                    new Response("download unavailable", { status: 400 }),
                   ),
                 ),
               );
@@ -79,6 +81,170 @@ const layer = it.layer(
 );
 
 layer("VideoGenerationService", (it) => {
+  const withService = <A, E>(client: HttpClient.HttpClient, effect: Effect.Effect<A, E>) =>
+    effect.pipe(
+      Effect.provide(
+        VideoGenerationService.layer.pipe(
+          Layer.provide(Layer.succeed(HttpClient.HttpClient, client)),
+        ),
+      ),
+    );
+
+  it.effect("rejects incompatible model options before submitting a paid request", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 40 });
+      let submissions = 0;
+      const client = HttpClient.make((request) => {
+        if (request.method === "POST") submissions++;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            Response.json({
+              data: [
+                {
+                  id: "test/video",
+                  supported_durations: [5],
+                  supported_resolutions: ["720p"],
+                },
+              ],
+            }),
+          ),
+        );
+      });
+      const result = yield* withService(
+        client,
+        Effect.gen(function* () {
+          const service = yield* VideoGenerationService.VideoGenerationService;
+          return yield* service
+            .generate({ model: "test/video", prompt: "A scene", duration: 99 })
+            .pipe(Effect.flip);
+        }),
+      );
+      assert.include(result.message, "Duration");
+      assert.equal(submissions, 0);
+    }),
+  );
+
+  it.effect("preserves submission errors and never retries a paid POST", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 40 });
+      let submissions = 0;
+      const client = HttpClient.make((request) => {
+        if (request.method === "POST") submissions++;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            request.method === "POST"
+              ? Response.json(
+                  { error: { message: "Provider temporarily unavailable" } },
+                  { status: 503 },
+                )
+              : Response.json({ data: [{ id: "test/video" }] }),
+          ),
+        );
+      });
+      const result = yield* withService(
+        client,
+        Effect.gen(function* () {
+          const service = yield* VideoGenerationService.VideoGenerationService;
+          return yield* service
+            .generate({ model: "test/video", prompt: "A scene" })
+            .pipe(Effect.flip);
+        }),
+      );
+      assert.include(result.message, "Provider temporarily unavailable");
+      assert.equal(submissions, 1);
+    }),
+  );
+
+  it.effect(
+    "retries a transient content failure and saves the completed video without another POST",
+    () =>
+      Effect.gen(function* () {
+        yield* runMigrations({ toMigrationInclusive: 40 });
+        const firstDownload = yield* Deferred.make<void>();
+        let downloads = 0;
+        let submissions = 0;
+        const client = HttpClient.make((request) => {
+          if (request.url.includes("/content")) {
+            downloads++;
+            if (downloads === 1)
+              return Deferred.succeed(firstDownload, undefined).pipe(
+                Effect.as(
+                  HttpClientResponse.fromWeb(request, new Response("try again", { status: 503 })),
+                ),
+              );
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(new Uint8Array([1, 2, 3]), {
+                  headers: { "content-type": "video/mp4" },
+                }),
+              ),
+            );
+          }
+          if (request.method === "POST") submissions++;
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json(
+                request.method === "POST"
+                  ? { id: "retry-job", status: "completed" }
+                  : { data: [{ id: "test/video" }] },
+              ),
+            ),
+          );
+        });
+        const fiber = yield* withService(
+          client,
+          Effect.gen(function* () {
+            const service = yield* VideoGenerationService.VideoGenerationService;
+            return yield* service.generate({ model: "test/video", prompt: "A scene" });
+          }),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(firstDownload);
+        yield* TestClock.adjust("2 seconds");
+        const result = yield* Fiber.join(fiber);
+        assert.equal(result.status, "completed");
+        assert.equal(result.assets.length, 1);
+        assert.equal(result.assets[0]?.sizeBytes, 3);
+        assert.equal(submissions, 1);
+        assert.equal(downloads, 2);
+      }),
+  );
+
+  it.effect("does not re-poll fully downloaded videos on startup", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 40 });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+        INSERT INTO projection_video_generations
+          (generation_id, provider_job_id, model, status, created_at, updated_at)
+        VALUES ('saved-generation', 'saved-job', 'test/video', 'completed', '2026-01-01', '2026-01-01')
+      `;
+      yield* sql`
+        INSERT INTO projection_video_assets (asset_id, generation_id, media_type, bytes, created_at)
+        VALUES ('saved-asset', 'saved-generation', 'video/mp4', X'010203', '2026-01-01')
+      `;
+      let calls = 0;
+      const client = HttpClient.make((request) => {
+        calls++;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("expired", { status: 404 })),
+        );
+      });
+      yield* withService(
+        client,
+        Effect.gen(function* () {
+          const service = yield* VideoGenerationService.VideoGenerationService;
+          const result = yield* service.listGenerations();
+          assert.ok(result.generations.every((generation) => generation.status === "completed"));
+        }),
+      );
+      assert.equal(calls, 0);
+    }),
+  );
+
   it.effect("resumes a partially persisted completed job after restart", () =>
     Effect.gen(function* () {
       const state: VideoGenerationTestState = {
@@ -92,8 +258,8 @@ layer("VideoGenerationService", (it) => {
       yield* runMigrations({ toMigrationInclusive: 40 });
       yield* sql`
         INSERT INTO projection_video_generations
-          (generation_id, provider_job_id, model, status, created_at, updated_at, completed_at)
-        VALUES ('generation-1', 'job-1', 'google/veo-3.1', 'completed', '2026-01-01', '2026-01-01', '2026-01-01')
+          (generation_id, provider_job_id, model, status, created_at, updated_at, completed_at, unsigned_urls_json)
+        VALUES ('generation-1', 'job-1', 'google/veo-3.1', 'completed', '2026-01-01', '2026-01-01', '2026-01-01', '["output-0", "output-1"]')
       `;
       yield* sql`
         INSERT INTO projection_video_assets

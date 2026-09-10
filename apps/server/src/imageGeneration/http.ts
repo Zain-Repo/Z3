@@ -2,6 +2,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
+  EnvironmentHttpBadRequestError,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -11,7 +12,6 @@ import {
   annotateEnvironmentRequest,
   failEnvironmentAuthInvalid,
   failEnvironmentInternal,
-  failEnvironmentInvalidRequest,
   failEnvironmentScopeRequired,
   requireEnvironmentScope,
 } from "../auth/http.ts";
@@ -84,8 +84,8 @@ export const imageGenerationHttpApiLayer = HttpApiBuilder.group(
           return yield* service
             .generate(args.payload)
             .pipe(
-              Effect.catchTag("ImageGenerationServiceError", () =>
-                failEnvironmentInvalidRequest("invalid_command"),
+              Effect.catchTag("ImageGenerationServiceError", (error) =>
+                Effect.fail(new EnvironmentHttpBadRequestError({ message: error.message })),
               ),
             );
         }),

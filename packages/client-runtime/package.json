@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./state/chat-library": {
+      "types": "./src/state/chatLibrary.ts",
+      "default": "./src/state/chatLibrary.ts"
+    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"

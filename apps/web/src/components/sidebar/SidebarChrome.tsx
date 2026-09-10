@@ -1,6 +1,6 @@
-import { SettingsIcon } from "lucide-react";
+import { LibraryIcon, SettingsIcon } from "lucide-react";
 import { memo, useCallback } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -33,6 +33,8 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron: boolean;
 }) {
   const { activeWorkspace } = useWorkspace();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const { setOpenMobile } = useSidebar();
   const activeEnvironmentId = useActiveEnvironmentId();
   const setActiveChatProject = useChatProjectsStore((state) => state.setActiveProject);
   const stageLabel = useEnvironmentStageLabel();
@@ -84,6 +86,21 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         ) : null}
       </SidebarHeader>
       {activeWorkspace.id === "chat" ? <WorkspaceContextRail /> : null}
+      {activeWorkspace.id === "chat" ? (
+        <SidebarMenu className="px-[var(--sidebar-content-inset)] pt-2">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/library"}
+              variant="chat"
+              render={<Link to="/library" />}
+              onClick={() => setOpenMobile(false)}
+            >
+              <LibraryIcon />
+              <span>Library</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      ) : null}
     </>
   );
 });

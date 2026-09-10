@@ -63,6 +63,8 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
+import { ImageGenerationSkeleton } from "../ImageGenerationSkeleton";
+import { imageToolAspectRatio } from "../../lib/imageGenerationAspectRatio";
 import { TextShimmer } from "../text-shimmer";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -2132,16 +2134,12 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     return (
       <div className="max-w-[420px] py-1">
         <div
-          className="relative aspect-square w-full overflow-hidden rounded-lg border border-border/70 bg-muted/60"
+          className="relative w-full overflow-hidden rounded-lg border border-border/70 bg-muted/60"
+          style={{ aspectRatio: imageToolAspectRatio(workEntry.toolData) }}
           aria-busy="true"
           aria-label="Generating image"
         >
-          <Skeleton className="absolute inset-0 rounded-none motion-reduce:animate-none" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="flex size-9 items-center justify-center rounded-md bg-background/55 text-muted-foreground backdrop-blur-sm">
-              <SparklesIcon className="size-4" aria-hidden="true" />
-            </span>
-          </div>
+          <ImageGenerationSkeleton />
         </div>
         <p className="mt-1.5 text-[11px] text-muted-foreground/70">Generating image...</p>
       </div>

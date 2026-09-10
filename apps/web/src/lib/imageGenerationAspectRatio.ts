@@ -23,6 +23,22 @@ export function imageAspectRatio(input: ImageDimensions | undefined): number {
   return parseDimensionRatio(input?.size) ?? parseDimensionRatio(input?.aspectRatio) ?? 1;
 }
 
+/** Provider tool arguments are untrusted and may be omitted from lifecycle events. */
+export function imageToolAspectRatio(data: unknown): number {
+  if (typeof data !== "object" || data === null) return 1;
+  const item = data as Record<string, unknown>;
+  const argumentsValue = item.arguments ?? item.input;
+  const dimensions =
+    typeof argumentsValue === "object" && argumentsValue !== null
+      ? (argumentsValue as Record<string, unknown>)
+      : item;
+  const ratio = dimensions.aspectRatio ?? dimensions.aspect_ratio;
+  return imageAspectRatio({
+    ...(typeof dimensions.size === "string" ? { size: dimensions.size } : {}),
+    ...(typeof ratio === "string" ? { aspectRatio: ratio } : {}),
+  });
+}
+
 export function imageGridAspectRatio(
   input: ImageDimensions | undefined,
   imageCount: number,

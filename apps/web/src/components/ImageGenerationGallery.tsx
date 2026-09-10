@@ -7,7 +7,6 @@ import {
   Maximize2Icon,
   RefreshCwIcon,
   RotateCcwIcon,
-  SparklesIcon,
   SquareIcon,
   Trash2Icon,
   XIcon,
@@ -18,6 +17,7 @@ import { cn } from "../lib/utils";
 import { imageGridAspectRatio } from "../lib/imageGenerationAspectRatio";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { ImageGenerationSkeleton } from "./ImageGenerationSkeleton";
 import { Skeleton } from "./ui/skeleton";
 import type { ImageContent, LoadImageContent } from "./imageContentLoader";
 import {
@@ -50,7 +50,9 @@ export function PendingGenerationCard({
         )}
       >
         {Array.from({ length: count }, (_, index) => (
-          <ImageSkeletonTile key={index} />
+          <div key={index} className="relative min-h-0 min-w-0 overflow-hidden">
+            <ImageGenerationSkeleton index={index} />
+          </div>
         ))}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
           <span
@@ -281,12 +283,7 @@ export const GenerationCard = memo(function GenerationCard({
 function ImageSkeletonTile() {
   return (
     <div className="relative size-full overflow-hidden bg-muted/35" aria-hidden="true">
-      <Skeleton className="absolute inset-0 rounded-none motion-reduce:animate-none" />
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <span className="flex size-11 items-center justify-center rounded-xl bg-background/40 text-muted-foreground/35 shadow-sm/5">
-          <SparklesIcon className="size-4" />
-        </span>
-      </div>
+      <ImageGenerationSkeleton />
     </div>
   );
 }

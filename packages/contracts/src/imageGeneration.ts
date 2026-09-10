@@ -63,7 +63,7 @@ export const ImageGenerationInput = Schema.Struct({
   resolution: Schema.optionalKey(TrimmedNonEmptyString),
   aspectRatio: Schema.optionalKey(TrimmedNonEmptyString),
   size: Schema.optionalKey(TrimmedNonEmptyString),
-  quality: Schema.optionalKey(Schema.Literals(["auto", "low", "medium", "high"])),
+  quality: Schema.optionalKey(Schema.Literals(["auto", "low", "medium", "high", "xhigh", "max"])),
   outputFormat: Schema.optionalKey(Schema.Literals(["png", "jpeg", "webp", "svg"])),
   background: Schema.optionalKey(Schema.Literals(["auto", "transparent", "opaque"])),
   outputCompression: Schema.optionalKey(

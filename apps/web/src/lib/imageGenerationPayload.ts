@@ -4,7 +4,7 @@ import {
   type ImageGenerationRecord,
 } from "@t3tools/contracts";
 
-const QUALITY_VALUES = ["auto", "low", "medium", "high"] as const;
+const QUALITY_VALUES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
 const OUTPUT_FORMAT_VALUES = ["png", "jpeg", "webp", "svg"] as const;
 const BACKGROUND_VALUES = ["auto", "transparent", "opaque"] as const;
 
@@ -104,7 +104,7 @@ export function parseImageGenerationPayload(
 
   if (candidate.quality !== undefined) {
     if (!isOneOf(candidate.quality, QUALITY_VALUES)) {
-      return invalidField("quality", 'one of "auto", "low", "medium", or "high"');
+      return invalidField("quality", 'one of "auto", "low", "medium", "high", "xhigh", or "max"');
     }
     optionalFields.quality = candidate.quality;
   }

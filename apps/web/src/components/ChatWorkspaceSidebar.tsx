@@ -766,7 +766,7 @@ export default function ChatWorkspaceSidebar() {
       >
         {visiblePinnedThreads.length > 0 ? (
           <SidebarGroup className="shrink-0 gap-1 px-[var(--sidebar-content-inset)] pt-3">
-            <div className="px-2 text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55">
+            <div className="px-2 text-xs font-medium leading-5 text-sidebar-muted-foreground">
               Pinned
             </div>
             <SidebarMenu className="gap-0.5">{renderThreadRows(visiblePinnedThreads)}</SidebarMenu>
@@ -774,7 +774,7 @@ export default function ChatWorkspaceSidebar() {
         ) : null}
         <SidebarGroup className="shrink-0 gap-1 px-[var(--sidebar-content-inset)] py-3">
           <div className="flex items-center justify-between px-2">
-            <div className="text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55">
+            <div className="text-xs font-medium leading-5 text-sidebar-muted-foreground">
               Projects
             </div>
             <Button
@@ -849,7 +849,7 @@ export default function ChatWorkspaceSidebar() {
           <div className="flex items-center justify-between px-2">
             <button
               type="button"
-              className="group flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs font-semibold leading-5 tracking-[0.04em] text-sidebar-muted-foreground/55 transition-colors hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none"
+              className="group flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs font-medium leading-5 text-sidebar-muted-foreground transition-colors hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none"
               aria-expanded={isRecentChatsExpanded}
               aria-controls="chat-recent-chats-panel"
               onClick={() => setIsRecentChatsExpanded((expanded) => !expanded)}

@@ -16,6 +16,7 @@ import type {
   VideoGenerationModel,
   VideoGenerationRecord,
 } from "@t3tools/contracts";
+import { videoGenerationInputError } from "@t3tools/contracts";
 
 import { PrimaryEnvironmentHttpClient } from "../environments/primary/httpClient";
 import { loadPrimaryVideoAsset } from "../environments/primary/videoAssetLoader";
@@ -26,7 +27,6 @@ import { Textarea } from "./ui/textarea";
 import { Skeleton } from "./ui/skeleton";
 import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDropzone";
 
-const DEFAULT_ASPECT_RATIOS = ["16:9", "9:16", "1:1"];
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
 const GENERATION_WINDOW_SIZE = 24;
 const defaultOptionLabel = (option: string) => option;
@@ -54,6 +54,10 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
   const [size, setSize] = useState("");
   const [generateAudio, setGenerateAudio] = useState(true);
   const [seed, setSeed] = useState("");
+  const [videoReferenceUrl, setVideoReferenceUrl] = useState("");
+  const [audioReferenceUrl, setAudioReferenceUrl] = useState("");
+  const [upscaleFactor, setUpscaleFactor] = useState("");
+  const [creativity, setCreativity] = useState("");
   const [firstFrameImages, setFirstFrameImages] = useState<ReadonlyArray<ReferenceImage>>([]);
   const [lastFrameImages, setLastFrameImages] = useState<ReadonlyArray<ReferenceImage>>([]);
   const [referenceImages, setReferenceImages] = useState<ReadonlyArray<ReferenceImage>>([]);
@@ -70,9 +74,7 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
   );
   const supportsFirstFrame = selectedModel?.supportedFrameImages.includes("first_frame") ?? false;
   const supportsLastFrame = selectedModel?.supportedFrameImages.includes("last_frame") ?? false;
-  const aspectRatioOptions = selectedModel?.supportedAspectRatios.length
-    ? selectedModel.supportedAspectRatios
-    : DEFAULT_ASPECT_RATIOS;
+  const aspectRatioOptions = selectedModel?.supportedAspectRatios;
   const visibleGenerations = useMemo(
     () => generations.slice(0, visibleGenerationCount),
     [generations, visibleGenerationCount],
@@ -102,7 +104,11 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
         loadGenerations(),
       ]);
       setModels(modelResult.models);
-      setModelId((current) => current || modelResult.models[0]?.id || "");
+      setModelId((current) =>
+        modelResult.models.some((model) => model.id === current)
+          ? current
+          : modelResult.models[0]?.id || "",
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load the video workspace.");
     } finally {
@@ -118,10 +124,20 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     if (!selectedModel) return;
     setDuration(String(selectedModel.supportedDurations[0] ?? ""));
     setResolution(selectedModel.supportedResolutions[0] || "");
-    setAspectRatio(aspectRatioOptions[0] || "");
-    setSize(selectedModel.supportedSizes[0] || "");
+    setAspectRatio(selectedModel.supportedAspectRatios[0] || "");
+    setSize("");
     setGenerateAudio(selectedModel.generateAudio);
-  }, [aspectRatioOptions, selectedModel]);
+    setSeed("");
+    setFirstFrameImages([]);
+    setLastFrameImages([]);
+    setReferenceImages([]);
+    setVideoReferenceUrl("");
+    setAudioReferenceUrl("");
+    setProviderSlug("");
+    setProviderOptionsJson("");
+    setUpscaleFactor(String(selectedModel.upscaleFactor?.min ?? ""));
+    setCreativity(String(selectedModel.creativity?.[0] ?? ""));
+  }, [selectedModel]);
 
   useEffect(() => {
     if (!generations.some((generation) => !TERMINAL_STATUSES.has(generation.status))) return;
@@ -136,20 +152,27 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
       setError("Choose a video model.");
       return;
     }
-    const references = referenceImages.map((image) => ({
-      type: "image_url" as const,
-      url: image.dataUrl,
-    }));
+    const references: NonNullable<VideoGenerationInput["inputReferences"]>[number][] =
+      referenceImages.map((image) => ({
+        type: "image_url" as const,
+        url: image.dataUrl,
+      }));
+    if (videoReferenceUrl.trim())
+      references.push({ type: "video_url", url: videoReferenceUrl.trim() });
+    if (audioReferenceUrl.trim())
+      references.push({ type: "audio_url", url: audioReferenceUrl.trim() });
     const frameImages = [
-      ...(firstFrameImages[0]
+      ...(supportsFirstFrame && firstFrameImages[0]
         ? [{ url: firstFrameImages[0].dataUrl, frameType: "first_frame" as const }]
         : []),
-      ...(lastFrameImages[0]
+      ...(supportsLastFrame && lastFrameImages[0]
         ? [{ url: lastFrameImages[0].dataUrl, frameType: "last_frame" as const }]
         : []),
     ];
     if (!prompt.trim()) {
-      setError("Enter a prompt before generating a video. Frame and reference images are optional.");
+      setError(
+        "Enter a prompt before generating a video. Frame and reference images are optional.",
+      );
       return;
     }
 
@@ -179,9 +202,10 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
       }
       provider = {
         options: {
-          [providerSlug.trim()]: {
-            parameters: options as { readonly [key: string]: unknown },
-          },
+          [providerSlug.trim()]:
+            providerSlug.trim() === "google-vertex"
+              ? { parameters: options }
+              : (options as { readonly [key: string]: unknown }),
         },
       };
     }
@@ -190,16 +214,28 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
       model: modelId,
       prompt: prompt.trim(),
       ...(duration ? { duration: Number(duration) } : {}),
-      ...(resolution ? { resolution } : {}),
-      ...(aspectRatio ? { aspectRatio } : {}),
+      ...(!size && resolution ? { resolution } : {}),
+      ...(!size && aspectRatio ? { aspectRatio } : {}),
       ...(size ? { size } : {}),
       ...(selectedModel?.generateAudio ? { generateAudio } : {}),
-      ...(seed.trim() ? { seed: Number(seed) } : {}),
+      ...(selectedModel?.supportsSeed && seed.trim() ? { seed: Number(seed) } : {}),
+      ...(selectedModel?.upscaleFactor && upscaleFactor
+        ? { upscaleFactor: Number(upscaleFactor) }
+        : {}),
+      ...(selectedModel?.creativity && creativity ? { creativity: Number(creativity) } : {}),
       ...(frameImages.length > 0 ? { frameImages } : {}),
       ...(references.length > 0 ? { inputReferences: references } : {}),
       ...(provider ? { provider } : {}),
       ...(callbackUrl.trim() ? { callbackUrl: callbackUrl.trim() } : {}),
     };
+
+    const validationError = selectedModel
+      ? videoGenerationInputError(input, selectedModel)
+      : "Choose a video model.";
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
 
     setIsGenerating(true);
     setError(null);
@@ -325,6 +361,26 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
                   disabled={isGenerating}
                 />
               </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <UrlField
+                  label="Source or reference video URL"
+                  value={videoReferenceUrl}
+                  onChange={setVideoReferenceUrl}
+                  placeholder="https://example.com/video.mp4"
+                  disabled={isGenerating}
+                />
+                <UrlField
+                  label="Reference audio URL"
+                  value={audioReferenceUrl}
+                  onChange={setAudioReferenceUrl}
+                  placeholder="https://example.com/audio.mp3"
+                  disabled={isGenerating}
+                />
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Editing and upscaling models require a source video. Avatar IV requires a portrait.
+                Use frame images or references, not both. Reference support varies by model.
+              </p>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -352,7 +408,7 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
                   value={resolution}
                   options={selectedModel.supportedResolutions}
                   onChange={setResolution}
-                  disabled={isGenerating}
+                  disabled={isGenerating || !!size}
                 />
               ) : null}
               <div className="grid grid-cols-2 gap-2">
@@ -360,21 +416,40 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
                   <SelectField
                     label="Aspect ratio"
                     value={aspectRatio}
-                    options={aspectRatioOptions}
+                    options={aspectRatioOptions ?? []}
                     onChange={setAspectRatio}
-                    disabled={isGenerating}
+                    disabled={isGenerating || !!size}
                   />
                 ) : null}
                 {selectedModel?.supportedSizes.length ? (
                   <SelectField
                     label="Size"
                     value={size}
-                    options={selectedModel.supportedSizes}
+                    options={["", ...selectedModel.supportedSizes]}
+                    optionLabel={(value) => value || "Use resolution"}
                     onChange={setSize}
                     disabled={isGenerating}
                   />
                 ) : null}
               </div>
+              {selectedModel?.upscaleFactor ? (
+                <UrlField
+                  label={`Upscale factor (${selectedModel.upscaleFactor.min}–${selectedModel.upscaleFactor.max})`}
+                  value={upscaleFactor}
+                  onChange={setUpscaleFactor}
+                  placeholder="2"
+                  disabled={isGenerating}
+                />
+              ) : null}
+              {selectedModel?.creativity?.length ? (
+                <SelectField
+                  label="Creativity"
+                  value={creativity}
+                  options={selectedModel.creativity.map(String)}
+                  onChange={setCreativity}
+                  disabled={isGenerating}
+                />
+              ) : null}
               {selectedModel?.generateAudio ? (
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input
@@ -538,7 +613,12 @@ const VideoGenerationCard = memo(function VideoGenerationCard({
     <article className="group min-w-0 self-start overflow-hidden border border-border/70 bg-card/30 shadow-sm/5 [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
       <div>
         {generation.assets.length > 0 ? (
-          <div className={cn("grid gap-px bg-border/60", generation.assets.length > 1 && "sm:grid-cols-2")}>
+          <div
+            className={cn(
+              "grid gap-px bg-border/60",
+              generation.assets.length > 1 && "sm:grid-cols-2",
+            )}
+          >
             {generation.assets.map((generationAsset) => (
               <VideoAssetTile
                 key={generationAsset.id}
@@ -565,14 +645,16 @@ const VideoGenerationCard = memo(function VideoGenerationCard({
       <div className="flex items-start justify-between gap-2 border-t border-border/60 p-2.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            <span className={cn(
-              "rounded-full border px-1.5 py-0.5 font-medium",
-              generation.status === "failed" || generation.status === "expired"
-                ? "border-destructive/30 text-destructive"
-                : generation.status === "completed"
-                  ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                  : "border-border/70",
-            )}>
+            <span
+              className={cn(
+                "rounded-full border px-1.5 py-0.5 font-medium",
+                generation.status === "failed" || generation.status === "expired"
+                  ? "border-destructive/30 text-destructive"
+                  : generation.status === "completed"
+                    ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                    : "border-border/70",
+              )}
+            >
               {statusLabel}
             </span>
             <span className="truncate">{generation.model}</span>
@@ -690,7 +772,11 @@ function VideoAssetTile({
   }
 
   return (
-    <div ref={containerRef} className="relative aspect-video overflow-hidden bg-muted/35" aria-busy={!isLoaded}>
+    <div
+      ref={containerRef}
+      className="relative aspect-video overflow-hidden bg-muted/35"
+      aria-busy={!isLoaded}
+    >
       <Skeleton
         aria-hidden="true"
         className={cn(
@@ -714,7 +800,10 @@ function VideoAssetTile({
           )}
         />
       ) : (
-        <FilmIcon className="absolute inset-0 m-auto size-6 text-muted-foreground/35" aria-hidden="true" />
+        <FilmIcon
+          className="absolute inset-0 m-auto size-6 text-muted-foreground/35"
+          aria-hidden="true"
+        />
       )}
     </div>
   );

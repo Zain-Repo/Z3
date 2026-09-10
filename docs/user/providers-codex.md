@@ -10,6 +10,11 @@ Common reasons:
 - switch to another account when one account hits limits
 - keep one shared Codex history instead of maintaining two separate Codex setups
 
+## Model picker
+
+In Code and Chat, available GPT-6 series models appear in the current model list. Older models
+remain selectable under Legacy. This grouping does not change your selected model.
+
 ## I Only Use One Codex Account
 
 Use the default provider.

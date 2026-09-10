@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 
 import {
+  type ImageGenerationInput,
   type ImageGenerationModel,
   type ImageGenerationModelEndpoints,
 } from "@t3tools/contracts";
@@ -15,7 +16,7 @@ import { Button } from "../ui/button";
 import { ReferenceImageDropzone, type ReferenceImage } from "../ReferenceImageDropzone";
 
 type ImageOutputFormat = "png" | "jpeg" | "webp" | "svg";
-type ImageQuality = "auto" | "low" | "medium" | "high";
+type ImageQuality = NonNullable<ImageGenerationInput["quality"]>;
 type ImageBackground = "auto" | "transparent" | "opaque";
 
 function RatioChip({
@@ -273,7 +274,7 @@ export function SettingsPanel(props: {
     "medium",
     "high",
   ]).filter((value): value is ImageQuality =>
-    (["auto", "low", "medium", "high"] as const).includes(value as ImageQuality),
+    (["auto", "low", "medium", "high", "xhigh", "max"] as const).includes(value as ImageQuality),
   );
   const formatOptions = enumValues(supportedParameters, "output_format", [
     "png",

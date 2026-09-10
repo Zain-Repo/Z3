@@ -6,6 +6,17 @@ import {
 } from "./imageGenerationPayload";
 
 describe("image generation payloads", () => {
+  it("round-trips GPT Image 2.5 quality settings", () => {
+    for (const model of ["openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"]) {
+      for (const quality of ["xhigh", "max"] as const) {
+        const input = { model, prompt: "A quiet studio", quality };
+        assert.deepEqual(parseImageGenerationPayload(serializeImageGenerationPayload(input)), {
+          input,
+        });
+      }
+    }
+  });
+
   it("round-trips the reusable editor fields", () => {
     const payload = {
       model: "openai/image-model",

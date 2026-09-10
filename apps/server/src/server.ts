@@ -109,6 +109,7 @@ import {
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
 import { imageAssetRouteLayer, imageGenerationHttpApiLayer } from "./imageGeneration/http.ts";
+import { chatLibraryHttpApiLayer } from "./chatLibrary.ts";
 import * as ImageGenerationService from "./imageGeneration/ImageGenerationService.ts";
 import { videoAssetRouteLayer, videoGenerationHttpApiLayer } from "./videoGeneration/http.ts";
 import * as VideoGenerationService from "./videoGeneration/VideoGenerationService.ts";
@@ -424,6 +425,7 @@ export const makeRoutesLayer = Layer.mergeAll(
       Layer.provide(connectHttpApiLayer),
       Layer.provide(orchestrationHttpApiLayer),
       Layer.provide(imageGenerationHttpApiLayer),
+      Layer.provide(chatLibraryHttpApiLayer),
       Layer.provide(videoGenerationHttpApiLayer),
       Layer.provide(serverEnvironmentHttpApiLayer),
       Layer.provide(environmentAuthenticatedAuthLayer),

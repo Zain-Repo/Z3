@@ -139,7 +139,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --animate-status-ping: status-ping 2s infinite;
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
   --font-sans:
-    "Satoshi", "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
     system-ui, sans-serif;
   --font-mono:
     "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
@@ -990,15 +990,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 body {
-  font-family:
-    "Satoshi",
-    "DM Sans Variable",
-    "DM Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
 }
@@ -1773,11 +1765,16 @@ html[data-theme-id="t3-code"] [data-workspace="chat"] [data-chat-sidebar] {
   --sidebar-row-content-inset: 0.5rem;
 }
 
-html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-menu-button"][data-active="true"],
-html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-menu-button"][data-active="true"] {
+html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-menu-button"][data-active="true"] {
   background: color-mix(in srgb, var(--primary) 17%, var(--sidebar));
   box-shadow: inset 2px 0 0 var(--primary);
   color: var(--foreground);
+}
+
+html[data-theme-id="t3-code"] [data-workspace="chat"] [data-slot="sidebar-menu-button"][data-active="true"] {
+  background: var(--sidebar-row-selected);
+  box-shadow: none;
+  color: var(--sidebar-foreground);
 }
 
 html[data-theme-id="t3-code"] [data-workspace="code"] [data-slot="sidebar-menu-sub-button"][data-active="true"],

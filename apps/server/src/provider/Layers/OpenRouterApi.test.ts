@@ -486,6 +486,109 @@ describe("OpenRouter chat completion routing", () => {
 });
 
 describe("OpenRouter image generation capability handling", () => {
+  it.effect("preserves OpenAI formats when discovery only advertises compression", () =>
+    Effect.gen(function* () {
+      for (const model of ["openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"]) {
+        for (const outputFormat of ["jpeg", "webp", "png", undefined] as const) {
+          const client = HttpClient.make((request) => {
+            const body = request.body as { readonly body?: Uint8Array };
+            const payload = JSON.parse(new TextDecoder().decode(body.body));
+            expect(payload.output_format).toBe(outputFormat);
+            expect(payload.output_compression).toBe(
+              outputFormat === "jpeg" || outputFormat === "webp" ? 85 : undefined,
+            );
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(JSON.stringify({ data: [{ b64_json: "AQID" }] }), {
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            );
+          });
+          const input = sanitizeOpenRouterImageInput(
+            {
+              httpClient: client,
+              baseUrl: "https://openrouter.ai/api/v1",
+              apiKey: "test-key",
+              model,
+              prompt: "A quiet studio",
+              outputCompression: 85,
+              ...(outputFormat !== undefined ? { outputFormat } : {}),
+            },
+            {
+              supportedParameters: { output_compression: { type: "range", min: 0, max: 100 } },
+              supportsStreaming: true,
+            },
+          );
+          yield* generateOpenRouterImage(input);
+        }
+      }
+    }),
+  );
+
+  it("exposes OpenAI output formats in the model catalog", () => {
+    const models = parseOpenRouterImageModels({
+      data: [
+        {
+          id: "openai/gpt-image-2.5-flare",
+          supported_parameters: { output_compression: { type: "range", min: 0, max: 100 } },
+        },
+      ],
+    });
+    expect(models[0]?.imageGeneration.supportedParameters.output_format).toEqual({
+      type: "enum",
+      values: ["png", "jpeg", "webp"],
+    });
+  });
+
+  it.effect("sends GPT Image 2.5 quality settings to the dedicated Images API", () =>
+    Effect.gen(function* () {
+      for (const model of ["openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"]) {
+        for (const quality of ["xhigh", "max"] as const) {
+          const client = HttpClient.make((request) => {
+            expect(request.url).toBe("https://openrouter.ai/api/v1/images");
+            const body = request.body as { readonly body?: Uint8Array };
+            expect(JSON.parse(new TextDecoder().decode(body.body))).toEqual({
+              model,
+              prompt: "A quiet studio",
+              quality,
+            });
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(JSON.stringify({ data: [{ b64_json: "AQID" }] }), {
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            );
+          });
+          const input = sanitizeOpenRouterImageInput(
+            {
+              httpClient: client,
+              baseUrl: "https://openrouter.ai/api/v1",
+              apiKey: "test-key",
+              model,
+              prompt: "A quiet studio",
+              quality,
+            },
+            {
+              supportedParameters: {
+                quality: {
+                  type: "enum",
+                  values: ["auto", "low", "medium", "high", "xhigh", "max"],
+                },
+              },
+              supportsStreaming: true,
+            },
+          );
+          const result = yield* generateOpenRouterImage(input);
+          expect(result.data).toEqual([{ b64Json: "AQID" }]);
+        }
+      }
+    }),
+  );
+
   const baseInput = {
     httpClient: HttpClient.make((request) =>
       Effect.succeed(

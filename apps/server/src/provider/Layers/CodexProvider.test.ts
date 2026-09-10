@@ -6,17 +6,27 @@ import {
   mapCodexModelCapabilities,
 } from "./CodexProvider.ts";
 
-it("keeps only the GPT-5.6 Codex family out of legacy models", () => {
+it("keeps only the GPT-6 Codex family out of legacy models", () => {
   assert.deepStrictEqual(
-    ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.4"].map((model) => [
-      model,
-      isLegacyCodexModel(model),
-    ]),
     [
-      ["gpt-5.6-luna", false],
-      ["gpt-5.6-terra", false],
-      ["gpt-5.6-sol", false],
+      "gpt-6",
+      "gpt-6-astra",
+      "gpt-6.1",
+      "gpt-5.6-luna",
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "gpt-5.4",
+      "gpt-60",
+    ].map((model) => [model, isLegacyCodexModel(model)]),
+    [
+      ["gpt-6", false],
+      ["gpt-6-astra", false],
+      ["gpt-6.1", false],
+      ["gpt-5.6-luna", true],
+      ["gpt-5.6-terra", true],
+      ["gpt-5.6-sol", true],
       ["gpt-5.4", true],
+      ["gpt-60", true],
     ],
   );
 });

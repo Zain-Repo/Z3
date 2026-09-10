@@ -1,6 +1,7 @@
 import {
   type ProviderInstanceId,
   VideoGenerationInput,
+  videoGenerationInputError,
   type VideoGenerationList,
   type VideoGenerationModel,
   type VideoGenerationRecord,
@@ -13,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
@@ -24,6 +26,7 @@ import {
   fetchOpenRouterVideoModels,
   type OpenRouterVideoJob,
   type OpenRouterVideoModel,
+  OpenRouterApiError,
 } from "../provider/Layers/OpenRouterApi.ts";
 import { resolveOpenRouterConnection } from "../provider/Layers/OpenRouterConnection.ts";
 
@@ -130,6 +133,8 @@ function toVideoModel(model: OpenRouterVideoModel): VideoGenerationModel {
     supportedSizes: model.supportedSizes,
     allowedPassthroughParameters: model.allowedPassthroughParameters,
     pricingSkus: model.pricingSkus,
+    ...(model.upscaleFactor ? { upscaleFactor: model.upscaleFactor } : {}),
+    ...(model.creativity ? { creativity: model.creativity } : {}),
   };
 }
 
@@ -173,6 +178,21 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const crypto = yield* Crypto.Crypto;
   const settingsService = yield* ServerSettingsService;
+
+  // Only reads are retried: repeating a submission can create a second paid job.
+  const retryRead = <A, E, R>(operation: Effect.Effect<A, E, R>) =>
+    operation.pipe(
+      Effect.timeout("2 minutes"),
+      Effect.retry({
+        times: 3,
+        schedule: Schedule.exponential("2 seconds"),
+        while: (error) =>
+          !(error instanceof OpenRouterApiError) ||
+          error.status === undefined ||
+          error.status === 429 ||
+          error.status >= 500,
+      }),
+    );
 
   const withConnection = (instanceId: ProviderInstanceId | undefined) =>
     Effect.gen(function* () {
@@ -242,13 +262,15 @@ const make = Effect.gen(function* () {
       if (assetCount >= outputCount) return;
       const connection = yield* withConnection(instanceId);
       for (let index = assetCount; index < outputCount; index += 1) {
-        const download = yield* downloadOpenRouterVideo({
-          httpClient,
-          baseUrl: connection.baseUrl,
-          apiKey: connection.apiKey,
-          jobId: providerJobId,
-          index,
-        });
+        const download = yield* retryRead(
+          downloadOpenRouterVideo({
+            httpClient,
+            baseUrl: connection.baseUrl,
+            apiKey: connection.apiKey,
+            jobId: providerJobId,
+            index,
+          }),
+        );
         const assetId = yield* crypto.randomUUIDv4;
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         yield* sql`
@@ -294,23 +316,28 @@ const make = Effect.gen(function* () {
       let job: OpenRouterVideoJob | undefined;
       for (let attempt = 0; attempt < 60; attempt += 1) {
         if (attempt > 0) yield* Effect.sleep(Duration.seconds(30));
-        job = yield* fetchOpenRouterVideoJob({
-          httpClient,
-          baseUrl: connection.baseUrl,
-          apiKey: connection.apiKey,
-          jobId: providerJobId,
-        });
+        job = yield* retryRead(
+          fetchOpenRouterVideoJob({
+            httpClient,
+            baseUrl: connection.baseUrl,
+            apiKey: connection.apiKey,
+            jobId: providerJobId,
+          }),
+        );
         const now = DateTime.formatIso(yield* DateTime.now);
-        yield* updateJob(generationId, job, now);
         if (job.status === "completed") {
           yield* persistCompletedVideo(
             generationId,
             providerJobId,
             instanceId,
             Math.max(job.unsignedUrls?.length ?? 0, 1),
-          ).pipe(Effect.catch((cause) => markAssetPersistencePending(generationId, cause)));
+          ).pipe(
+            Effect.andThen(updateJob(generationId, job, now)),
+            Effect.catch((cause) => markAssetPersistencePending(generationId, cause)),
+          );
           return;
         }
+        yield* updateJob(generationId, job, now);
         if (job.status === "failed" || job.status === "cancelled" || job.status === "expired")
           return;
       }
@@ -373,6 +400,15 @@ const make = Effect.gen(function* () {
           });
         }
         const connection = yield* withConnection(input.providerInstanceId);
+        const models = yield* retryRead(
+          fetchOpenRouterVideoModels(httpClient, connection.baseUrl, connection.apiKey),
+        );
+        const model = models.find((model) => model.id === input.model);
+        const validationError = model
+          ? videoGenerationInputError(input, toVideoModel(model))
+          : "This video model is no longer available. Refresh the model catalog.";
+        if (validationError)
+          return yield* new VideoGenerationServiceError({ message: validationError });
         const job = yield* createOpenRouterVideo({
           httpClient,
           baseUrl: connection.baseUrl,
@@ -385,6 +421,8 @@ const make = Effect.gen(function* () {
           ...(input.size !== undefined ? { size: input.size } : {}),
           ...(input.generateAudio !== undefined ? { generateAudio: input.generateAudio } : {}),
           ...(input.seed !== undefined ? { seed: input.seed } : {}),
+          ...(input.upscaleFactor !== undefined ? { upscaleFactor: input.upscaleFactor } : {}),
+          ...(input.creativity !== undefined ? { creativity: input.creativity } : {}),
           ...(input.frameImages !== undefined
             ? {
                 frameImages: input.frameImages.map((frame) => ({
@@ -421,6 +459,7 @@ const make = Effect.gen(function* () {
             ${job.unsignedUrls === undefined ? null : JSON.stringify(job.unsignedUrls)}
           )
         `;
+        yield* updateJob(generationId, job, createdAt);
         if (job.status === "completed") {
           yield* persistCompletedVideo(
             generationId,
@@ -448,7 +487,14 @@ const make = Effect.gen(function* () {
         Effect.catch((cause) =>
           cause instanceof VideoGenerationServiceError
             ? Effect.fail(cause)
-            : Effect.fail(new VideoGenerationServiceError({ message: "Video generation failed." })),
+            : Effect.fail(
+                new VideoGenerationServiceError({
+                  message:
+                    cause instanceof OpenRouterApiError
+                      ? safeProviderError(cause)
+                      : "Video generation failed.",
+                }),
+              ),
         ),
       ),
     deleteGeneration: (id) =>
@@ -486,7 +532,13 @@ const make = Effect.gen(function* () {
   }>`
     SELECT generation_id, provider_job_id, provider_instance_id, status
     FROM projection_video_generations
-    WHERE status IN ('pending', 'in_progress', 'completed')
+    WHERE status IN ('pending', 'in_progress')
+      OR (status = 'completed' AND (
+        error IS NOT NULL OR
+        (SELECT count(*) FROM projection_video_assets AS assets
+          WHERE assets.generation_id = projection_video_generations.generation_id)
+          < MAX(COALESCE(json_array_length(unsigned_urls_json), 1), 1)
+      ))
   `;
   for (const generation of pendingGenerations) {
     yield* pollGeneration(
