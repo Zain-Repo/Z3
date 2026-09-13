@@ -146,14 +146,22 @@ export function DraftHeroHeadline({
   );
 
   return (
-    <h1 className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
-      {hasResolvedProject ? (
-        <>What should we build in {projectSelector}?</>
-      ) : canChooseProject ? (
-        <>{projectSelector} to start</>
-      ) : (
-        <>Add a project to start</>
-      )}
-    </h1>
+    <div className="mx-auto w-full max-w-3xl text-center">
+      <p className="mb-3 font-mono text-[11px] font-medium tracking-[0.16em] text-primary">
+        Z3 / CODE WORKSPACE
+      </p>
+      <h1 className="text-balance text-3xl font-medium tracking-[-0.04em] text-foreground sm:text-4xl">
+        {hasResolvedProject ? (
+          <>Your next move in {projectSelector}.</>
+        ) : canChooseProject ? (
+          <>{projectSelector} to begin.</>
+        ) : (
+          <>Make room for your next idea.</>
+        )}
+      </h1>
+      <p className="mt-3 text-sm text-muted-foreground">
+        {canChooseProject ? "A clear brief. Your agents. A place to build." : projectSelector}
+      </p>
+    </div>
   );
 }

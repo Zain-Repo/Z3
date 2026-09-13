@@ -1,6 +1,6 @@
 # ZImage
 
-Open the workspace switcher and choose **ZImage** to browse and create images with your configured
+Choose **Image** at the top of the sidebar to browse and create images with your configured
 OpenRouter or Civitai image models. ZImage is available in the desktop and web clients.
 
 ## Connect Civitai
@@ -10,7 +10,7 @@ In **Settings > Providers**, enter it in the **Civitai** card and save it. You c
 remove the key there later. The key is stored on your connected server and is not included in
 generation exports.
 
-In ZImage, choose **Civitai** from the **Provider** dropdown, then choose a model. The Civitai
+In ZImage, add an **Image** card and choose a Civitai model from its **Model** dropdown. The Civitai
 selection is grouped by provider and includes OpenAI, Google, Gemini, Grok, Seedream, Wan, FAL,
 Qwen, Krea, FLUX, and Civitai worker models. Worker options include Z-Image, Anima, Qwen,
 HiDream, ERNIE, Ideogram, Lens, Boogu, and MageFlow, where supported by Civitai.
@@ -29,7 +29,7 @@ Choose an SDXL or SD1.5 route from **Community checkpoints** to see those famili
 Selecting a recommendation clears existing LoRAs, and Civitai availability is rechecked before
 generation. Search remains available for additional checkpoints and newer versions.
 
-Choose a supported Civitai model and open **Advanced settings and references** to customize
+Choose a supported Civitai model and open **Advanced settings** to customize
 its resources. Search for a checkpoint or LoRA, select a version, and review its base model and
 trigger words. Checkpoints replace the underlying model; LoRAs adjust its style or subject.
 Each LoRA has a strength control and can be removed independently.
@@ -56,7 +56,8 @@ again before submitting a generation. Civitai may charge additional fees for sel
 
 Where supported, you can also set a negative prompt, sampling steps, and guidance scale. Leave
 optional values blank to use provider defaults. Changing the model clears these resource settings;
-reusing a gallery generation or importing its JSON restores them. Image editing is not included.
+reusing a library generation or importing a workflow restores them. Connected image references
+support guided generation; masked editing is not included.
 
 Temporary Civitai server errors and rate limits are retried automatically. Submission retries reuse
 the same request identifier so Civitai can return the original generation without creating another.
@@ -65,38 +66,35 @@ again: the request may already have been accepted. Errors identify rejected sett
 access, or unavailable workers when
 Civitai provides that information.
 
-Choose **OpenRouter** to return to your existing image models. Both providers save images to the
+Choose an OpenRouter model on an image card to use your OpenRouter account. Both providers save images to the
 same gallery; reusing generation settings preserves the provider choice. Remote clients use the
 key saved on the server they are connected to.
 
-## Create an image
+## Create images and videos
 
-Write a prompt, then choose a provider, model, size, and image count. These choices follow the selected
-model's capabilities. Expand the settings to adjust quality, output format, references, and other
-supported options. The JSON view remains available for importing reusable generation settings.
+ZImage opens a connected canvas. Drag in a **Prompt** card and an **Image** or **Video** card,
+then connect the prompt's output to the generation card's prompt input. Choose a model and its
+supported settings beneath the preview. **Generate image** or **Generate video** runs that card;
+**Run canvas** runs the whole workflow. **Stop after current** stops new work from starting.
 
-The creation panel stays beside the gallery in wide windows. In narrow windows it appears above the
-library so it remains easy to reach. Choose **Generate** to start and **Stop generation** to cancel
-the current request. Generation requires a configured image provider.
+Image outputs can feed image reference inputs or supported video first/last-frame inputs. To
+compare models, connect one prompt to several image cards and arrange their results side by side.
+The [canvas guide](zimage-studio.md) covers connections, navigation, saving, and library reuse.
 
 ## Inspect and compare
 
-The workspace opens with a grid of your generations. Choose **Show preview** to open the canvas,
-or use an image's **Select** action to preview that output. Choose **Hide preview** to return to
-browsing the grid. Previews preserve the image's aspect ratio. Open an image fullscreen to inspect
-it more closely or download it.
-
-Choose **Compare two images**, then select another output in the library. The first image stays in
-position A while subsequent selections replace position B. Choose **Exit comparison** to return to
-a single image. Comparison works with existing outputs and does not generate new images.
+Outputs appear directly on cards. Open an image fullscreen to inspect or download the original.
+The **Library** panel retains the inspection preview and comparison controls for existing images.
+Use **Use as reference** there to add an asset card to the canvas, then connect it to a generation.
+See [model comparison](image-model-comparison.md) for generating the same brief with several models.
 
 ## Favorites and collections
 
 Use the heart button on a generation to add or remove it from **Favorites**. Create a collection in
-the sidebar, then choose it from a generation's collection selector. A generation belongs to one
+the Library panel, then choose it from a generation's collection selector. A generation belongs to one
 collection at a time; choose **No collection** to remove it from its collection.
 
-Select a collection in the sidebar to browse its generations. Its menu lets you rename or delete
+Select a collection in the Library panel to browse its generations. Its menu lets you rename or delete
 the collection. Deleting a collection preserves its images in **All generations**. Search, model
 filters, and sorting work within the selected library view.
 

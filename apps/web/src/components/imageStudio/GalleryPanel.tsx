@@ -22,6 +22,7 @@ import { matchesImageLibraryFilter } from "../../lib/imageLibrary";
 import { resolveCanvasSelection, selectCanvasAsset } from "./canvasSelection";
 
 type SortOrder = "newest" | "oldest";
+const EMPTY_PENDING_INPUTS: ReadonlyArray<ImageGenerationInput> = [];
 
 function filterGenerations(
   generations: ReadonlyArray<ImageGenerationRecord>,
@@ -51,10 +52,14 @@ export function GalleryPanel({
   isLoading,
   isGenerating,
   pendingInput,
+  pendingInputs = EMPTY_PENDING_INPUTS,
+  comparisonActive = false,
+  onShowAll,
   loadImageContent,
   onDelete,
   onReuse,
   onReroll,
+  onUseReference,
   onCancel,
   onLoadMore,
   canLoadMore,
@@ -65,10 +70,14 @@ export function GalleryPanel({
   readonly visibleCount: number;
   readonly isLoading: boolean;
   readonly isGenerating: boolean;
+  readonly pendingInputs?: ReadonlyArray<ImageGenerationInput>;
+  readonly comparisonActive?: boolean;
+  readonly onShowAll?: () => void;
   readonly pendingInput: ImageGenerationInput | null;
   readonly loadImageContent: LoadImageContent;
   readonly onDelete: (id: string) => Promise<void>;
   readonly onReuse: (input: ImageGenerationInput) => void;
+  readonly onUseReference: (assetId: string) => Promise<void>;
   readonly onReroll: (input: ImageGenerationInput) => void;
   readonly onCancel: () => void;
   readonly onLoadMore: () => void;
@@ -81,22 +90,50 @@ export function GalleryPanel({
   const [sort, setSort] = useState<SortOrder>("newest");
   const library = useImageLibrary();
   const libraryGenerations = useMemo(
-    () => generations.filter((generation) => matchesImageLibraryFilter(generation.id, library)),
-    [generations, library],
+    () =>
+      comparisonActive
+        ? generations
+        : generations.filter((generation) => matchesImageLibraryFilter(generation.id, library)),
+    [generations, library, comparisonActive],
+  );
+  const visibleGenerations = useMemo(
+    () =>
+      comparisonActive
+        ? libraryGenerations
+        : filterGenerations(libraryGenerations, search, modelFilter, sort),
+    [libraryGenerations, search, modelFilter, sort, comparisonActive],
   );
   const canvasRef = useRef<HTMLDivElement>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<ReadonlyArray<string>>([]);
   const [comparing, setComparing] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(true);
   const canvasImages = useMemo(() => {
-    const assets = libraryGenerations.flatMap((generation) =>
+    const assets = visibleGenerations.flatMap((generation) =>
       generation.assets.map((asset) => ({ generation, assetId: asset.id })),
     );
-    return resolveCanvasSelection(assets, selectedAssetIds, comparing);
-  }, [libraryGenerations, selectedAssetIds, comparing]);
+    const activeSelection = selectedAssetIds.filter((id) =>
+      assets.some((asset) => asset.assetId === id),
+    );
+    const initialSelection =
+      comparisonActive && activeSelection.length === 0
+        ? visibleGenerations.flatMap((generation) => generation.assets[0]?.id ?? []).slice(0, 4)
+        : activeSelection;
+    return resolveCanvasSelection(assets, initialSelection, comparing || comparisonActive);
+  }, [visibleGenerations, selectedAssetIds, comparing, comparisonActive]);
+  const selectedCanvasIds = useMemo(
+    () => canvasImages.map((image) => image.assetId),
+    [canvasImages],
+  );
   const selectAsset = (id: string) => {
     setPreviewOpen(true);
-    setSelectedAssetIds(selectCanvasAsset(id, canvasImages[0]?.assetId, comparing));
+    setSelectedAssetIds(
+      selectCanvasAsset(
+        id,
+        canvasImages[0]?.assetId,
+        comparing || comparisonActive,
+        canvasImages.map((image) => image.assetId),
+      ),
+    );
     requestAnimationFrame(() => canvasRef.current?.scrollIntoView({ block: "start" }));
   };
 
@@ -105,16 +142,14 @@ export function GalleryPanel({
     [generations],
   );
 
-  const visibleGenerations = useMemo(
-    () => filterGenerations(libraryGenerations, search, modelFilter, sort),
-    [libraryGenerations, search, modelFilter, sort],
-  );
-
-  const hasFilters = search.trim().length > 0 || modelFilter !== "" || library.filter !== "all";
-  const showEmptyState = !isLoading && !isGenerating && generations.length === 0;
+  const hasFilters =
+    !comparisonActive &&
+    (search.trim().length > 0 || modelFilter !== "" || library.filter !== "all");
+  const showEmptyState =
+    !isLoading && !isGenerating && generations.length === 0 && !comparisonActive;
 
   return (
-    <section className={cn("flex min-h-0 flex-col", className)}>
+    <section aria-label="Image workspace" className={cn("flex min-h-0 flex-col", className)}>
       {library.error ? (
         <p role="alert" className="mb-3 text-sm text-destructive">
           {library.error}
@@ -128,9 +163,26 @@ export function GalleryPanel({
           Loading your image library...
         </p>
       ) : null}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div ref={canvasRef} id="image-studio-preview" className="scroll-mt-4">
+        {previewOpen && canvasImages.length > 0 ? (
+          <ImageCanvas
+            images={canvasImages}
+            comparing={comparing || comparisonActive}
+            onComparingChange={(value) => {
+              setComparing(value);
+              if (!value && comparisonActive) onShowAll?.();
+            }}
+            disabled={isGenerating}
+            onUseReference={onUseReference}
+            loadImageContent={loadImageContent}
+          />
+        ) : null}
+      </div>
+      <div className="mb-3 mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-base font-semibold">Your generations</h2>
+          <h2 className="text-base font-semibold">
+            {comparisonActive ? "Comparison results" : "Session library"}
+          </h2>
           <span className="text-xs tabular-nums text-muted-foreground">
             {visibleGenerations.length}
           </span>
@@ -143,11 +195,21 @@ export function GalleryPanel({
             aria-controls="image-studio-preview"
             onClick={() => setPreviewOpen(!previewOpen)}
           >
-            {previewOpen ? "Hide preview" : "Show preview"}
+            {previewOpen ? "Library only" : "Show canvas"}
           </Button>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      {comparisonActive ? (
+        <Button variant="outline" size="sm" onClick={onShowAll}>
+          Show all generations
+        </Button>
+      ) : null}
+      {comparisonActive && !isGenerating && generations.length === 0 ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          No completed images in this comparison. Review the model errors or run another comparison.
+        </p>
+      ) : null}
+      <div className={comparisonActive ? "hidden" : "flex flex-wrap items-center gap-2"}>
         <div className="relative min-w-0 flex-1">
           <SearchIcon
             className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60"
@@ -198,27 +260,16 @@ export function GalleryPanel({
         </select>
       </div>
 
-      <div ref={canvasRef} id="image-studio-preview" className="scroll-mt-4">
-        {previewOpen && canvasImages.length > 0 ? (
-          <ImageCanvas
-            images={canvasImages}
-            comparing={comparing}
-            onComparingChange={setComparing}
-            loadImageContent={loadImageContent}
-          />
-        ) : null}
-      </div>
-
       {showEmptyState ? (
-        <Empty className="mt-6 min-h-80 rounded-xl bg-muted/20">
+        <Empty className="zimage-stage mt-6 min-h-[28rem] rounded-xl border border-border/70">
           <EmptyMedia variant="icon">
             <ImageIcon className="size-4.5" aria-hidden="true" />
           </EmptyMedia>
           <EmptyHeader>
-            <EmptyTitle>No generations yet</EmptyTitle>
+            <EmptyTitle>Your next image starts here</EmptyTitle>
             <EmptyDescription>
-              Your generated images will appear here. Try one of these starters or write your own
-              prompt.
+              Write a brief, choose a visual treatment, and generate your first frame. Your canvas
+              and image library will grow together.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -230,11 +281,11 @@ export function GalleryPanel({
                   onClick={() => onUseStarter(starter)}
                   className={cn(
                     "flex items-start gap-2 rounded-lg border border-border/70 bg-background/60 px-3 py-2 text-left text-xs leading-relaxed text-muted-foreground",
-                    "transition-colors hover:border-fuchsia-500/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                    "transition-colors hover:border-foreground/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                   )}
                 >
                   <SparklesIcon
-                    className="mt-0.5 size-3.5 shrink-0 text-fuchsia-500/70"
+                    className="mt-0.5 size-3.5 shrink-0 text-foreground/70"
                     aria-hidden="true"
                   />
                   <span className="line-clamp-2">{starter}</span>
@@ -245,6 +296,13 @@ export function GalleryPanel({
         </Empty>
       ) : (
         <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] items-start gap-4">
+          {pendingInputs.map((input) => (
+            <PendingGenerationCard
+              key={`${input.providerInstanceId}:${input.model}`}
+              input={input}
+              onCancel={onCancel}
+            />
+          ))}
           {isGenerating && pendingInput ? (
             <PendingGenerationCard input={pendingInput} onCancel={onCancel} />
           ) : null}
@@ -257,6 +315,7 @@ export function GalleryPanel({
               onReuse={onReuse}
               onReroll={onReroll}
               onSelectAsset={selectAsset}
+              selectedAssetIds={selectedCanvasIds}
               libraryActions={
                 <div className="mb-2 flex items-center gap-2">
                   <Button
@@ -275,7 +334,7 @@ export function GalleryPanel({
                       className={cn(
                         "size-4",
                         library.favoriteIds.includes(generation.id) &&
-                          "fill-fuchsia-500 text-fuchsia-500",
+                          "fill-foreground text-foreground",
                       )}
                       aria-hidden="true"
                     />

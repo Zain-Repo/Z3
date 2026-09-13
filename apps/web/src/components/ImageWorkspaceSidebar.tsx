@@ -1,3 +1,6 @@
+import { CanvasSheetNavigation } from "./imageStudio/CanvasSheetNavigation";
+import { useFlowSheets } from "./imageStudio/useFlowSheets";
+import { useNavigate } from "@tanstack/react-router";
 import { FolderIcon, HeartIcon, ImageIcon, MoreHorizontalIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -20,7 +23,13 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrom
 import { WorkspaceContextRail } from "./sidebar/WorkspaceSwitcher";
 import { useImageLibrary } from "./useImageLibrary";
 
-function ImageLibraryNavigation() {
+function ImageLibraryNavigation({ environmentId }: { readonly environmentId: string }) {
+  const { state: sheets, session } = useFlowSheets(environmentId);
+  const navigate = useNavigate();
+  const openLibrary = () => {
+    session.setLibrary(true);
+    void navigate({ to: "/" });
+  };
   const library = useImageLibrary();
   const [editor, setEditor] = useState<{ id: string | null; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -29,21 +38,17 @@ function ImageLibraryNavigation() {
     <SidebarContent className="gap-0">
       <SidebarGroup className="px-3 py-4">
         <SidebarGroupContent>
-          <Button
-            className="mb-4 w-full justify-start"
-            onClick={() => {
-              library.setFilter("all");
-              document.getElementById("zimage-prompt")?.focus();
-            }}
-          >
-            <PlusIcon aria-hidden="true" /> New generation
-          </Button>
+          <CanvasSheetNavigation environmentId={environmentId} />
+          <SidebarGroupLabel className="mb-1 text-xs">Image library</SidebarGroupLabel>
           <SidebarMenu aria-label="Image library">
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={library.filter === "all"}
-                aria-current={library.filter === "all" ? "page" : undefined}
-                onClick={() => library.setFilter("all")}
+                isActive={sheets.libraryOpen && library.filter === "all"}
+                aria-current={sheets.libraryOpen && library.filter === "all" ? "page" : undefined}
+                onClick={() => {
+                  library.setFilter("all");
+                  openLibrary();
+                }}
               >
                 <ImageIcon aria-hidden="true" /> <span>All generations</span>
               </SidebarMenuButton>
@@ -51,9 +56,14 @@ function ImageLibraryNavigation() {
             <SidebarMenuItem>
               <SidebarMenuButton
                 disabled={!library.ready}
-                isActive={library.filter === "favorites"}
-                aria-current={library.filter === "favorites" ? "page" : undefined}
-                onClick={() => library.setFilter("favorites")}
+                isActive={sheets.libraryOpen && library.filter === "favorites"}
+                aria-current={
+                  sheets.libraryOpen && library.filter === "favorites" ? "page" : undefined
+                }
+                onClick={() => {
+                  library.setFilter("favorites");
+                  openLibrary();
+                }}
               >
                 <HeartIcon aria-hidden="true" /> <span>Favorites</span>
                 <span className="ml-auto text-xs tabular-nums text-muted-foreground">
@@ -122,14 +132,19 @@ function ImageLibraryNavigation() {
           <SidebarMenu>
             {library.collections.map((collection) => {
               const active =
-                typeof library.filter === "object" && library.filter.collectionId === collection.id;
+                sheets.libraryOpen &&
+                typeof library.filter === "object" &&
+                library.filter.collectionId === collection.id;
               return (
                 <SidebarMenuItem key={collection.id}>
                   <div className="flex min-w-0 items-center gap-1">
                     <SidebarMenuButton
                       isActive={active}
                       aria-current={active ? "page" : undefined}
-                      onClick={() => library.setFilter({ collectionId: collection.id })}
+                      onClick={() => {
+                        library.setFilter({ collectionId: collection.id });
+                        openLibrary();
+                      }}
                     >
                       <FolderIcon aria-hidden="true" />
                       <span className="truncate">{collection.name}</span>
@@ -207,7 +222,7 @@ function ImageLibraryNavigation() {
         </SidebarGroupContent>
       </SidebarGroup>
       <p className="mt-auto px-5 py-4 text-xs leading-relaxed text-muted-foreground">
-        Favorites and collections are saved in this browser for this environment.
+        Canvases and library organization are saved on this device for this environment.
       </p>
     </SidebarContent>
   );
@@ -219,7 +234,9 @@ export function ImageWorkspaceSidebar() {
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <WorkspaceContextRail />
-      <ImageLibraryNavigation key={environmentId ?? "pending"} />
+      {environmentId && (
+        <ImageLibraryNavigation key={environmentId} environmentId={environmentId} />
+      )}
       <SidebarChromeFooter />
     </>
   );

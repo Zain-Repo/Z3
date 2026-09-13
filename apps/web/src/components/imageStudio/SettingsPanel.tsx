@@ -29,13 +29,17 @@ function sizeLabel(value: string): string {
   return labels[value] ?? value;
 }
 
+function identityLabel<T extends string>(value: T): T {
+  return value;
+}
+
 function ChipGroup<T extends string>({
   label,
   value,
   values,
   onChange,
   disabled,
-  renderValue = (candidate: T) => candidate,
+  renderValue = identityLabel,
 }: {
   readonly label: string;
   readonly value: T;
@@ -60,8 +64,8 @@ function ChipGroup<T extends string>({
               "inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium capitalize transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               candidate === value
-                ? "border-fuchsia-500/70 bg-fuchsia-500/[0.1] text-foreground"
-                : "border-border/80 bg-background/50 text-muted-foreground hover:border-fuchsia-500/50 hover:text-foreground",
+                ? "border-foreground/70 bg-foreground/[0.1] text-foreground"
+                : "border-border/80 bg-background/50 text-muted-foreground hover:border-foreground/50 hover:text-foreground",
               disabled && "cursor-not-allowed opacity-50",
             )}
           >
@@ -79,7 +83,7 @@ function SelectField({
   options,
   onChange,
   disabled,
-  optionLabel = (candidate: string) => candidate,
+  optionLabel = identityLabel,
   includeEmpty,
   emptyLabel = "Provider default",
 }: {
@@ -261,7 +265,8 @@ export function SettingsPanel(props: {
   }
 
   return (
-    <section aria-label="Generation settings">
+    <section aria-label="Generation settings" className="border-t border-border/70 pt-5">
+      <h3 className="mb-3 text-sm font-semibold">Model & output</h3>
       <div className="grid grid-cols-2 items-end gap-3">
         <label className="col-span-2 text-xs text-muted-foreground">
           Provider
@@ -321,9 +326,68 @@ export function SettingsPanel(props: {
           />
         ) : null}
       </div>
+      <div className="grid gap-4 border-t border-border/70 mt-4 pt-4">
+        <h3 className="text-xs font-semibold">Output & references</h3>
+        {supports(supportedParameters, "quality") && qualityOptions.length > 0 ? (
+          <ChipGroup
+            label="Quality"
+            value={quality}
+            values={qualityOptions}
+            onChange={onQualityChange}
+            disabled={disabled}
+          />
+        ) : null}
+
+        {supports(supportedParameters, "output_format") && formatOptions.length > 0 ? (
+          <ChipGroup
+            label="Format"
+            value={outputFormat}
+            values={formatOptions}
+            onChange={onOutputFormatChange}
+            disabled={disabled}
+          />
+        ) : null}
+
+        {supports(supportedParameters, "resolution") ? (
+          <SelectField
+            label="Resolution"
+            value={resolution}
+            options={resolutions}
+            onChange={onResolutionChange}
+            disabled={disabled}
+            includeEmpty
+          />
+        ) : null}
+
+        {supports(supportedParameters, "size") ? (
+          <SelectField
+            label="Size"
+            value={size}
+            options={sizes}
+            optionLabel={sizeLabel}
+            onChange={onSizeChange}
+            disabled={disabled}
+            includeEmpty
+          />
+        ) : null}
+
+        {supports(supportedParameters, "input_references") ? (
+          <ReferenceImageDropzone
+            label="Reference images"
+            description={
+              "PNG, JPEG, WebP, or GIF · up to 8 MB each" +
+              (minReferenceImages > 0 ? ` · at least ${minReferenceImages} required` : "")
+            }
+            value={referenceImages}
+            onChange={onReferenceImagesChange}
+            maxImages={maxReferenceImages}
+            disabled={disabled}
+          />
+        ) : null}
+      </div>
       <details className="group">
         <summary className="cursor-pointer rounded-md py-2 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Advanced settings and references
+          Provider & advanced settings
         </summary>
         <div className="grid gap-4 pt-4">
           {props.advancedContent}
@@ -352,26 +416,6 @@ export function SettingsPanel(props: {
             />
           ) : null}
 
-          {supports(supportedParameters, "quality") && qualityOptions.length > 0 ? (
-            <ChipGroup
-              label="Quality"
-              value={quality}
-              values={qualityOptions}
-              onChange={onQualityChange}
-              disabled={disabled}
-            />
-          ) : null}
-
-          {supports(supportedParameters, "output_format") && formatOptions.length > 0 ? (
-            <ChipGroup
-              label="Format"
-              value={outputFormat}
-              values={formatOptions}
-              onChange={onOutputFormatChange}
-              disabled={disabled}
-            />
-          ) : null}
-
           {supports(supportedParameters, "background") && backgroundOptions.length > 0 ? (
             <ChipGroup
               label="Background"
@@ -379,29 +423,6 @@ export function SettingsPanel(props: {
               values={backgroundOptions}
               onChange={onBackgroundChange}
               disabled={disabled}
-            />
-          ) : null}
-
-          {supports(supportedParameters, "resolution") ? (
-            <SelectField
-              label="Resolution"
-              value={resolution}
-              options={resolutions}
-              onChange={onResolutionChange}
-              disabled={disabled}
-              includeEmpty
-            />
-          ) : null}
-
-          {supports(supportedParameters, "size") ? (
-            <SelectField
-              label="Size"
-              value={size}
-              options={sizes}
-              optionLabel={sizeLabel}
-              onChange={onSizeChange}
-              disabled={disabled}
-              includeEmpty
             />
           ) : null}
 
@@ -442,7 +463,7 @@ export function SettingsPanel(props: {
                 max={100}
                 value={outputCompression}
                 onChange={(event) => onOutputCompressionChange(Number(event.target.value))}
-                className="mt-2 w-full accent-fuchsia-500"
+                className="mt-2 w-full accent-foreground"
                 disabled={disabled}
               />
             </label>
@@ -454,25 +475,11 @@ export function SettingsPanel(props: {
                 type="checkbox"
                 checked={useStreaming}
                 onChange={(event) => onUseStreamingChange(event.target.checked)}
-                className="accent-fuchsia-500"
+                className="accent-foreground"
                 disabled={disabled}
               />
               Use the streaming response when supported
             </label>
-          ) : null}
-
-          {supports(supportedParameters, "input_references") ? (
-            <ReferenceImageDropzone
-              label="Reference images"
-              description={
-                "PNG, JPEG, WebP, or GIF · up to 8 MB each" +
-                (minReferenceImages > 0 ? ` · at least ${minReferenceImages} required` : "")
-              }
-              value={referenceImages}
-              onChange={onReferenceImagesChange}
-              maxImages={maxReferenceImages}
-              disabled={disabled}
-            />
           ) : null}
 
           {selectedEndpoint && selectedEndpoint.allowedPassthroughParameters.length > 0 ? (

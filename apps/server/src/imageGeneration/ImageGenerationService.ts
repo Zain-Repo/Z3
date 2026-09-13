@@ -22,6 +22,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import { ServerSettingsService } from "../serverSettings.ts";
+import { prepareImagePrompt } from "@t3tools/shared/imageCreativeDirection";
 import {
   OpenRouterApiError,
   fetchOpenRouterImageModelEndpoints,
@@ -350,7 +351,12 @@ const make = Effect.gen(function* () {
           });
         const result = yield* input.model.startsWith("civitai/")
           ? withCivitaiKey(input.providerInstanceId).pipe(
-              Effect.flatMap((apiKey) => generateCivitaiImage(httpClient, apiKey, input)),
+              Effect.flatMap((apiKey) =>
+                generateCivitaiImage(httpClient, apiKey, {
+                  ...input,
+                  prompt: prepareImagePrompt(input),
+                }),
+              ),
             )
           : Effect.gen(function* () {
               const connection = yield* withConnection(input.providerInstanceId);
@@ -383,7 +389,7 @@ const make = Effect.gen(function* () {
                 baseUrl: connection.baseUrl,
                 apiKey: connection.apiKey,
                 model: input.model,
-                prompt: input.prompt,
+                prompt: prepareImagePrompt(input),
                 ...(input.stream !== undefined ? { stream: input.stream } : {}),
                 ...(input.n !== undefined ? { n: input.n } : {}),
                 ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),

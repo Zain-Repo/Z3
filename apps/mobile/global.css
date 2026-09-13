@@ -6,12 +6,12 @@
   :root {
     @variant light {
       /* Page backgrounds */
-      --color-screen: #f2f2f7;
-      --color-sheet: rgba(242, 242, 247, 0.98);
+      --color-screen: #f7f6f3;
+      --color-sheet: rgba(247, 246, 243, 0.98);
 
       /* Card / surface */
       --color-card: #ffffff;
-      --color-card-alt: #f5f5f5;
+      --color-card-alt: #eeede9;
       --color-card-translucent: rgba(255, 255, 255, 0.8);
 
       /* Text */
@@ -33,7 +33,7 @@
       --color-inline-skill-foreground: #a21caf;
 
       /* Primary action */
-      --color-primary: #262626;
+      --color-primary: #a04b2a;
       --color-primary-foreground: #ffffff;
       --color-primary-shadow: rgba(0, 0, 0, 0.18);
 
@@ -66,12 +66,12 @@
       --color-glass-tint: rgba(255, 255, 255, 0.18);
 
       /* StatusBar */
-      --color-status-bar: #f2f2f7;
+      --color-status-bar: #f7f6f3;
 
       /* Markdown */
       --color-md-body: #111111;
       --color-md-strong: #000000;
-      --color-md-link: #2563eb;
+      --color-md-link: #a04b2a;
       --color-md-blockquote-border: rgba(0, 0, 0, 0.08);
       --color-md-blockquote-bg: rgba(0, 0, 0, 0.02);
       --color-md-code-bg: rgba(0, 0, 0, 0.04);
@@ -82,8 +82,8 @@
       --color-md-user-fence-text: #ffffff;
       --color-md-hr: rgba(0, 0, 0, 0.08);
 
-      /* iMessage-style user bubble */
-      --color-user-bubble: #007aff;
+      /* Z3 conversation bubble */
+      --color-user-bubble: #a04b2a;
       --color-user-bubble-foreground: #ffffff;
       --color-user-bubble-foreground-muted: rgba(255, 255, 255, 0.78);
 
@@ -100,13 +100,13 @@
 
     @variant dark {
       /* Page backgrounds */
-      --color-screen: #0a0a0a;
-      --color-sheet: rgba(14, 14, 14, 0.98);
+      --color-screen: #191a1c;
+      --color-sheet: rgba(25, 26, 28, 0.98);
 
       /* Card / surface */
-      --color-card: #171717;
-      --color-card-alt: #1c1c1c;
-      --color-card-translucent: rgba(17, 17, 17, 0.8);
+      --color-card: #222326;
+      --color-card-alt: #2d2e32;
+      --color-card-translucent: rgba(34, 35, 38, 0.8);
 
       /* Text */
       --color-foreground: #f5f5f5;
@@ -127,8 +127,8 @@
       --color-inline-skill-foreground: #f0abfc;
 
       /* Primary action */
-      --color-primary: #f5f5f5;
-      --color-primary-foreground: #0a0a0a;
+      --color-primary: #e7aa83;
+      --color-primary-foreground: #251b16;
       --color-primary-shadow: rgba(0, 0, 0, 0.22);
 
       /* Secondary action */
@@ -143,7 +143,7 @@
       --color-danger-foreground: #fca5a5;
 
       /* Inputs */
-      --color-input: #141414;
+      --color-input: #222326;
       --color-input-border: rgba(255, 255, 255, 0.08);
       --color-sidebar-search: rgba(118, 118, 128, 0.24);
       --color-placeholder: #8e8e93;
@@ -154,18 +154,18 @@
       --color-icon-subtle: #8e8e93;
 
       /* Header / glass chrome */
-      --color-header: rgba(10, 10, 10, 0.97);
+      --color-header: rgba(32, 33, 35, 0.97);
       --color-header-border: rgba(255, 255, 255, 0.06);
       --color-glass-surface: rgba(23, 23, 23, 0.78);
       --color-glass-tint: rgba(23, 23, 23, 0.24);
 
       /* StatusBar */
-      --color-status-bar: #0a0a0a;
+      --color-status-bar: #191a1c;
 
       /* Markdown */
       --color-md-body: #e5e5e5;
       --color-md-strong: #f5f5f5;
-      --color-md-link: #60a5fa;
+      --color-md-link: #e7aa83;
       --color-md-blockquote-border: rgba(255, 255, 255, 0.1);
       --color-md-blockquote-bg: rgba(255, 255, 255, 0.03);
       --color-md-code-bg: rgba(255, 255, 255, 0.06);
@@ -176,14 +176,14 @@
       --color-md-user-fence-text: #ffffff;
       --color-md-hr: rgba(255, 255, 255, 0.08);
 
-      /* iMessage-style user bubble */
-      --color-user-bubble: #0a84ff;
+      /* Z3 conversation bubble */
+      --color-user-bubble: #914526;
       --color-user-bubble-foreground: #ffffff;
       --color-user-bubble-foreground-muted: rgba(255, 255, 255, 0.78);
 
       /* Drawer / modal backdrop */
       --color-backdrop: rgba(0, 0, 0, 0.48);
-      --color-drawer: rgba(14, 14, 14, 0.99);
+      --color-drawer: rgba(32, 33, 35, 0.99);
       --color-drawer-shadow: rgba(0, 0, 0, 0.32);
 
       /* Misc */

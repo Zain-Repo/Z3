@@ -28,7 +28,7 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
     sidebarTitle: "Projects",
     sidebarDescription: "Your coding workspace",
     icon: Code2Icon,
-    topbarClassName: "bg-primary/[0.08]",
+    topbarClassName: "bg-sidebar",
     sidebarClassName: "[&_[data-workspace-context]]:text-primary",
   },
   {
@@ -38,7 +38,7 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
     sidebarTitle: "Conversations",
     sidebarDescription: "Your chat workspace",
     icon: MessageCircleIcon,
-    topbarClassName: "bg-primary/[0.08]",
+    topbarClassName: "bg-sidebar",
     sidebarClassName: "[&_[data-workspace-context]]:text-primary",
   },
   {
@@ -48,8 +48,8 @@ export const WORKSPACE_DEFINITIONS: ReadonlyArray<WorkspaceDefinition> = [
     sidebarTitle: "Generations",
     sidebarDescription: "Your image workspace",
     icon: ImageIcon,
-    topbarClassName: "bg-fuchsia-500/[0.08]",
-    sidebarClassName: "[&_[data-workspace-context]]:text-fuchsia-500",
+    topbarClassName: "bg-sidebar",
+    sidebarClassName: "[&_[data-workspace-context]]:text-primary",
   },
 ];
 const BROWSER_WORKSPACE_DEFINITIONS = WORKSPACE_DEFINITIONS.filter(

@@ -4,12 +4,12 @@
   "type": "module",
   "scripts": {
     "prepare": "node scripts/clean-tsgo-backups.mjs && effect-tsgo patch && vp config --no-agent",
-    "dev": "node scripts/dev-runner.ts dev",
-    "dev:share": "node scripts/dev-runner.ts dev --share",
-    "dev:server": "node scripts/dev-runner.ts dev:server",
-    "dev:web": "node scripts/dev-runner.ts dev:web",
+    "dev": "node scripts/dev-launcher.mjs dev",
+    "dev:share": "node scripts/dev-launcher.mjs dev --share",
+    "dev:server": "node scripts/dev-launcher.mjs dev:server",
+    "dev:web": "node scripts/dev-launcher.mjs dev:web",
     "dev:marketing": "vp run --filter @t3tools/marketing dev",
-    "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
+    "dev:desktop": "node scripts/dev-launcher.mjs dev:desktop",
     "start": "vp run --filter t3 start",
     "start:desktop": "vp run --filter @t3tools/desktop start",
     "start:marketing": "vp run --filter @t3tools/marketing preview",
@@ -55,7 +55,7 @@
   "engines": {
     "node": "^24.13.1"
   },
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@12.4.1",
   "msw": {
     "workerDirectory": [
       "apps/web/public"

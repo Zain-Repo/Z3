@@ -147,7 +147,7 @@ function ResourceSearch({
           disabled={disabled || loading}
           onClick={() => void search()}
         >
-          {loading ? "Searching…" : "Search"}
+          {loading ? "Searchingâ€¦" : "Search"}
         </Button>
       </div>
       {error ? (
@@ -174,7 +174,7 @@ function ResourceSearch({
                 <div className="min-w-0 flex-1 text-xs">
                   <p className="break-words font-medium">{resource.name}</p>
                   <p className="break-words text-muted-foreground">
-                    {resource.versionName} · {resource.baseModel}
+                    {resource.versionName} Â· {resource.baseModel}
                   </p>
                 </div>
                 <Button
@@ -246,7 +246,7 @@ export function CivitaiAdvancedSettings({
   function remember(resource: Resource) {
     setTriggers((current) => new Map(current).set(resource.air, resource.trainedWords));
     setNames((current) =>
-      new Map(current).set(resource.air, `${resource.name} · ${resource.versionName}`),
+      new Map(current).set(resource.air, `${resource.name} Â· ${resource.versionName}`),
     );
   }
 
@@ -289,7 +289,7 @@ export function CivitaiAdvancedSettings({
                 </option>
                 {recommendations.map((resource) => (
                   <option key={resource.air} value={resource.air}>
-                    {resource.name} · {resource.versionName} ({resource.baseModel})
+                    {resource.name} Â· {resource.versionName} ({resource.baseModel})
                   </option>
                 ))}
               </select>
@@ -309,7 +309,7 @@ export function CivitaiAdvancedSettings({
               <span className="min-w-0 flex-1 break-words text-xs">
                 {names.get(value.checkpoint) ??
                   (recommendedSelection
-                    ? `${recommendedSelection.name} · ${recommendedSelection.versionName}`
+                    ? `${recommendedSelection.name} Â· ${recommendedSelection.versionName}`
                     : value.checkpoint)}
               </span>
               <Button
@@ -331,7 +331,7 @@ export function CivitaiAdvancedSettings({
             <p className="text-xs text-muted-foreground">
               {capabilities.checkpoint === "required"
                 ? "Choose a compatible checkpoint before generating."
-                : "Using the model’s default checkpoint."}
+                : "Using the modelâ€™s default checkpoint."}
             </p>
           )}
           <ResourceSearch
@@ -446,23 +446,53 @@ export function CivitaiAdvancedSettings({
         </div>
       ) : null}
       {capabilities.negativePrompt ? (
-        <label className="block text-xs text-muted-foreground">
-          Negative prompt
-          <textarea
-            value={value.negativePrompt ?? ""}
-            maxLength={10000}
+        <div>
+          <label className="block text-xs text-muted-foreground">
+            Negative prompt
+            <textarea
+              value={value.negativePrompt ?? ""}
+              maxLength={10000}
+              disabled={disabled}
+              placeholder="Optional: waxy skin, sharpening halos, inconsistent shadows"
+              className="mt-1 min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(event) => {
+                const next = { ...value };
+                if (event.target.value) next.negativePrompt = event.target.value;
+                else delete next.negativePrompt;
+                onChange(next);
+              }}
+            />
+          </label>
+          <button
+            type="button"
             disabled={disabled}
-            placeholder="Details to avoid"
-            className="mt-1 min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onChange={(event) => {
-              const next = { ...value };
-              if (event.target.value) next.negativePrompt = event.target.value;
-              else delete next.negativePrompt;
-              onChange(next);
-            }}
-          />
-        </label>
-      ) : null}
+            className="mt-2 text-xs text-muted-foreground underline underline-offset-2"
+            onClick={() =>
+              onChange({
+                ...value,
+                negativePrompt: [
+                  value.negativePrompt?.trim(),
+                  "waxy texture, sharpening halos, inconsistent shadows, distorted geometry, compression artifacts",
+                ]
+                  .filter(Boolean)
+                  .join(", ")
+                  .slice(0, 10000),
+              })
+            }
+          >
+            Add realism quality exclusions
+          </button>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Optional quality guidance, sent separately to this model. Edit freely to match your
+            scene; provider content rules still apply.
+          </p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          This model does not support native negative prompts. Describe the desired result
+          positively in your prompt.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3">
         {(["steps", "cfgScale"] as const).map((field) => {
           const range = capabilities[field];
@@ -481,7 +511,7 @@ export function CivitaiAdvancedSettings({
                 onChange={(event) => updateNumber(field, event.target.value)}
               />
               <span className="mt-1 block text-[11px]">
-                {range.min}–{range.max}
+                {range.min}â€“{range.max}
               </span>
             </label>
           ) : null;

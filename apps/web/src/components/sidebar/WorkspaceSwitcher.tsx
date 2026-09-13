@@ -1,87 +1,56 @@
-import { ChevronDownIcon } from "lucide-react";
-import { memo } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
-import { Button } from "../ui/button";
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuTrigger,
-} from "../ui/menu";
 import { isWorkspaceId, useWorkspace } from "../../workspace";
 import { shouldResetWorkspaceRoute } from "./WorkspaceSwitcher.logic";
+import { ToggleGroup, Toggle } from "../ui/toggle-group";
+import { useSidebar } from "../ui/sidebar";
 
-export const WorkspaceSwitcher = memo(function WorkspaceSwitcher() {
+const WORKSPACE_SHORT_LABELS = { code: "Code", chat: "Chat", image: "Image" } as const;
+
+/** Direct workspace access, preserving each workspace's route boundaries. */
+export function WorkspaceNavigation() {
   const { activeWorkspace, setWorkspace, workspaces } = useWorkspace();
+  const { setOpenMobile } = useSidebar();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const ActiveIcon = activeWorkspace.icon;
 
   return (
-    <Menu>
-      <MenuTrigger
-        aria-label={`Switch workspace. Current workspace: ${activeWorkspace.label}`}
-        render={<Button variant="ghost" size="sm" />}
-        className="min-w-0 max-w-[11rem] justify-start gap-1.5 px-2 text-foreground/90 hover:bg-foreground/8 hover:text-foreground focus-visible:ring-2"
+    <nav aria-label="Z3 workspaces" className="px-3 pb-3 pt-1">
+      <ToggleGroup
+        aria-label="Workspace"
+        value={[activeWorkspace.id]}
+        className="w-full gap-1 rounded-xl bg-background/60 p-1"
+        onValueChange={(values) => {
+          const next = values[0];
+          if (typeof next !== "string" || !isWorkspaceId(next) || next === activeWorkspace.id)
+            return;
+          const resetRoute = shouldResetWorkspaceRoute(pathname, activeWorkspace.id, next);
+          setWorkspace(next);
+          setOpenMobile(false);
+          if (resetRoute) void navigate({ to: "/" });
+        }}
       >
-        <ActiveIcon aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
-        <span className="min-w-0 truncate text-sm font-semibold tracking-tight">
-          {activeWorkspace.label}
-        </span>
-        <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-      </MenuTrigger>
-      <MenuPopup align="start" className="w-60">
-        <MenuGroup>
-          <MenuGroupLabel>Workspace</MenuGroupLabel>
-          <MenuRadioGroup
-            value={activeWorkspace.id}
-            onValueChange={(value) => {
-              if (!isWorkspaceId(value) || value === activeWorkspace.id) {
-                return;
-              }
-
-              const shouldResetRoute = shouldResetWorkspaceRoute(
-                pathname,
-                activeWorkspace.id,
-                value,
-              );
-              setWorkspace(value);
-              if (shouldResetRoute) {
-                void navigate({ to: "/" });
-              }
-            }}
-          >
-            {workspaces.map((workspace) => {
-              const Icon = workspace.icon;
-              return (
-                <MenuRadioItem
-                  key={workspace.id}
-                  value={workspace.id}
-                  disabled={workspace.disabled}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Icon aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{workspace.label}</span>
-                      <span className="block truncate text-muted-foreground text-xs">
-                        {workspace.description}
-                      </span>
-                    </span>
-                  </span>
-                </MenuRadioItem>
-              );
-            })}
-          </MenuRadioGroup>
-        </MenuGroup>
-      </MenuPopup>
-    </Menu>
+        {workspaces.map((workspace) => {
+          const Icon = workspace.icon;
+          return (
+            <Toggle
+              key={workspace.id}
+              value={workspace.id}
+              disabled={workspace.disabled}
+              aria-label={workspace.label}
+              title={workspace.description}
+              className="h-9 min-w-0 flex-1 gap-1.5 rounded-lg px-2 text-xs text-muted-foreground data-pressed:bg-card data-pressed:text-foreground data-pressed:shadow-xs"
+            >
+              <Icon aria-hidden="true" className="size-3.5" />
+              {WORKSPACE_SHORT_LABELS[workspace.id]}
+            </Toggle>
+          );
+        })}
+      </ToggleGroup>
+    </nav>
   );
-});
+}
 
 export function WorkspaceContextRail() {
   const { activeWorkspace } = useWorkspace();

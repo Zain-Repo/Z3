@@ -1,6 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { LinkIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
+import { ArrowUpRightIcon, FolderPlusIcon, LinkIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { openCommandPalette } from "../commandPaletteBus";
@@ -23,6 +23,7 @@ import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
+import { Z3Mark } from "../components/Z3Mark";
 
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
@@ -141,26 +142,64 @@ function NoProjectsHero() {
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-        <Empty className="flex-1">
-          <div className="w-full max-w-lg px-8 py-12">
-            <EmptyHeader className="max-w-none">
-              <EmptyTitle className="text-foreground text-2xl sm:text-3xl">
-                What should we work on?
-              </EmptyTitle>
-              <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
-                Add a project to start your first thread.
-              </EmptyDescription>
-              <div className="mt-6 flex justify-center">
-                <Button size="sm" onClick={openAddProject}>
-                  <PlusIcon className="size-4" />
-                  Add project
-                </Button>
-              </div>
-            </EmptyHeader>
+    <SidebarInset className="h-dvh min-h-0 overflow-y-auto overscroll-y-none bg-background text-foreground">
+      <div className="z3-start-surface flex min-h-full flex-col justify-center px-6 py-20 sm:px-12">
+        <section
+          className="mx-auto grid w-full max-w-4xl gap-10 lg:grid-cols-[1.2fr_1fr] lg:gap-16"
+          aria-labelledby="z3-welcome-title"
+        >
+          <div className="flex flex-col items-start">
+            <Z3Mark className="mb-8 size-12 rounded-xl text-xl" />
+            <p className="mb-3 font-mono text-xs tracking-[0.14em] text-primary">
+              YOUR WORK, IN ONE PLACE
+            </p>
+            <h1
+              id="z3-welcome-title"
+              className="max-w-md text-balance text-4xl font-medium leading-tight tracking-[-0.045em] sm:text-5xl"
+            >
+              A workspace for what comes next.
+            </h1>
+            <p className="mt-5 max-w-sm text-sm leading-7 text-muted-foreground">
+              Bring your project and your agents. Z3 keeps the conversation, code, and next step
+              together.
+            </p>
           </div>
-        </Empty>
+          <div className="flex flex-col justify-center gap-3">
+            <button type="button" onClick={openAddProject} className="z3-start-action group">
+              <FolderPlusIcon aria-hidden="true" className="size-5 text-primary" />
+              <span className="flex-1 text-left">
+                <span className="block font-medium">Open a project</span>
+                <span className="mt-1 block text-sm leading-6 text-muted-foreground">
+                  Choose a folder on a connected environment and start a thread.
+                </span>
+              </span>
+              <ArrowUpRightIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground group-hover:text-primary"
+              />
+            </button>
+            <Link to="/settings/connections" className="z3-start-action group">
+              <LinkIcon aria-hidden="true" className="size-5 text-primary" />
+              <span className="flex-1 text-left">
+                <span className="block font-medium">Connect an environment</span>
+                <span className="mt-1 block text-sm leading-6 text-muted-foreground">
+                  Work with agents on another machine, wherever you are.
+                </span>
+              </span>
+              <ArrowUpRightIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground group-hover:text-primary"
+              />
+            </Link>
+            <Button
+              variant="ghost"
+              className="mt-1 self-start text-xs text-muted-foreground"
+              render={<Link to="/settings/providers" />}
+            >
+              Manage your providers <ArrowUpRightIcon className="size-3.5" />
+            </Button>
+          </div>
+        </section>
       </div>
     </SidebarInset>
   );
@@ -190,11 +229,9 @@ function HostedStaticOnboardingState() {
         </header>
 
         <Empty className="flex-1">
-          <div className="w-full max-w-xl rounded-3xl border border-border/55 bg-card/20 px-8 py-12 shadow-sm/5">
+          <div className="w-full max-w-xl rounded-2xl border border-border bg-card px-8 py-12">
             <EmptyHeader className="max-w-none">
-              <div className="mx-auto mb-5 flex size-11 items-center justify-center rounded-xl border border-border/70 bg-background/70 text-muted-foreground">
-                <LinkIcon className="size-5" />
-              </div>
+              <Z3Mark className="mb-6 size-12 rounded-xl text-xl" />
               <EmptyTitle className="text-foreground text-xl">
                 Connect an environment to get started
               </EmptyTitle>

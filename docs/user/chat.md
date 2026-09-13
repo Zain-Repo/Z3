@@ -1,6 +1,6 @@
 # Z3Chat
 
-Z3Chat is a desktop-only workspace for conversations with your configured provider. Open the workspace switcher in the Z3 desktop app and choose **Z3Chat**.
+Z3Chat is a desktop-only workspace for conversations with your configured provider. Choose **Chat** at the top of the sidebar in the Z3 desktop app.
 
 Chats belong to the selected environment and do not require a project or worktree. Use the environment selector in the chat sidebar to switch where new chats are created. New chats use **Full access** by default, and the **Access** control in the composer lets you switch to supervised or automatic approval modes at any time.
 

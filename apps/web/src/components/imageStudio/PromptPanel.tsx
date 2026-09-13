@@ -32,7 +32,7 @@ export function PromptPanel({
     <section className="min-w-0">
       <div className="flex items-baseline justify-between gap-3">
         <label htmlFor="zimage-prompt" className="text-sm font-medium">
-          Prompt
+          Your brief
         </label>
         <span className="text-[11px] tabular-nums text-muted-foreground/70">
           {characterCount} chars
@@ -42,7 +42,7 @@ export function PromptPanel({
         id="zimage-prompt"
         value={prompt}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Describe the image you want to create..."
+        placeholder="Describe the subject, setting, and details that must stay exact..."
         className="mt-2 min-h-32 max-h-64 resize-y bg-background [&>textarea]:max-h-64 [&>textarea]:resize-y [&>textarea]:overflow-y-auto [&>textarea]:scrollbar-gutter-stable"
         disabled={disabled}
       />
@@ -108,7 +108,7 @@ export function PromptPanel({
                     title={entry}
                   >
                     <SparklesIcon
-                      className="mr-1.5 inline size-3 text-fuchsia-500/70"
+                      className="mr-1.5 inline size-3 text-foreground/70"
                       aria-hidden="true"
                     />
                     {entry}

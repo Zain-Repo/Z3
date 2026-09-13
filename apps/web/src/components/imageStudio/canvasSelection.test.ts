@@ -27,4 +27,16 @@ describe("image canvas selection", () => {
       assets[1],
     ]);
   });
+
+  it("supports four selections and deselection without exceeding the canvas limit", () => {
+    expect(
+      selectCanvasAsset("fifth", "first", true, ["first", "second", "third", "fourth"]),
+    ).toEqual(["first", "second", "third", "fifth"]);
+    expect(selectCanvasAsset("second", "first", true, ["first", "second", "third"])).toEqual([
+      "first",
+      "third",
+    ]);
+    expect(selectCanvasAsset("first", "first", true, ["first"])).toEqual(["first"]);
+    expect(resolveCanvasSelection(assets, [], true)).toEqual(assets);
+  });
 });

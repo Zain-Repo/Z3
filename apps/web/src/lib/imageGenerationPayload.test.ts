@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { DEFAULT_IMAGE_DIRECTION } from "@t3tools/shared/imageCreativeDirection";
 
 import {
   parseImageGenerationPayload,
@@ -6,6 +7,21 @@ import {
 } from "./imageGenerationPayload";
 
 describe("image generation payloads", () => {
+  it("round-trips direction and rejects unsupported versions", () => {
+    const input = { model: "model", prompt: "A cup", creativeDirection: DEFAULT_IMAGE_DIRECTION };
+    assert.deepEqual(parseImageGenerationPayload(serializeImageGenerationPayload(input)), {
+      input,
+    });
+    assert.ok(
+      "error" in
+        parseImageGenerationPayload(
+          JSON.stringify({
+            ...input,
+            creativeDirection: { ...DEFAULT_IMAGE_DIRECTION, version: 99 },
+          }),
+        ),
+    );
+  });
   it("preserves Civitai resources and advanced settings when reusing a generation", () => {
     const input = {
       model: "civitai/z-image-base",

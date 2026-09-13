@@ -226,6 +226,7 @@ import {
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import { DraftStarterActions } from "./chat/DraftStarterActions";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
@@ -6353,6 +6354,20 @@ function ChatViewContent(props: ChatViewProps) {
                         </div>
                       </div>
                     </div>
+                    {isDraftHeroState && !isChatSurface ? (
+                      <DraftStarterActions
+                        disabled={
+                          isConnecting || activeProjectRef === null || activeEnvironmentUnavailable
+                        }
+                        onSelect={(prompt) => {
+                          const composer = composerRef.current;
+                          if (!composer) return;
+                          const prefix = composer.readSnapshot().value.trim() ? "\n\n" : "";
+                          composer.insertTextAtEnd(`${prefix}${prompt}`);
+                          composer.focusAtEnd();
+                        }}
+                      />
+                    ) : null}
                     {isDraftHeroState && chatProject ? (
                       <ChatProjectContentTabs
                         key={chatProject.id}

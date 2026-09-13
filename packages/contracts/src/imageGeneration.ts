@@ -111,7 +111,19 @@ export const ImageGenerationModelEndpoints = Schema.Struct({
 });
 export type ImageGenerationModelEndpoints = typeof ImageGenerationModelEndpoints.Type;
 
+export const ImageCreativeDirection = Schema.Struct({
+  version: Schema.Literal(1),
+  realism: Schema.optionalKey(Schema.Literals(["off", "natural", "editorial"])),
+  style: Schema.Literals(["faithful", "photographic", "cinematic", "product", "illustration"]),
+  lighting: Schema.Literals(["auto", "daylight", "studio", "golden-hour", "dramatic"]),
+  composition: Schema.Literals(["auto", "portrait", "wide", "close-up", "copy-space"]),
+  detail: Schema.Literals(["natural", "crisp"]),
+  referenceRole: Schema.Literals(["auto", "subject", "style", "composition"]),
+});
+export type ImageCreativeDirection = typeof ImageCreativeDirection.Type;
+
 export const ImageGenerationInput = Schema.Struct({
+  creativeDirection: Schema.optionalKey(ImageCreativeDirection),
   civitai: Schema.optionalKey(CivitaiImageOptions),
   providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,

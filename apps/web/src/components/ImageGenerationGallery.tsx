@@ -83,6 +83,7 @@ export function PendingGenerationCard({
           </button>
         </div>
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <span className="mb-1 block font-medium">{input.model}</span>
           {input.prompt}
         </p>
       </div>
@@ -125,6 +126,7 @@ export const GenerationCard = memo(function GenerationCard({
   onReuse,
   onReroll,
   onSelectAsset,
+  selectedAssetIds,
   libraryActions,
 }: {
   readonly generation: ImageGenerationRecord;
@@ -133,6 +135,7 @@ export const GenerationCard = memo(function GenerationCard({
   readonly onReuse: (input: ImageGenerationInput) => void;
   readonly onReroll: (input: ImageGenerationInput) => void;
   readonly onSelectAsset?: (assetId: string) => void;
+  readonly selectedAssetIds?: ReadonlyArray<string>;
   readonly libraryActions?: ReactNode;
 }) {
   const [copiedAction, setCopiedAction] = useState<"prompt" | "json" | null>(null);
@@ -193,9 +196,10 @@ export const GenerationCard = memo(function GenerationCard({
                 size="sm"
                 className="absolute bottom-2 left-2"
                 onClick={() => onSelectAsset(asset.id)}
+                aria-pressed={selectedAssetIds?.includes(asset.id) ?? false}
                 aria-label={`Select image for canvas: ${generation.prompt}`}
               >
-                Select
+                {selectedAssetIds?.includes(asset.id) ? "On canvas" : "Select"}
               </Button>
             ) : null}
           </div>

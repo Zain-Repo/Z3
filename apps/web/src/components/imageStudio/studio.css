@@ -1,0 +1,35 @@
+/* A scoped, quiet work surface; image color remains the focus in either theme. */
+.zimage-studio {
+  --studio-grid: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+
+.zimage-stage {
+  background-color: color-mix(in oklab, var(--muted) 55%, var(--background));
+  background-image: radial-gradient(var(--studio-grid) 0.75px, transparent 0.75px);
+  background-size: 18px 18px;
+}
+
+.zimage-viewport {
+  height: clamp(18rem, 49vh, 42rem);
+  background-color: color-mix(in oklab, var(--background) 75%, transparent);
+}
+
+.zimage-viewport[data-zoomed="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.zimage-viewport[data-zoomed="true"]:active {
+  cursor: grabbing;
+}
+
+.zimage-image-surface {
+  translate: var(--pan-x, 0px) var(--pan-y, 0px);
+  transform-origin: center;
+}
+
+@media (max-width: 639px) {
+  .zimage-viewport {
+    height: 19rem;
+  }
+}

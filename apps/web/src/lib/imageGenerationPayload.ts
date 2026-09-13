@@ -1,5 +1,6 @@
 import {
   CivitaiImageOptions,
+  ImageCreativeDirection,
   ProviderInstanceId,
   type ImageGenerationInput,
   type ImageGenerationRecord,
@@ -11,6 +12,7 @@ const QUALITY_VALUES = ["auto", "low", "medium", "high", "xhigh", "max"] as cons
 const OUTPUT_FORMAT_VALUES = ["png", "jpeg", "webp", "svg"] as const;
 const BACKGROUND_VALUES = ["auto", "transparent", "opaque"] as const;
 const decodeCivitaiOptions = Schema.decodeUnknownOption(CivitaiImageOptions);
+const decodeCreativeDirection = Schema.decodeUnknownOption(ImageCreativeDirection);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -54,6 +56,7 @@ export function parseImageGenerationPayload(
   if (!nonEmptyString(candidate.prompt)) return invalidField("prompt", "a non-empty string");
 
   const optionalFields: {
+    creativeDirection?: ImageCreativeDirection;
     providerInstanceId?: NonNullable<ImageGenerationInput["providerInstanceId"]>;
     stream?: boolean;
     n?: number;
@@ -76,6 +79,12 @@ export function parseImageGenerationPayload(
     prompt: candidate.prompt.trim(),
   };
 
+  if (candidate.creativeDirection !== undefined) {
+    const direction = decodeCreativeDirection(candidate.creativeDirection);
+    if (Option.isNone(direction))
+      return invalidField("creativeDirection", "a valid version 1 creative direction");
+    optionalFields.creativeDirection = direction.value;
+  }
   if (candidate.providerInstanceId !== undefined) {
     if (!nonEmptyString(candidate.providerInstanceId)) {
       return invalidField("providerInstanceId", "a non-empty string");

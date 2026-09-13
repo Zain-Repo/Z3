@@ -44,6 +44,7 @@ type ThemeSeed = {
   accent: string;
   fontSans: string;
   fontMono: string;
+  lightOverrides?: Partial<ThemeColors>;
   darkOverrides?: Partial<ThemeColors>;
 };
 
@@ -65,6 +66,7 @@ function createTheme(id: string, label: string, seed: ThemeSeed): ThemeDefinitio
     sidebarForeground: "#273244",
     codeBackground: "#f2f4f8",
     codeForeground: "#273244",
+    ...seed.lightOverrides,
   } satisfies ThemeColors;
   const dark = {
     canvas: seed.darkCanvas,
@@ -97,30 +99,46 @@ function createTheme(id: string, label: string, seed: ThemeSeed): ThemeDefinitio
   };
 }
 
-export const T3_CODE_THEME = createTheme("t3-code", "Codex", {
-  lightCanvas: "#fcfcfc",
+// Keep the persisted ID so existing installations receive the Z3 palette.
+export const T3_CODE_THEME = createTheme("t3-code", "Z3 · Graphite", {
+  lightCanvas: "#f7f6f3",
   lightSurface: "#ffffff",
-  darkCanvas: "#21252b",
-  darkSurface: "#282c34",
-  accent: "#4d78cc",
-  fontSans: '"Satoshi", "DM Sans Variable", "DM Sans", sans-serif',
+  darkCanvas: "#191a1c",
+  darkSurface: "#222326",
+  accent: "#a04b2a",
+  fontSans: '"DM Sans Variable", "DM Sans", "Segoe UI", sans-serif',
   fontMono: '"JetBrains Mono", "SF Mono", Consolas, monospace',
+  lightOverrides: {
+    text: "#262729",
+    muted: "#eeede9",
+    mutedForeground: "#646569",
+    border: "#deddd8",
+    input: "#cccac4",
+    secondary: "#eeede9",
+    secondaryForeground: "#37383b",
+    sidebar: "#efeee9",
+    sidebarForeground: "#37383b",
+    codeBackground: "#f0efeb",
+    codeForeground: "#37383b",
+  },
   darkOverrides: {
-    text: "#abb2bf",
-    muted: "#21252b",
-    mutedForeground: "#7f848e",
-    surfaceRaised: "#2c313a",
-    border: "#3e4451",
-    input: "#3e4451",
-    secondary: "#2c313a",
-    secondaryForeground: "#abb2bf",
-    sidebar: "#282c34",
-    sidebarForeground: "#abb2bf",
-    codeBackground: "#21252b",
-    codeForeground: "#abb2bf",
+    text: "#eeece8",
+    muted: "#2a2b2e",
+    mutedForeground: "#a6a7ac",
+    surfaceRaised: "#2d2e32",
+    border: "#3b3c40",
+    input: "#505157",
+    accent: "#e7aa83",
+    accentForeground: "#251b16",
+    secondary: "#2d2e32",
+    secondaryForeground: "#eeece8",
+    sidebar: "#202123",
+    sidebarForeground: "#eeece8",
+    codeBackground: "#1c1d1f",
+    codeForeground: "#e0ded9",
   },
 });
-export const T3_CHAT_THEME = createTheme("t3-chat", "T3 Chat", {
+export const T3_CHAT_THEME = createTheme("t3-chat", "Rose", {
   lightCanvas: "#fff8fc",
   lightSurface: "#fff0f8",
   darkCanvas: "#171019",
