@@ -11,9 +11,18 @@ import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
-import { fetchOpenRouterModels, OpenRouterApiError, type OpenRouterModel } from "./OpenRouterApi.ts";
-import { buildServerProvider, providerModelsFromSettings, type ServerProviderDraft } from "../providerSnapshot.ts";
+import {
+  fetchOpenRouterModels,
+  OpenRouterApiError,
+  type OpenRouterModel,
+} from "./OpenRouterApi.ts";
+import {
+  buildServerProvider,
+  providerModelsFromSettings,
+  type ServerProviderDraft,
+} from "../providerSnapshot.ts";
 import { createModelCapabilities } from "@t3tools/shared/model";
+import { fetchProviderUsage } from "./ProviderUsageApi.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("openrouter");
 
@@ -178,11 +187,17 @@ export function checkOpenRouterProvider(
     );
   }
 
-  return fetchOpenRouterModels(httpClient, settings.apiEndpoint, apiKey).pipe(
-    Effect.flatMap((models) =>
+  return Effect.all(
+    [
+      fetchOpenRouterModels(httpClient, settings.apiEndpoint, apiKey),
+      fetchProviderUsage(httpClient, settings.apiEndpoint, apiKey, "openrouter"),
+    ],
+    { concurrency: 2 },
+  ).pipe(
+    Effect.flatMap(([models, usage]) =>
       DateTime.now.pipe(
-        Effect.map((now) =>
-          snapshot({
+        Effect.map((now) => ({
+          ...snapshot({
             settings,
             enabled,
             models: modelsFromApi(models, settings),
@@ -190,7 +205,8 @@ export function checkOpenRouterProvider(
             auth: "authenticated",
             checkedAt: DateTime.formatIso(now),
           }),
-        ),
+          ...(usage ? { usage } : {}),
+        })),
       ),
     ),
     Effect.catch((cause: unknown) =>
@@ -201,7 +217,10 @@ export function checkOpenRouterProvider(
             enabled,
             models: fallbackModels(settings),
             status: "error",
-            auth: cause instanceof OpenRouterApiError && cause.status === 401 ? "unauthenticated" : "unknown",
+            auth:
+              cause instanceof OpenRouterApiError && cause.status === 401
+                ? "unauthenticated"
+                : "unknown",
             checkedAt: DateTime.formatIso(now),
             message: cause instanceof Error ? cause.message : "OpenRouter status check failed.",
           }),

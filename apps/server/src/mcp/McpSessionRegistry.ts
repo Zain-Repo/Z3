@@ -222,6 +222,36 @@ const make = Effect.acquireRelease(
 
 export const layer = Layer.effect(McpSessionRegistry, make);
 
+/** Keep the old provider credential valid until its replacement has started. */
+const stageCredential = Effect.fn("McpSessionRegistry.stageCredential")(function* (
+  registry: McpSessionRegistryShape | undefined,
+  request: McpCredentialRequest,
+) {
+  const previous = McpProviderSession.readMcpProviderSession(request.threadId);
+  const issued = registry ? yield* registry.issue(request) : undefined;
+  if (issued) McpProviderSession.setMcpProviderSession(issued.config);
+  return {
+    commit:
+      registry && previous
+        ? registry.revokeProviderSession(previous.providerSessionId)
+        : Effect.void,
+    rollback: Effect.gen(function* () {
+      if (!registry || !issued) return;
+      yield* registry.revokeProviderSession(issued.config.providerSessionId);
+      if (
+        McpProviderSession.readMcpProviderSession(request.threadId)?.providerSessionId !==
+        issued.config.providerSessionId
+      )
+        return;
+      if (previous) McpProviderSession.setMcpProviderSession(previous);
+      else McpProviderSession.clearMcpProviderSession(request.threadId);
+    }),
+  };
+});
+
+export const stageActiveMcpCredential = (request: McpCredentialRequest) =>
+  stageCredential(activeMcpSessionRegistry, request);
+
 export const issueActiveMcpCredential = (
   request: McpCredentialRequest,
 ): Effect.Effect<McpIssuedCredential | undefined> =>
@@ -247,4 +277,5 @@ export const revokeAllActiveMcpCredentials = (): Effect.Effect<void> =>
 /** Exposed for tests. */
 export const __testing = {
   make: makeWithOptions,
+  stageCredential,
 };

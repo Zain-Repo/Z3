@@ -14,6 +14,7 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import { GenerationCard, PendingGenerationCard } from "../ImageGenerationGallery";
+import { ImageGenerationSkeleton } from "../ImageGenerationSkeleton";
 import type { LoadImageContent } from "../imageContentLoader";
 import { STARTER_PROMPTS } from "../../lib/imageStudioPrefs";
 import { ImageCanvas } from "./ImageCanvas";
@@ -156,12 +157,14 @@ export function GalleryPanel({
         </p>
       ) : null}
       {isLoading && generations.length === 0 ? (
-        <p
-          role="status"
-          className="flex min-h-48 items-center justify-center text-sm text-muted-foreground"
-        >
-          Loading your image library...
-        </p>
+        <div role="status" aria-busy="true" className="grid grid-cols-2 gap-3 pb-4">
+          <span className="sr-only">Loading your image library...</span>
+          {[0, 1, 2, 3].map((index) => (
+            <div key={index} className="relative aspect-square overflow-hidden rounded-md">
+              <ImageGenerationSkeleton index={index} />
+            </div>
+          ))}
+        </div>
       ) : null}
       <div ref={canvasRef} id="image-studio-preview" className="scroll-mt-4">
         {previewOpen && canvasImages.length > 0 ? (

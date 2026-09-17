@@ -1432,6 +1432,14 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
+      // A retired adapter can emit exit/error events after the replacement is
+      // bound. Those events must not stop or overwrite the new conversation.
+      if (
+        event.providerInstanceId !== undefined &&
+        thread.session?.providerInstanceId !== undefined &&
+        event.providerInstanceId !== thread.session.providerInstanceId
+      )
+        return;
 
       let loadedThreadDetail: OrchestrationThread | null | undefined;
       const getLoadedThreadDetail = () =>

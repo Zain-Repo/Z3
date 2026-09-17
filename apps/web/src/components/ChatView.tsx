@@ -225,6 +225,10 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import {
+  isSameSidebarThreadRef,
+  useSidebarPendingFileDropStore,
+} from "../sidebarPendingFileDropStore";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { DraftStarterActions } from "./chat/DraftStarterActions";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
@@ -5875,6 +5879,25 @@ function ChatViewContent(props: ChatViewProps) {
     }
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
+
+  const pendingSidebarFileDrops = useSidebarPendingFileDropStore((state) => state.pending);
+  useEffect(() => {
+    if (!activeThread || typeof composerDraftTarget === "string") return;
+    if (
+      !pendingSidebarFileDrops.some((drop) =>
+        isSameSidebarThreadRef(composerDraftTarget, drop.threadRef),
+      )
+    )
+      return;
+    // Child imperative handles are installed before parent effects. Consume only
+    // after the canonical composer mounts, never while a draft is being promoted.
+    const composer = composerRef.current;
+    if (!composer) return;
+    const files = useSidebarPendingFileDropStore
+      .getState()
+      .consumePendingFileDrop(composerDraftTarget);
+    if (files) composer.addDroppedFiles(files);
+  }, [activeThread, composerDraftTarget, composerRef, pendingSidebarFileDrops]);
 
   // Empty state: no active thread
   if (!activeThread) {

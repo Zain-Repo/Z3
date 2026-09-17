@@ -8,6 +8,7 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { ProviderUsageSummary } from "./ProviderUsageSummary";
 import type { CSSProperties } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -147,6 +148,7 @@ import {
   embeddingModelsForProvider,
 } from "../../lib/z3chatEmbeddingModels";
 import { CivitaiProviderSettings } from "./CivitaiProviderSettings";
+import { FalProviderSettings } from "./FalProviderSettings";
 
 const THEME_OPTIONS = [
   {
@@ -1975,7 +1977,7 @@ export function ProviderSettingsPanel() {
     Array<[ProviderInstanceId, ProviderInstanceConfig]>
   >();
   for (const [rawId, instance] of Object.entries(settings.providerInstances ?? {})) {
-    if (instance.driver === "civitai") continue;
+    if (instance.driver === "civitai" || instance.driver === "fal") continue;
     const driver = instance.driver;
     const list = instancesByDriver.get(driver) ?? [];
     list.push([rawId as ProviderInstanceId, instance]);
@@ -2139,6 +2141,11 @@ export function ProviderSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <ProviderUsageSummary
+        providers={serverProviders}
+        refreshing={isRefreshingProviders}
+        onRefresh={refreshProviders}
+      />
       <SettingsSection
         {...searchableSetting("providers")}
         icon={<SettingsIcon className="size-4 text-muted-foreground" aria-hidden />}
@@ -2249,6 +2256,7 @@ export function ProviderSettingsPanel() {
         />
 
         <CivitaiProviderSettings />
+        <FalProviderSettings />
         <div className="overflow-hidden rounded-xl border border-border/70 bg-card/20">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5 sm:px-4">
             <div className="min-w-0">

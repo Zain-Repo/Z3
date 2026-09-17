@@ -334,6 +334,57 @@ describe("ProviderRuntimeIngestion", () => {
     };
   }
 
+  effectIt.effect("ignores late events from a retired provider after a handoff", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = asThreadId("thread-1");
+      const now = "2026-01-01T00:00:00.000Z";
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("bind-replacement"),
+        threadId,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "claudeAgent",
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+      harness.emit({
+        type: "session.exited",
+        eventId: asEventId("retired-exit"),
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        threadId,
+        createdAt: now,
+        payload: { code: 0 },
+      });
+      harness.emit({
+        type: "runtime.error",
+        eventId: asEventId("retired-error"),
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        threadId,
+        createdAt: now,
+        payload: { message: "late error" },
+      });
+      yield* Effect.promise(() => harness.drain());
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(thread?.session).toMatchObject({
+        providerName: "claudeAgent",
+        status: "ready",
+        lastError: null,
+      });
+    }),
+  );
+
   it("maps turn started/completed events into thread session updates", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

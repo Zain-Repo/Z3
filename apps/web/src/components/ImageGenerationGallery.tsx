@@ -18,7 +18,6 @@ import { imageGridAspectRatio } from "../lib/imageGenerationAspectRatio";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { ImageGenerationSkeleton } from "./ImageGenerationSkeleton";
-import { Skeleton } from "./ui/skeleton";
 import type { ImageContent, LoadImageContent } from "./imageContentLoader";
 import {
   copyTextToClipboard,
@@ -177,7 +176,9 @@ export const GenerationCard = memo(function GenerationCard({
   return (
     <article className="group min-w-0 self-start overflow-hidden border border-border/70 bg-card/30 shadow-sm/5 [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
       <div
-        style={{ aspectRatio: imageGridAspectRatio(generation.input, generation.assets.length) }}
+        style={{
+          aspectRatio: imageGridAspectRatio(generation.input, generation.assets.length),
+        }}
         className={cn(
           "grid auto-rows-fr overflow-hidden bg-muted/35",
           generation.assets.length > 1 ? "grid-cols-2" : "grid-cols-1",
@@ -318,6 +319,25 @@ export function LazyGeneratedImageTile({
   readonly alt: string;
   readonly loadImageContent: LoadImageContent;
 }) {
+  return (
+    <LazyImageContent
+      key={assetId}
+      assetId={assetId}
+      alt={alt}
+      loadImageContent={loadImageContent}
+    />
+  );
+}
+
+function LazyImageContent({
+  assetId,
+  alt,
+  loadImageContent,
+}: {
+  readonly assetId: string;
+  readonly alt: string;
+  readonly loadImageContent: LoadImageContent;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [content, setContent] = useState<ImageContent | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -394,6 +414,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
   readonly content: ImageContent;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [decodeFailed, setDecodeFailed] = useState(false);
   const source = useMemo(
     () => `data:${content.mediaType};base64,${content.data}`,
     [content.data, content.mediaType],
@@ -410,6 +431,16 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
     anchor.remove();
   };
 
+  if (decodeFailed)
+    return (
+      <div
+        role="status"
+        className="flex min-h-32 items-center justify-center p-4 text-xs text-muted-foreground"
+      >
+        This image could not be decoded.
+      </div>
+    );
+
   return (
     <Dialog>
       <DialogTrigger
@@ -422,13 +453,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
           />
         }
       >
-        <Skeleton
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute inset-0 rounded-none motion-reduce:animate-none motion-safe:transition-opacity motion-safe:duration-200",
-            isLoaded ? "opacity-0" : "opacity-100",
-          )}
-        />
+        {!isLoaded && <ImageGenerationSkeleton />}
         <img
           src={source}
           alt=""
@@ -437,6 +462,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
           decoding="async"
           fetchPriority="low"
           onLoad={() => setIsLoaded(true)}
+          onError={() => setDecodeFailed(true)}
           className={cn(
             "size-full object-contain opacity-0 outline outline-1 -outline-offset-1 outline-black/10 transition-opacity duration-150 motion-reduce:transition-none dark:outline-white/10",
             isLoaded && "opacity-100",

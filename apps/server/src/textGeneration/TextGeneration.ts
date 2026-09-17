@@ -1,7 +1,13 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { ChatAttachment, ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  ChatAttachment,
+  ModelSelection,
+  ProviderInstanceId,
+  ImagePromptRewriteInput,
+  ImagePromptRewriteResult,
+} from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
@@ -94,6 +100,10 @@ export interface TextGenerationService {
 export class TextGeneration extends Context.Service<
   TextGeneration,
   {
+    /** Optional visual-prompt completion capability supplied by supported background providers. */
+    readonly rewriteImagePrompt?: (
+      input: ImagePromptRewriteInput & { modelSelection: ModelSelection },
+    ) => Effect.Effect<ImagePromptRewriteResult, TextGenerationError>;
     /**
      * Generate a commit message from staged change context.
      */

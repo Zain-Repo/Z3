@@ -2,7 +2,10 @@ import { inputPortDrop, outputPortDrag } from "./flowPortDrag";
 import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
 import type { FlowCard } from "./FlowCard";
 import { FLOW_COMPONENTS, PORT_Y } from "./flowModel";
+import { FlowImagePreview } from "./FlowImagePreview";
 import { readFlowReference } from "./flowReference";
+import { PromptUpdaterBody } from "./PromptUpdaterBody";
+import { ImageLibraryBody } from "./ImageLibraryBody";
 
 export const UtilityFlowCard = memo(function UtilityFlowCard({
   node,
@@ -16,6 +19,9 @@ export const UtilityFlowCard = memo(function UtilityFlowCard({
   onPort,
   onDuplicate,
   onRemove,
+  images,
+  loadImage,
+  libraryPreview,
 }: ComponentProps<typeof FlowCard>) {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -53,7 +59,7 @@ export const UtilityFlowCard = memo(function UtilityFlowCard({
       onFocus={(event) => {
         if (event.target === event.currentTarget) onSelect(node.id);
       }}
-      className={`zf-card zf-${node.kind} ${selected ? "zf-selected" : ""}`}
+      className={`zf-card zf-${node.kind === "library" ? "library-node" : node.kind} ${selected ? "zf-selected" : ""}`}
       style={{ transform: `translate(${node.position.x}px, ${node.position.y}px)` }}
       onPointerDown={() => onSelect(node.id)}
     >
@@ -102,32 +108,65 @@ export const UtilityFlowCard = memo(function UtilityFlowCard({
           ×
         </button>
       </header>
+      {node.kind === "library" && (
+        <div className="zf-library-node-ports" aria-hidden="true">
+          <span className="zf-library-node-output">Images out</span>
+          <span className="zf-library-node-input">Images in</span>
+        </div>
+      )}
       {node.kind !== "note" && (
         <button
           type="button"
           className="zf-port zf-output-port"
           style={{ top: 67 }}
-          data-label={node.kind === "combine" ? "prompt output" : "image output"}
+          data-label={
+            ["combine", "updater"].includes(node.kind)
+              ? "prompt output"
+              : node.kind === "library"
+                ? "image collection output"
+                : "image output"
+          }
           {...outputPortDrag(node.id, disabled)}
           aria-label={`Connect from ${node.title}`}
           disabled={disabled}
           onClick={() => onPort(node.id, "output")}
         />
       )}
-      {node.kind === "combine" && (
+      {["combine", "updater", "library"].includes(node.kind) && (
         <button
           type="button"
           className={`zf-port zf-input-port ${pendingConnection ? "zf-port-ready" : ""}`}
-          style={{ top: PORT_Y.prompt }}
-          {...inputPortDrop(node.id, "prompt", disabled, onPort)}
-          data-label="prompt fragments"
-          aria-label={`Connect to ${node.title}: prompt`}
+          style={{ top: PORT_Y[node.kind === "library" ? "reference" : "prompt"] }}
+          {...inputPortDrop(
+            node.id,
+            node.kind === "library" ? "reference" : "prompt",
+            disabled,
+            onPort,
+          )}
+          data-label={node.kind === "library" ? "images" : "prompt fragments"}
+          aria-label={`Connect to ${node.title}: ${node.kind === "library" ? "reference" : "prompt"}`}
           disabled={disabled}
-          onClick={() => onPort(node.id, "prompt")}
+          onClick={() => onPort(node.id, node.kind === "library" ? "reference" : "prompt")}
         />
       )}
       <div hidden={node.collapsed}>
-        {node.kind === "reference" ? (
+        {node.kind === "updater" ? (
+          <PromptUpdaterBody
+            node={node}
+            connected={connected}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        ) : node.kind === "library" ? (
+          <ImageLibraryBody
+            node={node}
+            disabled={disabled}
+            onChange={onChange}
+            images={images}
+            loadImage={loadImage}
+            {...(libraryPreview ? { libraryPreview } : {})}
+          />
+        ) : node.kind === "reference" ? (
           <div
             className="zf-reference-body"
             onDragOver={(event) => {
@@ -153,7 +192,7 @@ export const UtilityFlowCard = memo(function UtilityFlowCard({
           >
             {node.reference ? (
               <>
-                <img src={node.reference.url} alt={node.reference.name} draggable={false} />
+                <FlowImagePreview src={node.reference.url} alt={node.reference.name} />
                 <span className="zf-reference-name">{node.reference.name}</span>
               </>
             ) : (
@@ -259,7 +298,9 @@ export const UtilityFlowCard = memo(function UtilityFlowCard({
         <div className="zf-collapsed-summary">
           {node.kind === "reference"
             ? (node.reference?.name ?? "No reference yet")
-            : node.text || kind?.description}
+            : node.kind === "library"
+              ? `${(node.libraryImages?.length ?? 0) + (libraryPreview?.images.length ?? 0)} images`
+              : node.text || kind?.description}
         </div>
       )}
     </article>

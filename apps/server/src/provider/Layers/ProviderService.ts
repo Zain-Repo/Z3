@@ -132,6 +132,9 @@ function toRuntimePayloadFromSession(
     model: session.model ?? null,
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
+    ...(session.needsConversationHandoff !== undefined
+      ? { needsConversationHandoff: session.needsConversationHandoff }
+      : {}),
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
     ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
     ...(extra?.lastRuntimeEventAt !== undefined
@@ -148,6 +151,15 @@ function readPersistedModelSelection(
   }
   const raw = "modelSelection" in runtimePayload ? runtimePayload.modelSelection : undefined;
   return isModelSelection(raw) ? raw : undefined;
+}
+
+function needsConversationHandoff(payload: unknown): boolean {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "needsConversationHandoff" in payload &&
+    payload.needsConversationHandoff === true
+  );
 }
 
 function readPersistedCwd(
@@ -562,10 +574,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         const effectiveResumeCursor =
-          input.resumeCursor ??
-          (persistedBinding?.providerInstanceId === resolvedInstanceId
-            ? persistedBinding.resumeCursor
-            : undefined);
+          input.resumeCursor === null
+            ? undefined
+            : (input.resumeCursor ??
+              (persistedBinding?.providerInstanceId === resolvedInstanceId
+                ? persistedBinding.resumeCursor
+                : undefined));
         const effectiveCwd =
           input.cwd ??
           (persistedBinding?.providerInstanceId === resolvedInstanceId
@@ -591,26 +605,34 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.cwd.effective": effectiveCwd ?? "",
         });
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
-        yield* prepareMcpSession(threadId, resolvedInstanceId);
+        const mcpCredential = yield* McpSessionRegistry.stageActiveMcpCredential({
+          threadId,
+          providerInstanceId: resolvedInstanceId,
+        });
         const session = yield* adapter
           .startSession({
             ...input,
             providerInstanceId: resolvedInstanceId,
             ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
-            ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
+            resumeCursor: effectiveResumeCursor,
           })
-          .pipe(Effect.onError(() => clearMcpSession(threadId)));
+          .pipe(Effect.onError(() => mcpCredential.rollback));
 
         if (session.provider !== adapter.provider) {
-          yield* clearMcpSession(threadId);
+          yield* mcpCredential.rollback;
           return yield* toValidationError(
             "ProviderService.startSession",
             `Adapter/provider mismatch: requested '${adapter.provider}', received '${session.provider}'.`,
           );
         }
+        yield* mcpCredential.commit;
         const sessionWithInstance = {
           ...session,
           providerInstanceId: resolvedInstanceId,
+          resumeCursor: session.resumeCursor ?? null,
+          needsConversationHandoff:
+            input.needsConversationHandoff === true ||
+            needsConversationHandoff(persistedBinding?.runtimePayload),
         };
 
         yield* stopStaleSessionsForThread({
@@ -696,6 +718,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         runtimePayload: {
           ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
           activeTurnId: turn.turnId,
+          needsConversationHandoff: false,
           lastRuntimeEvent: "provider.sendTurn",
           lastRuntimeEventAt: yield* nowIso,
         },
@@ -937,11 +960,26 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           resumeCursor?: ProviderSession["resumeCursor"];
           runtimeMode?: ProviderSession["runtimeMode"];
           providerInstanceId?: ProviderSession["providerInstanceId"];
+          needsConversationHandoff?: boolean;
         } = {};
         overrides.providerInstanceId = dieOnMissingBindingInstanceId(
           "ProviderService.listSessions",
           binding,
         );
+        // A failed stale-session shutdown must not hide the successfully bound
+        // replacement. Routing follows the binding, never the retired adapter.
+        if (
+          (binding.provider !== session.provider ||
+            overrides.providerInstanceId !== session.providerInstanceId) &&
+          activeSessions.some(
+            (candidate) =>
+              candidate.threadId === session.threadId &&
+              candidate.provider === binding.provider &&
+              candidate.providerInstanceId === overrides.providerInstanceId,
+          )
+        ) {
+          continue;
+        }
         if (binding.provider !== session.provider) {
           return yield* Effect.die(
             new Error(
@@ -962,6 +1000,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (binding.runtimeMode !== undefined) {
           overrides.runtimeMode = binding.runtimeMode;
         }
+        overrides.needsConversationHandoff = needsConversationHandoff(binding.runtimePayload);
         sessions.push(Object.assign({}, session, overrides));
       }
       return sessions;

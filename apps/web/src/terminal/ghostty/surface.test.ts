@@ -161,6 +161,18 @@ describe("isTerminalCopyShortcut", () => {
     );
   });
 
+  it.each(["Linux x86_64", "Win32"])("copies with Ctrl+Insert on %s", (platform) => {
+    expect(isTerminalCopyShortcut(event({ key: "Insert", ctrlKey: true }), platform)).toBe(true);
+    expect(isTerminalCopyShortcut(event({ key: "Insert" }), platform)).toBe(false);
+    expect(
+      isTerminalCopyShortcut(event({ key: "Insert", ctrlKey: true, shiftKey: true }), platform),
+    ).toBe(false);
+    expect(
+      isTerminalCopyShortcut(event({ key: "Insert", ctrlKey: true, metaKey: true }), platform),
+    ).toBe(false);
+    expect(isTerminalCopyShortcut(event({ key: "Insert", ctrlKey: true }), "MacIntel")).toBe(false);
+  });
+
   it("uses the produced character instead of the physical key position", () => {
     expect(isTerminalCopyShortcut(event({ key: "C", metaKey: true }), "MacIntel")).toBe(true);
     expect(isTerminalCopyShortcut(event({ key: "j", metaKey: true }), "MacIntel")).toBe(false);

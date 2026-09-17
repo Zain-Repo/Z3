@@ -164,7 +164,7 @@ export function CreativeDirectionPanel({
         </>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Your prompt is sent without added direction.
+          ZImage's baseline image guidance still applies. Your requested style takes precedence.
         </p>
       )}
       <details className="rounded-lg bg-muted/50 p-3">

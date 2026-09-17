@@ -1,8 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { UtilityFlowCard } from "./UtilityFlowCard";
-import { FlowCard, initialImageInput, type ImageCatalog } from "./FlowCard";
+import { FlowCard, initialImageInput, type ImageCatalog, type FlowStatus } from "./FlowCard";
 import { newFlowNode, type FlowNode } from "./flowModel";
+import type { FlowLibraryPreview } from "./flowLibraryPreview";
 
 vi.mock("../ImageGenerationGallery", () => ({
   LazyGeneratedImageTile: () => <div>Image preview</div>,
@@ -24,7 +25,12 @@ const entry: ImageCatalog = {
     supportsStreaming: false,
   },
 };
-const render = (node: FlowNode, Card = FlowCard) =>
+const render = (
+  node: FlowNode,
+  Card = FlowCard,
+  libraryPreview?: FlowLibraryPreview,
+  status?: FlowStatus,
+) =>
   renderToStaticMarkup(
     <Card
       node={node}
@@ -34,8 +40,9 @@ const render = (node: FlowNode, Card = FlowCard) =>
       videoModels={[]}
       images={[]}
       videos={[]}
-      status={undefined}
+      status={status}
       connected=""
+      {...(libraryPreview ? { libraryPreview } : {})}
       pendingConnection={false}
       loadImage={async () => ({ mediaType: "image/png", data: "" })}
       onChange={() => undefined}
@@ -49,6 +56,54 @@ const render = (node: FlowNode, Card = FlowCard) =>
   );
 
 describe("ZImage canvas cards", () => {
+  it("preserves the fal provider when selecting an image model", () => {
+    const input = initialImageInput({
+      ...entry,
+      provider: "fal",
+      model: { ...entry.model, id: "fal/flux-2" },
+    });
+    expect(input.providerInstanceId).toBe("fal");
+    expect(input.model).toBe("fal/flux-2");
+  });
+  it.each(["queued", "running"] as const)("shows a loading preview for %s generation", (state) => {
+    const html = render(newFlowNode("image", { x: 0, y: 0 }), FlowCard, undefined, {
+      state,
+      message: state,
+    });
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("image-generation-skeleton");
+    expect(html).toContain(state === "queued" ? "Queued for generation" : "Generating output");
+    expect(html).not.toContain("Connect a prompt, then generate.");
+  });
+  it("shows connected images instead of the empty upload prompt", () => {
+    const html = render(newFlowNode("library", { x: 0, y: 0 }), UtilityFlowCard, {
+      images: [{ name: "Connected portrait", assetId: "portrait" }],
+    });
+    expect(html).toContain("Image preview");
+    expect(html).toContain("Connected portrait");
+    expect(html).toContain("1 images · 1 connected");
+    expect(html).not.toContain('class="zf-library-node-dropzone"');
+    expect(html).toContain("Connected · updates automatically");
+  });
+  it("renders the AI updater with editable inputs and a prompt output", () => {
+    const html = render(newFlowNode("updater", { x: 0, y: 0 }), UtilityFlowCard);
+    expect(html).toContain("Rewrite with AI");
+    expect(html).toContain('aria-label="Rewrite direction"');
+    expect(html).toContain('data-label="prompt output"');
+  });
+  it("renders a multi-image library with upload, saved images, and frame selection", () => {
+    const html = render(newFlowNode("library", { x: 0, y: 0 }), UtilityFlowCard);
+    expect(html).toContain("Add images");
+    expect(html).toContain('aria-label="Add saved image"');
+    expect(html).toContain('aria-label="Video frame image number"');
+    expect(html).toContain('data-label="images"');
+    expect(html).toContain('class="zf-card zf-library-node ');
+    expect(html).not.toContain('class="zf-card zf-library ');
+    expect(html).toContain('aria-label="Connect to Image library: reference"');
+    expect(html).toContain('aria-label="Connect from Image library"');
+    expect(html).toContain("Images in");
+    expect(html).toContain("Images out");
+  });
   it("renders an editable prompt with an accessible output and no generation controls", () => {
     const html = render({ ...newFlowNode("text", { x: 0, y: 0 }), text: "A mountain at sunrise" });
     expect(html).toContain('aria-label="Prompt"');

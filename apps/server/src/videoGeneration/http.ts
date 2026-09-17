@@ -39,7 +39,7 @@ export const videoGenerationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.videos.models")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          return yield* service.listModels().pipe(
+          return yield* service.listModels(args.query.providerInstanceId).pipe(
             Effect.map((models) => ({ models })),
             Effect.catchTag("VideoGenerationServiceError", () =>
               failEnvironmentInternal("internal_error"),

@@ -76,6 +76,10 @@ describe("searchSettings", () => {
   it("serves anchor props to panels from the catalog", () => {
     expect(searchableSetting("word-wrap")).toEqual({ id: "word-wrap", title: "Word wrap" });
     expect(searchableSetting("archive")).toEqual({ id: "archive", title: "Archived threads" });
+    expect(searchableSetting("fal-generation")).toEqual({
+      id: "fal-generation",
+      title: "fal.ai image and video generation API key",
+    });
   });
 
   it("routes appearance settings to their current section", () => {

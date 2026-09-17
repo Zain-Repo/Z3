@@ -35,6 +35,20 @@ export const imageGenerationHttpApiLayer = HttpApiBuilder.group(
     const service = yield* ImageGenerationServiceTag;
     return handlers
       .handle(
+        "rewritePrompt",
+        Effect.fn("environment.images.rewritePrompt")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          return yield* service
+            .rewritePrompt(args.payload)
+            .pipe(
+              Effect.catchTag("ImageGenerationServiceError", (error) =>
+                Effect.fail(new EnvironmentHttpBadRequestError({ message: error.message })),
+              ),
+            );
+        }),
+      )
+      .handle(
         "searchCivitaiResources",
         Effect.fn("environment.images.searchCivitaiResources")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);

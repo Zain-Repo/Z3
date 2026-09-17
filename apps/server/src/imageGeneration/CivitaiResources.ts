@@ -5,6 +5,7 @@ import type {
   CivitaiResourceSearchResult,
   CivitaiImageOptions,
 } from "@t3tools/contracts";
+import { FAL_IMAGE_MODELS } from "../mediaGeneration/FalModels.ts";
 import {
   CIVITAI_MODELS,
   civitaiCapabilities,
@@ -113,6 +114,57 @@ const readSite = Effect.fn("Civitai.readSite")(function* (
   return Buffer.concat(bytes.chunks).toString("utf8");
 });
 
+/** Civitai redirects downloads to a short-lived storage URL; fal fetches that URL itself. */
+const resolveCivitaiDirectFileUrl = Effect.fn("Civitai.resolveDirectFileUrl")(function* (
+  client: HttpClient.HttpClient,
+  key: string,
+  versionId: string,
+) {
+  let target = `https://civitai.com/api/download/models/${versionId}?type=Model&format=SafeTensor`;
+  for (let hop = 0; hop < 5; hop++) {
+    const url = yield* Effect.try({
+      try: () => new URL(target),
+      catch: () =>
+        new CivitaiResourceError({ message: "Civitai returned an invalid LoRA download URL." }),
+    });
+    if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443"))
+      return yield* new CivitaiResourceError({
+        message: "Civitai returned an unsupported LoRA download host.",
+      });
+    const civitaiHost = ["civitai.com", "www.civitai.com"].includes(url.hostname);
+    if (!civitaiHost) return url.href;
+    let request = HttpClientRequest.get(url.href);
+    if (civitaiHost) request = HttpClientRequest.bearerToken(request, key);
+    const response = yield* client.execute(request).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+      Effect.timeout("20 seconds"),
+      Effect.mapError(
+        () => new CivitaiResourceError({ message: "Could not resolve the Civitai LoRA download URL." }),
+      ),
+    );
+    if (![301, 302, 303, 307, 308].includes(response.status))
+      return yield* new CivitaiResourceError({
+        message:
+          response.status === 401
+            ? "Civitai rejected the API key while downloading the LoRA. Update it in Settings."
+            : `Civitai LoRA download failed (HTTP ${response.status}).`,
+      });
+    const location = response.headers.location;
+    if (!location)
+      return yield* new CivitaiResourceError({
+        message: "Civitai LoRA download is missing its redirect.",
+      });
+    target = yield* Effect.try({
+      try: () => new URL(location, url).href,
+      catch: () =>
+        new CivitaiResourceError({ message: "Civitai returned an invalid LoRA redirect." }),
+    });
+  }
+  return yield* new CivitaiResourceError({
+    message: "Civitai LoRA download exceeded the redirect limit.",
+  });
+});
+
 const parseAir = (air: string) =>
   /^urn:air:[^:]+:(checkpoint|diffusionmodel|unet|lora):civitai:(\d+)@(\d+)(?:\+\d+)?(?:\.[a-zA-Z0-9_-]+)?$/.exec(
     air,
@@ -185,13 +237,20 @@ const resolveResource = Effect.fn("Civitai.resolveResource")(function* (
   return detail;
 });
 
+/** Catalog capabilities for Civitai recipes or fal models that expose `model.civitai`. */
+export function civitaiCapabilitiesForModel(modelId: string) {
+  const fal = FAL_IMAGE_MODELS.find((model) => model.id === modelId);
+  if (fal?.civitai) return fal.civitai;
+  const recipe = CIVITAI_MODELS.find((model) => model.id === modelId);
+  return recipe ? civitaiCapabilities(recipe) : undefined;
+}
+
 export const searchCivitaiResources = Effect.fn("searchCivitaiResources")(function* (
   client: HttpClient.HttpClient,
   key: string,
   input: CivitaiResourceSearchInput,
 ): Effect.fn.Return<CivitaiResourceSearchResult, CivitaiResourceError> {
-  const recipe = CIVITAI_MODELS.find((model) => model.id === input.model);
-  const capabilities = recipe && civitaiCapabilities(recipe);
+  const capabilities = civitaiCapabilitiesForModel(input.model);
   if (!capabilities || (input.type === "Checkpoint" && capabilities.checkpoint === "unsupported"))
     return yield* new CivitaiResourceError({
       message: "This model does not support the requested Civitai resources.",
@@ -437,4 +496,76 @@ export const resolveCivitaiOptions = Effect.fn("resolveCivitaiOptions")(function
     result[target] = value;
   }
   return result;
+});
+
+/** Resolve Civitai LoRAs to authenticated download URLs that fal can fetch. */
+export const resolveFalCivitaiLoras = Effect.fn("resolveFalCivitaiLoras")(function* (
+  client: HttpClient.HttpClient,
+  key: string,
+  modelId: string,
+  options: CivitaiImageOptions | undefined,
+  format: "path" | "model_name",
+): Effect.fn.Return<ReadonlyArray<Record<string, string | number>>, CivitaiResourceError> {
+  const capabilities = civitaiCapabilitiesForModel(modelId);
+  if (!capabilities) {
+    if (options && Object.keys(options).length)
+      return yield* new CivitaiResourceError({
+        message: "This fal model does not accept Civitai LoRAs.",
+      });
+    return [];
+  }
+  if (options?.checkpoint)
+    return yield* new CivitaiResourceError({
+      message: "This fal model does not support a checkpoint override.",
+    });
+  const loras = options?.loras ?? [];
+  if (
+    loras.length > capabilities.maxLoras ||
+    new Set(loras.map((lora) => lora.air)).size !== loras.length
+  )
+    return yield* new CivitaiResourceError({
+      message: `Use up to ${capabilities.maxLoras} distinct LoRAs.`,
+    });
+  if (!loras.length) return [];
+  return yield* Effect.forEach(
+    loras,
+    (lora) =>
+      Effect.gen(function* () {
+        if (
+          !Number.isFinite(lora.strength) ||
+          lora.strength < capabilities.strength.min ||
+          lora.strength > capabilities.strength.max
+        )
+          return yield* new CivitaiResourceError({
+            message: `LoRA strength must be between ${capabilities.strength.min} and ${capabilities.strength.max}.`,
+          });
+        const match = parseAir(lora.air);
+        if (!match || match[1] !== "lora")
+          return yield* new CivitaiResourceError({
+            message: "Select a valid Civitai LoRA model version.",
+          });
+        const detail = yield* readSite(client, key, `model-versions/${match[3]}`).pipe(
+          Effect.flatMap(decodeDetail),
+          Effect.mapError(
+            () =>
+              new CivitaiResourceError({
+                message: "Could not verify the selected Civitai model version.",
+              }),
+          ),
+        );
+        if (
+          detail.air !== lora.air ||
+          detail.model.type !== "LORA" ||
+          !capabilities.ecosystems.includes(detail.baseModel)
+        )
+          return yield* new CivitaiResourceError({
+            message: "The selected Civitai LoRA is not compatible with this fal model.",
+          });
+        const path = yield* resolveCivitaiDirectFileUrl(client, key, match[3]!);
+        return format === "model_name"
+          ? { model_name: path, weight: lora.strength }
+          : { path, scale: lora.strength };
+      }),
+    { concurrency: 4 },
+  );
 });

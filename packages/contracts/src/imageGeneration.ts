@@ -5,6 +5,19 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 export const OPENROUTER_GPT_IMAGE_2_MODEL = "openai/gpt-image-2";
 export const OPENROUTER_GPT_IMAGE_2_PROVIDER = "openai";
 
+export const ImagePromptRewriteInput = Schema.Struct({
+  prompt: TrimmedNonEmptyString.check(Schema.isMaxLength(10000)),
+  instructions: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4000))),
+  model: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
+  providerInstanceId: Schema.optionalKey(ProviderInstanceId),
+});
+export type ImagePromptRewriteInput = typeof ImagePromptRewriteInput.Type;
+
+export const ImagePromptRewriteResult = Schema.Struct({
+  prompt: TrimmedNonEmptyString.check(Schema.isMaxLength(16000)),
+});
+export type ImagePromptRewriteResult = typeof ImagePromptRewriteResult.Type;
+
 export const ImageGenerationParameterDescriptor = Schema.Union([
   Schema.Struct({ type: Schema.Literal("boolean") }),
   Schema.Struct({ type: Schema.Literal("enum"), values: Schema.Array(TrimmedNonEmptyString) }),

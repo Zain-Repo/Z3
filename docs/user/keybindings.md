@@ -19,6 +19,10 @@ The file is a JSON array of rules.
 
 Invalid rules are ignored. An invalid file is ignored entirely, and the server logs a warning.
 
+## Terminal clipboard shortcuts
+
+With terminal text selected, use **Ctrl+Insert** or **Ctrl+Shift+C** on Windows and Linux to copy it. On macOS, use **Cmd+C**. **Ctrl+C** remains available to interrupt the running command.
+
 ## Rule Shape
 
 - `key` (required): shortcut string, like `mod+j`, `ctrl+k`, `cmd+shift+d`

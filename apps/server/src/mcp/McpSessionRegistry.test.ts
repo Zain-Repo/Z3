@@ -6,6 +6,7 @@ import { HttpServer } from "effect/unstable/http";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import * as McpProviderSession from "./McpProviderSession.ts";
 
 const environmentId = EnvironmentId.make("environment-1");
 const makeFakeHttpServer = (hostname: string, port = 43123) =>
@@ -30,6 +31,39 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
       Effect.provideService(ServerEnvironment.ServerEnvironment, fakeEnvironment),
       Effect.provide(NodeServices.layer),
     );
+
+it.effect(
+  "preserves the previous credential on failed replacement and revokes it after commit",
+  () =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry(() => 1_000);
+      const threadId = ThreadId.make("credential-replacement");
+      const previous = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+      McpProviderSession.setMcpProviderSession(previous.config);
+      const oldToken = previous.config.authorizationHeader.replace(/^Bearer\s+/, "");
+      const request = { threadId, providerInstanceId: ProviderInstanceId.make("claudeAgent") };
+      const failed = yield* McpSessionRegistry.__testing.stageCredential(registry, request);
+      const failedToken = McpProviderSession.readMcpProviderSession(
+        threadId,
+      )!.authorizationHeader.replace(/^Bearer\s+/, "");
+      expect(yield* registry.resolve(oldToken)).toBeDefined();
+      yield* failed.rollback;
+      expect(yield* registry.resolve(failedToken)).toBeUndefined();
+      expect(yield* registry.resolve(oldToken)).toBeDefined();
+      expect(McpProviderSession.readMcpProviderSession(threadId)?.providerInstanceId).toBe("codex");
+      const succeeded = yield* McpSessionRegistry.__testing.stageCredential(registry, request);
+      const newToken = McpProviderSession.readMcpProviderSession(
+        threadId,
+      )!.authorizationHeader.replace(/^Bearer\s+/, "");
+      yield* succeeded.commit;
+      expect(yield* registry.resolve(oldToken)).toBeUndefined();
+      expect((yield* registry.resolve(newToken))?.providerInstanceId).toBe("claudeAgent");
+      McpProviderSession.clearMcpProviderSession(threadId);
+    }),
+);
 
 it.effect("stores only a token hash, resolves the bearer token, and revokes by thread", () =>
   Effect.gen(function* () {

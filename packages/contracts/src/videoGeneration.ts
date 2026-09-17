@@ -24,6 +24,9 @@ export const VideoGenerationModel = Schema.Struct({
   supportedResolutions: Schema.Array(TrimmedNonEmptyString),
   supportedAspectRatios: Schema.Array(TrimmedNonEmptyString),
   supportedFrameImages: Schema.Array(Schema.Literals(["first_frame", "last_frame"])),
+  requiredFrameImages: Schema.optionalKey(
+    Schema.Array(Schema.Literals(["first_frame", "last_frame"])),
+  ),
   supportedSizes: Schema.Array(TrimmedNonEmptyString),
   allowedPassthroughParameters: Schema.Array(TrimmedNonEmptyString),
   pricingSkus: Schema.Record(TrimmedNonEmptyString, Schema.Unknown),
@@ -131,6 +134,13 @@ export function videoGenerationInputError(
     return "This model does not support audio generation settings.";
   }
   const frames = input.frameImages ?? [];
+  if (
+    model.requiredFrameImages?.some(
+      (required) => !frames.some((frame) => frame.frameType === required),
+    )
+  ) {
+    return "Add the required frame image before generating with this model.";
+  }
   if (frames.some((frame) => !model.supportedFrameImages.includes(frame.frameType))) {
     return "The selected model does not support one of the frame images.";
   }

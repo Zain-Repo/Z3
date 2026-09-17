@@ -4,13 +4,17 @@ import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import { ProviderInstanceRegistry } from "../provider/Services/ProviderInstanceRegistry.ts";
 import {
   DEFAULT_IMAGE_DIRECTION,
   prepareImagePrompt,
+  ZIMAGE_REALISM_RULES,
 } from "@t3tools/shared/imageCreativeDirection";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 
+import { FAL_IMAGE_MODELS } from "../mediaGeneration/FalModels.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -32,8 +36,20 @@ const layer = it.layer(
   Layer.mergeAll(
     NodeSqliteClient.layerMemory(),
     NodeServices.layer,
+    Layer.succeed(ProviderInstanceRegistry, {
+      listInstances: Effect.succeed([]),
+      listUnavailable: Effect.succeed([]),
+      getInstance: () => Effect.succeed(undefined),
+      streamChanges: Stream.empty,
+      subscribeChanges: Effect.die("Not used by image generation tests"),
+    }),
     ServerSettingsService.layerTest({
       providerInstances: {
+        [ProviderInstanceId.make("fal")]: {
+          driver: ProviderDriverKind.make("fal"),
+          enabled: true,
+          environment: [{ name: "FAL_KEY", value: "fal-test-key", sensitive: true }],
+        },
         [ProviderInstanceId.make("openrouter")]: {
           driver: ProviderDriverKind.make("openrouter"),
           enabled: true,
@@ -50,6 +66,53 @@ const layer = it.layer(
 );
 
 layer("ImageGenerationService image routing", (it) => {
+  it.effect("lists fal models and saves referenced edits without using OpenRouter", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 42 });
+      const urls: string[] = [];
+      const queue = "https://queue.fal.run/fal-ai/flux-2/requests/fal-image";
+      const client = HttpClient.make((request) => {
+        urls.push(request.url);
+        const response =
+          request.method === "POST"
+            ? Response.json({
+                request_id: "fal-image",
+                status_url: `${queue}/status`,
+                response_url: queue,
+                cancel_url: `${queue}/cancel`,
+              })
+            : request.url.endsWith("/status")
+              ? Response.json({ status: "COMPLETED", response_url: queue })
+              : request.url === queue
+                ? Response.json({ images: [{ url: "https://v3.fal.media/image.png" }] })
+                : new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+        return Effect.succeed(HttpClientResponse.fromWeb(request, response));
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* ImageGenerationService.ImageGenerationService;
+        const models = yield* service.listModels(ProviderInstanceId.make("fal"));
+        assert.equal(models.models.length, FAL_IMAGE_MODELS.length);
+        assert.equal(urls.length, 0);
+        const input = {
+          model: "fal/flux-2",
+          providerInstanceId: ProviderInstanceId.make("fal"),
+          prompt: "A blue cup",
+          inputReferences: [{ url: "data:image/png;base64,iVBORw0KGgo=" }],
+        };
+        const record = yield* service.generate(input);
+        assert.equal(record.assets.length, 1);
+        assert.deepEqual(record.input, input);
+        assert.equal(urls[0], "https://queue.fal.run/fal-ai/flux-2/edit");
+        assert.ok(urls.every((url) => !url.includes("openrouter")));
+      }).pipe(
+        Effect.provide(
+          ImageGenerationService.layer.pipe(
+            Layer.provide(Layer.succeed(HttpClient.HttpClient, client)),
+          ),
+        ),
+      );
+    }),
+  );
   it.effect("applies direction to OpenRouter and retains reusable direction in history", () =>
     Effect.gen(function* () {
       yield* runMigrations({ toMigrationInclusive: 42 });
@@ -81,11 +144,18 @@ layer("ImageGenerationService image routing", (it) => {
         };
         const record = yield* service.generate(input);
         assert.equal(providerPrompt, prepareImagePrompt(input));
+        assert.equal(providerPrompt.split(ZIMAGE_REALISM_RULES).length, 2);
         assert.ok(providerPrompt.includes("plausible lens perspective"));
         assert.equal(record.prompt, input.prompt);
         assert.deepEqual(record.input, input);
         const history = yield* service.listGenerations();
         assert.deepEqual(history.generations.find((entry) => entry.id === record.id)?.input, input);
+        const plainInput = { model: input.model, prompt: "A flat ink illustration of a cup" };
+        const plainRecord = yield* service.generate(plainInput);
+        assert.equal(providerPrompt, prepareImagePrompt(plainInput));
+        assert.equal(providerPrompt.split(ZIMAGE_REALISM_RULES).length, 2);
+        assert.equal(plainRecord.prompt, plainInput.prompt);
+        assert.deepEqual(plainRecord.input, plainInput);
       }).pipe(
         Effect.provide(
           ImageGenerationService.layer.pipe(
@@ -99,8 +169,14 @@ layer("ImageGenerationService image routing", (it) => {
     Effect.gen(function* () {
       yield* runMigrations({ toMigrationInclusive: 42 });
       const requestedUrls: string[] = [];
+      let providerPrompt = "";
       const client = HttpClient.make((request) => {
         requestedUrls.push(request.url);
+        if (request.method === "POST" && request.body._tag === "Uint8Array") {
+          providerPrompt =
+            decodeCivitaiRequest(new TextDecoder().decode(request.body.body)).steps[0]?.input
+              .prompt ?? "";
+        }
         return Effect.succeed(
           HttpClientResponse.fromWeb(
             request,
@@ -130,6 +206,8 @@ layer("ImageGenerationService image routing", (it) => {
           prompt: "A tree",
         };
         const record = yield* service.generate(input);
+        assert.equal(providerPrompt, prepareImagePrompt(input));
+        assert.equal(providerPrompt.split(ZIMAGE_REALISM_RULES).length, 2);
         assert.deepEqual(record.input, input);
         assert.lengthOf(record.assets, 1);
         assert.equal(record.assets[0]?.mediaType, "image/png");
@@ -197,6 +275,7 @@ layer("ImageGenerationService image routing", (it) => {
           };
           const record = yield* service.generate(input);
           assert.equal(providerPrompt, prepareImagePrompt(input));
+          assert.equal(providerPrompt.split(ZIMAGE_REALISM_RULES).length, 2);
           assert.include(providerPrompt, "lifelike surface texture");
           assert.equal(record.prompt, "A tree");
           assert.deepEqual(record.input, input);

@@ -16,7 +16,7 @@ import type {
   VideoGenerationModel,
   VideoGenerationRecord,
 } from "@t3tools/contracts";
-import { videoGenerationInputError } from "@t3tools/contracts";
+import { ProviderInstanceId, videoGenerationInputError } from "@t3tools/contracts";
 
 import { PrimaryEnvironmentHttpClient } from "../environments/primary/httpClient";
 import { loadPrimaryVideoAsset } from "../environments/primary/videoAssetLoader";
@@ -26,6 +26,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Skeleton } from "./ui/skeleton";
 import { ReferenceImageDropzone, type ReferenceImage } from "./ReferenceImageDropzone";
+import { MediaModelPicker, videoModelOptions } from "./imageStudio/MediaModelPicker";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
 const GENERATION_WINDOW_SIZE = 24;
@@ -80,6 +81,7 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     [generations, visibleGenerationCount],
   );
   const hasVideoInput = prompt.trim().length > 0;
+  const pickerOptions = useMemo(() => videoModelOptions(models), [models]);
 
   const loadGenerations = useCallback(async () => {
     const result = await runPrimaryHttp(
@@ -96,11 +98,29 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     setError(null);
     try {
       const [modelResult] = await Promise.all([
-        runPrimaryHttp(
-          PrimaryEnvironmentHttpClient.pipe(
-            Effect.flatMap((client) => client.videoGeneration.models({ headers: {} })),
+        Promise.allSettled(
+          [undefined, ProviderInstanceId.make("fal")].map((providerInstanceId) =>
+            runPrimaryHttp(
+              PrimaryEnvironmentHttpClient.pipe(
+                Effect.flatMap((client) =>
+                  client.videoGeneration.models({
+                    headers: {},
+                    query: providerInstanceId ? { providerInstanceId } : {},
+                  }),
+                ),
+              ),
+            ),
           ),
-        ),
+        ).then((results) => {
+          const models = results.flatMap((result) =>
+            result.status === "fulfilled" ? result.value.models : [],
+          );
+          if (!models.length)
+            throw new Error(
+              "Video models are unavailable. Check your provider credentials in Settings.",
+            );
+          return { models };
+        }),
         loadGenerations(),
       ]);
       setModels(modelResult.models);
@@ -213,6 +233,9 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
     const input: VideoGenerationInput = {
       model: modelId,
       prompt: prompt.trim(),
+      ...(modelId.startsWith("fal/")
+        ? { providerInstanceId: ProviderInstanceId.make("fal") }
+        : {}),
       ...(duration ? { duration: Number(duration) } : {}),
       ...(!size && resolution ? { resolution } : {}),
       ...(!size && aspectRatio ? { aspectRatio } : {}),
@@ -384,13 +407,12 @@ export function VideoWorkspacePanel({ onModeChange }: { readonly onModeChange: (
             </div>
 
             <div className="flex flex-col gap-3">
-              <SelectField
-                label="Model"
+              <MediaModelPicker
+                kind="video"
                 value={modelId}
-                options={models.map((model) => model.id)}
+                options={pickerOptions}
                 onChange={setModelId}
                 disabled={isLoading || isGenerating}
-                optionLabel={(value) => models.find((model) => model.id === value)?.name ?? value}
               />
               {selectedModel?.supportedDurations.length ? (
                 <SelectField

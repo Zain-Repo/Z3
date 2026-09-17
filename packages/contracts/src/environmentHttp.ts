@@ -53,6 +53,8 @@ import {
   CivitaiResourceSearchInput,
   CivitaiResourceSearchResult,
   ImageGenerationInput,
+  ImagePromptRewriteInput,
+  ImagePromptRewriteResult,
   ImageGenerationAssetContent,
   ImageGenerationList,
   ImageGenerationModelCatalog,
@@ -378,6 +380,18 @@ export class EnvironmentChatLibraryHttpApi extends HttpApiGroup.make("chatLibrar
 
 export class EnvironmentImageGenerationHttpApi extends HttpApiGroup.make("imageGeneration")
   .add(
+    HttpApiEndpoint.post("rewritePrompt", "/api/images/prompts/rewrite", {
+      headers: OptionalBearerHeaders,
+      payload: ImagePromptRewriteInput,
+      success: ImagePromptRewriteResult,
+      error: [
+        EnvironmentHttpBadRequestError,
+        EnvironmentRequestInvalidError,
+        ...EnvironmentScopedOperationErrors,
+      ],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
     HttpApiEndpoint.get("searchCivitaiResources", "/api/images/civitai/resources", {
       headers: OptionalBearerHeaders,
       query: CivitaiResourceSearchInput,
@@ -442,6 +456,7 @@ export class EnvironmentVideoGenerationHttpApi extends HttpApiGroup.make("videoG
   .add(
     HttpApiEndpoint.get("models", "/api/videos/models", {
       headers: OptionalBearerHeaders,
+      query: Schema.Struct({ providerInstanceId: Schema.optionalKey(ProviderInstanceId) }),
       success: VideoGenerationModelCatalog,
       error: EnvironmentScopedOperationErrors,
     }).middleware(EnvironmentAuthenticatedAuth),

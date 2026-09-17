@@ -418,24 +418,14 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   );
 }
 
-// `threadProvider` is the open branded driver kind carried by the session.
-// Unknown driver kinds degrade to `null` (i.e. "unlocked"), which is the safe
-// rollback / fork behavior — the routing layer is the right place to surface
-// "driver not installed" errors, not the lock state.
-//
-// `selectedProvider` takes the same open-string shape because the composer
-// now tracks the picker selection as a `ProviderInstanceId` (e.g.
-// `codex_personal`). Custom instance ids that don't directly match a
-// registered driver resolve to `null` here, which matches the existing
-// "unknown driver -> unlocked" semantics. Callers that want the lock to track
-// a custom instance's underlying driver kind should resolve the instance id
-// upstream and pass the correlated kind.
+// Keep an active turn on its current driver. Idle conversations can select a
+// different provider; the server owns the fresh-session history handoff.
 export function deriveLockedProvider(input: {
   thread: Thread | null | undefined;
   selectedProvider: string | null;
   threadProvider: string | null;
 }): ProviderDriverKind | null {
-  if (!threadHasStarted(input.thread)) {
+  if (!threadHasStarted(input.thread) || input.thread?.session?.activeTurnId == null) {
     return null;
   }
   const sessionProvider = input.thread?.session?.providerName ?? null;
@@ -467,6 +457,8 @@ export function getStartedThreadModelChangeBlockReason(input: {
     ...input.currentModelSelection,
     instanceId: input.currentProviderInstanceId ?? input.currentModelSelection.instanceId,
   };
+  // A different instance starts a fresh session with a conversation handoff.
+  if (currentModelSelection.instanceId !== input.nextModelSelection.instanceId) return null;
   if (
     currentModelSelection.instanceId === input.nextModelSelection.instanceId &&
     currentModelSelection.model === input.nextModelSelection.model

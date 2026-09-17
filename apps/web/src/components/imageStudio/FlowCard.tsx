@@ -1,5 +1,5 @@
 import { inputPortDrop, outputPortDrag } from "./flowPortDrag";
-import { memo, useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ProviderInstanceId,
   type ImageGenerationInput,
@@ -16,10 +16,13 @@ import {
 import { loadPrimaryVideoAsset } from "../../environments/primary/videoAssetLoader";
 import { countOptionsFor } from "../../lib/imageModelCapabilities";
 import { LazyGeneratedImageTile } from "../ImageGenerationGallery";
+import { ImageGenerationSkeleton } from "../ImageGenerationSkeleton";
 import type { LoadImageContent } from "../imageContentLoader";
 import { CreativeDirectionPanel } from "./CreativeDirectionPanel";
 import { CivitaiAdvancedSettings } from "./CivitaiAdvancedSettings";
 import { PORT_Y, type FlowNode, type FlowEdge } from "./flowModel";
+import { MediaModelPicker, imageModelOptions, videoModelOptions } from "./MediaModelPicker";
+import type { FlowLibraryPreview } from "./flowLibraryPreview";
 
 const terminalRecord = (status: VideoGenerationRecord["status"]) =>
   ["completed", "failed", "cancelled", "expired"].includes(status);
@@ -35,8 +38,8 @@ export function initialImageInput(entry: ImageCatalog): ImageGenerationInput {
   return {
     model: entry.model.id,
     prompt: "Canvas prompt",
-    ...(entry.provider === "civitai"
-      ? { providerInstanceId: ProviderInstanceId.make("civitai") }
+    ...(entry.provider === "civitai" || entry.provider === "fal"
+      ? { providerInstanceId: ProviderInstanceId.make(entry.provider) }
       : {}),
     creativeDirection: { ...DEFAULT_IMAGE_DIRECTION, detail: "crisp" },
   };
@@ -160,6 +163,7 @@ export const FlowCard = memo(function FlowCard({
   readonly videos: readonly VideoGenerationRecord[];
   readonly status: FlowStatus | undefined;
   readonly connected: string;
+  readonly libraryPreview?: FlowLibraryPreview;
   readonly pendingConnection: boolean;
   readonly loadImage: LoadImageContent;
   readonly onChange: (id: string, update: Partial<FlowNode>) => void;
@@ -177,6 +181,7 @@ export const FlowCard = memo(function FlowCard({
       item.model.id === node.image?.model,
   );
   const videoModel = videoModels.find((item) => item.id === node.video?.model);
+  const pickerOptions = useMemo(() => node.kind === "image" ? imageModelOptions(catalogs) : videoModelOptions(videoModels), [catalogs, videoModels, node.kind]);
   const imageAssets = images
     .filter((record) => node.generationIds.includes(record.id))
     .flatMap((record) => record.assets);
@@ -338,8 +343,16 @@ export const FlowCard = memo(function FlowCard({
         ) : (
           <>
             <div className="zf-output">
-              {imageAsset ? (
+              {status?.state === "running" || status?.state === "queued" ? (
+                <div className="zf-pending-output" role="status" aria-busy="true">
+                  <ImageGenerationSkeleton />
+                  <span>
+                    {status.state === "queued" ? "Queued for generation" : "Generating output…"}
+                  </span>
+                </div>
+              ) : imageAsset ? (
                 <LazyGeneratedImageTile
+                  key={imageAsset.id}
                   assetId={imageAsset.id}
                   alt={connected || node.title}
                   loadImageContent={loadImage}
@@ -350,16 +363,13 @@ export const FlowCard = memo(function FlowCard({
                 <div className="zf-empty-output">
                   <span aria-hidden="true">{node.kind === "image" ? "▧" : "▸"}</span>
                   <strong>
-                    {status?.state === "running"
-                      ? "Generating…"
-                      : videoRecords.some(
-                            (record) =>
-                              record.status === "pending" || record.status === "in_progress",
-                          )
-                        ? "Video is processing"
-                        : node.generationIds.length
-                          ? "Output unavailable"
-                          : `${node.kind === "image" ? "Image" : "Video"} output`}
+                    {videoRecords.some(
+                      (record) => record.status === "pending" || record.status === "in_progress",
+                    )
+                      ? "Video is processing"
+                      : node.generationIds.length
+                        ? "Output unavailable"
+                        : `${node.kind === "image" ? "Image" : "Video"} output`}
                   </strong>
                   <small>
                     {node.libraryAsset
@@ -387,10 +397,12 @@ export const FlowCard = memo(function FlowCard({
             )}
             {!node.libraryAsset && (
               <fieldset disabled={disabled} className="zf-settings">
-                <label className="zf-field">
+                <div className="zf-field">
                   <span>Model</span>
-                  <select
-                    aria-label={`${node.kind} model`}
+                  <MediaModelPicker
+                    kind={node.kind === "image" ? "image" : "video"}
+                    options={pickerOptions}
+                    disabled={disabled}
                     value={
                       node.kind === "image"
                         ? node.image
@@ -401,11 +413,11 @@ export const FlowCard = memo(function FlowCard({
                           : ""
                         : (node.video?.model ?? "")
                     }
-                    onChange={(event) => {
+                    onChange={(value) => {
                       if (node.kind === "image") {
                         const selectedEntry = catalogs.find(
                           (item) =>
-                            imageModelKey(item.provider, item.model.id) === event.target.value,
+                            imageModelKey(item.provider, item.model.id) === value,
                         );
                         if (selectedEntry)
                           onChange(node.id, {
@@ -417,34 +429,21 @@ export const FlowCard = memo(function FlowCard({
                             },
                           });
                       } else {
-                        const model = videoModels.find((item) => item.id === event.target.value);
+                        const model = videoModels.find((item) => item.id === value);
                         if (model)
                           onChange(node.id, {
-                            video: { model: model.id, prompt: "Canvas prompt" },
+                            video: {
+                              model: model.id,
+                              prompt: "Canvas prompt",
+                              ...(model.id.startsWith("fal/")
+                                ? { providerInstanceId: ProviderInstanceId.make("fal") }
+                                : {}),
+                            },
                           });
                       }
                     }}
-                  >
-                    <option value="" disabled>
-                      Choose a model
-                    </option>
-                    {node.kind === "image"
-                      ? catalogs.map((item) => (
-                          <option
-                            key={imageModelKey(item.provider, item.model.id)}
-                            value={imageModelKey(item.provider, item.model.id)}
-                          >
-                            {item.model.name ?? item.model.id} ·{" "}
-                            {item.provider === "civitai" ? "Civitai" : "OpenRouter"}
-                          </option>
-                        ))
-                      : videoModels.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.name ?? model.id}
-                          </option>
-                        ))}
-                  </select>
-                </label>
+                  />
+                </div>
                 {node.kind === "image" && entry && (
                   <div className="zf-field-grid">
                     {enums("aspect_ratio").length > 0 && (
@@ -667,7 +666,11 @@ export const FlowCard = memo(function FlowCard({
                         {entry.model.civitai && (
                           <CivitaiAdvancedSettings
                             model={entry.model}
-                            providerInstanceId={node.image.providerInstanceId}
+                            providerInstanceId={
+                              entry.provider === "fal"
+                                ? ProviderInstanceId.make("civitai")
+                                : node.image.providerInstanceId
+                            }
                             value={node.image.civitai ?? {}}
                             disabled={disabled}
                             onChange={(value) => updateImage({ civitai: value })}

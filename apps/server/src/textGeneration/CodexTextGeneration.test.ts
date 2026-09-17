@@ -6,6 +6,9 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { createModelSelection } from "@t3tools/shared/model";
 import { expect } from "vite-plus/test";
 
@@ -205,6 +208,53 @@ function withFakeCodexEnv<A, E, R>(
 }
 
 it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
+  it.effect("rewrites visual prompts through the ephemeral background completion", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      let workingDirectory: string | undefined;
+      const spawner = ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          if (!ChildProcess.isStandardCommand(command))
+            return yield* Effect.die("Expected one Codex process");
+          expect(command.args).toContain("--ephemeral");
+          expect(command.args).toContain("read-only");
+          workingDirectory = command.options.cwd;
+          expect(workingDirectory).toContain("t3-prompt-rewrite-");
+          const output = command.args[command.args.indexOf("--output-last-message") + 1];
+          if (!output) return yield* Effect.die("Missing structured output path");
+          yield* fs.writeFileString(
+            output,
+            '{"prompt":"A blue ceramic cup in daylight."}',
+          );
+          return ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(1),
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.empty,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          });
+        }),
+      );
+      const textGeneration = yield* makeCodexTextGeneration(
+        decodeCodexSettings({ binaryPath: process.execPath }),
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      if (!textGeneration.rewriteImagePrompt)
+        return yield* Effect.die("Missing Codex prompt rewrite capability");
+      const result = yield* textGeneration.rewriteImagePrompt({
+        prompt: "A blue cup",
+        instructions: "Daylight",
+        modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+      });
+      expect(result.prompt).toBe("A blue ceramic cup in daylight.");
+      if (workingDirectory) expect(yield* fs.exists(workingDirectory)).toBe(false);
+    }),
+  );
   it.effect("generates and sanitizes commit messages without branch by default", () =>
     withFakeCodexEnv(
       {

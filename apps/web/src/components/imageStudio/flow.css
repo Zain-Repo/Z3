@@ -1,5 +1,6 @@
 .zf-workspace {
-  --zf-canvas: color-mix(in srgb, var(--background) 96%, #a3957c);
+  --zf-canvas: color-mix(in srgb, var(--background) 94%, var(--foreground));
+  --zf-accent: var(--primary);
   --zf-card: var(--background);
   --zf-ink: var(--foreground);
   --zf-muted: var(--muted-foreground);
@@ -13,7 +14,7 @@
   height: 100%;
   color: var(--zf-ink);
   background: var(--zf-canvas);
-  font-family: "Helvetica Neue", system-ui, sans-serif;
+  font-family: "DM Sans Variable", sans-serif;
   font-size: 13px;
 }
 .zf-workspace button,
@@ -24,6 +25,191 @@
 }
 .zf-workspace button {
   cursor: pointer;
+}
+.zf-image-preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: var(--zf-soft);
+  border-radius: 5px;
+}
+.zf-image-preview > img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  opacity: 0;
+}
+.zf-image-preview > img[data-loaded="true"] {
+  opacity: 1;
+}
+.zf-image-preview > span {
+  padding: 12px;
+  font-size: 11px;
+  color: var(--zf-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .zf-image-preview > img {
+    transition: opacity 180ms ease-out;
+  }
+}
+.zf-text,
+.zf-combine,
+.zf-updater {
+  --zf-node-color: #bc9655;
+}
+.zf-image,
+.zf-reference,
+.zf-library-node {
+  --zf-node-color: #579b82;
+}
+.zf-video {
+  --zf-node-color: #668fce;
+}
+.zf-note {
+  --zf-node-color: #aa91bb;
+}
+.zf-card .zf-kind {
+  color: var(--zf-ink);
+  background: color-mix(in srgb, var(--zf-node-color) 20%, var(--zf-card));
+}
+.zf-card .zf-output-port {
+  background: var(--zf-node-color, var(--zf-muted));
+}
+.zf-lines path[data-port="prompt"] {
+  stroke: #bc9655;
+}
+.zf-lines path:is([data-port="reference"], [data-port="first_frame"], [data-port="last_frame"]) {
+  stroke: #579b82;
+}
+.zf-lines path.zf-line-selected {
+  stroke-width: 3;
+}
+.zf-pending-output {
+  position: relative;
+  min-height: 220px;
+  overflow: hidden;
+}
+.zf-pending-output > span {
+  position: absolute;
+  bottom: 14px;
+  left: 12px;
+  right: 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--zf-ink);
+  background: var(--zf-card);
+  padding: 7px;
+  border-radius: 4px;
+}
+.zf-node-library {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(320px, 100%);
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  background: var(--zf-card);
+  border-right: 1px solid var(--zf-border);
+  box-shadow: 8px 0 24px rgb(0 0 0 / 8%);
+}
+.zf-node-library header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  padding: 20px 16px 14px;
+}
+.zf-node-library header button {
+  min-width: 28px;
+  min-height: 28px;
+}
+.zf-node-library p,
+.zf-node-library footer {
+  color: var(--zf-muted);
+  font-size: 11px;
+}
+.zf-node-library header p {
+  margin-top: 4px;
+}
+.zf-node-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 16px;
+  padding: 9px;
+  border: 1px solid var(--zf-border);
+  border-radius: 5px;
+  color: var(--zf-muted);
+}
+.zf-node-search input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  color: var(--zf-ink);
+}
+.zf-node-results {
+  overflow-y: auto;
+  flex: 1;
+}
+.zf-node-results > button {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--zf-border);
+  border-radius: 0;
+}
+.zf-node-results > button:hover {
+  background: var(--zf-soft);
+}
+.zf-node-results > button > span:nth-child(2) {
+  flex: 1;
+}
+.zf-node-results strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+.zf-node-results small {
+  display: block;
+  color: var(--zf-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.zf-node-results > p {
+  padding: 16px;
+}
+.zf-node-symbol {
+  width: 28px;
+  text-align: center;
+  font-size: 20px;
+}
+.zf-node-library footer {
+  padding: 14px 16px;
+  border-top: 1px solid var(--zf-border);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .zf-node-library {
+    animation: zf-panel-enter 160ms ease-out;
+  }
+  @keyframes zf-panel-enter {
+    from {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
 }
 .zf-workspace button:disabled {
   opacity: 0.45;
@@ -42,8 +228,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 64px;
-  padding: 12px 22px;
+  min-height: 56px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--zf-border);
   background: var(--zf-card);
   z-index: 5;
@@ -215,8 +401,8 @@
   width: 316px;
   top: 0;
   left: 0;
-  border: 0;
-  border-radius: 12px;
+  border: 1px solid var(--zf-border);
+  border-radius: 8px;
   background: var(--zf-card);
   box-shadow:
     0 2px 6px rgb(0 0 0 / 4%),
@@ -224,7 +410,7 @@
   cursor: default;
 }
 .zf-card.zf-selected {
-  outline: 1px solid color-mix(in srgb, var(--zf-ink) 36%, var(--zf-card));
+  outline: 2px solid var(--zf-accent);
   outline-offset: 2px;
   z-index: 2;
 }
@@ -234,7 +420,9 @@
   gap: 9px;
   height: 48px;
   padding: 9px 12px;
-  border-bottom: 0;
+  border-bottom: 1px solid var(--zf-border);
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--zf-node-color, var(--zf-muted)) 10%, var(--zf-card));
   cursor: grab;
   touch-action: none;
 }
@@ -307,6 +495,7 @@
   padding: 18px 16px 12px;
 }
 .zf-prompt-body > textarea,
+.zf-updater-body textarea,
 .zf-instructions > textarea {
   width: 100%;
   resize: vertical;
@@ -341,6 +530,10 @@
 .zf-output img {
   max-height: 320px;
   object-fit: contain;
+}
+.zf-output > [aria-busy],
+.zf-output > [aria-busy] > div {
+  min-height: 220px;
 }
 .zf-empty-output {
   min-height: 188px;
@@ -693,6 +886,7 @@
   }
   .zf-top-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
   .zf-top-actions > .zf-run {
     margin-left: auto;
@@ -891,6 +1085,151 @@
 .zf-input-order {
   display: flex;
   gap: 2px;
+}
+
+.zf-library-body {
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.zf-library-node .zf-kind {
+  background: var(--zf-soft);
+  color: var(--zf-ink);
+}
+.zf-library-node-ports {
+  position: relative;
+  height: 64px;
+  border-bottom: 1px solid var(--zf-border);
+  color: var(--zf-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+.zf-library-node-output {
+  position: absolute;
+  top: 11px;
+  right: 16px;
+}
+.zf-library-node-input {
+  position: absolute;
+  top: 43px;
+  left: 16px;
+}
+.zf-library-node-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.zf-library-node-heading > span {
+  color: var(--zf-muted);
+}
+.zf-library-node-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px dashed var(--zf-border);
+  background: var(--zf-soft);
+}
+.zf-library-node-dropzone > span {
+  font-size: 24px;
+  color: var(--zf-muted);
+}
+.zf-library-node-dropzone > small {
+  font-size: 11px;
+  color: var(--zf-muted);
+}
+.zf-library-node-dropzone:hover:not(:disabled) {
+  border-color: var(--zf-ink);
+}
+.zf-library-body .zf-meta {
+  padding-top: 0;
+  line-height: 1.6;
+}
+.zf-library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.zf-library-image {
+  min-width: 0;
+}
+.zf-library-image > button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--zf-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.zf-library-image > button[aria-pressed="true"] {
+  border-color: var(--zf-ink);
+}
+.zf-library-image img {
+  width: 100%;
+  height: 88px;
+  object-fit: contain;
+  background: var(--zf-soft);
+}
+.zf-library-image [aria-busy] {
+  min-height: 88px;
+}
+.zf-library-image [aria-busy] > div {
+  min-height: 88px;
+}
+.zf-library-image .zf-library-pending {
+  display: grid;
+  place-items: center;
+  height: 88px;
+  white-space: normal;
+  background: var(--zf-soft);
+  color: var(--zf-muted);
+  text-align: center;
+}
+.zf-library-image > button > span:not(.zf-image-preview) {
+  display: block;
+  padding: 6px;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zf-library-image .zf-image-preview {
+  height: 88px;
+  aspect-ratio: auto;
+}
+.zf-library-image .zf-image-preview > span {
+  white-space: normal;
+}
+.zf-library-image .zf-reference-actions {
+  gap: 2px;
+  margin-top: 4px;
+}
+.zf-updater-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.zf-updater-body textarea {
+  min-height: 90px;
+}
+.zf-updater-body .zf-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.zf-library-body .zf-field input {
+  min-width: 0;
+  width: 64px;
+  background: var(--zf-soft);
+  padding: 6px;
 }
 .zf-input-order button {
   background: var(--zf-soft);

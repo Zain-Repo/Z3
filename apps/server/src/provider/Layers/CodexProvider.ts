@@ -34,6 +34,7 @@ import {
 } from "../providerSnapshot.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import packageJson from "../../../package.json" with { type: "json" };
+import { codexUsage } from "../providerUsage.ts";
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 
 const CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER = "2 seconds" as const;
@@ -44,6 +45,7 @@ const CODEX_PRESENTATION = {
 } as const;
 
 export interface CodexAppServerProviderSnapshot {
+  readonly usage?: ServerProvider["usage"];
   readonly account: CodexSchema.V2GetAccountResponse;
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
@@ -395,12 +397,19 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     } satisfies CodexAppServerProviderSnapshot;
   }
 
-  const [skillsResponse, models] = yield* Effect.all(
+  const [skillsResponse, models, usage] = yield* Effect.all(
     [
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
       requestAllCodexModels(client),
+      client.request("account/rateLimits/read", undefined).pipe(
+        Effect.map(codexUsage),
+        Effect.timeoutOption("2 seconds"),
+        Effect.map(Option.getOrUndefined),
+        // Older CLIs and API-key accounts may not expose subscription limits.
+        Effect.orElseSucceed(() => undefined),
+      ),
     ],
     { concurrency: "unbounded" },
   );
@@ -408,6 +417,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   return {
     account: accountResponse,
     version,
+    ...(usage ? { usage } : {}),
     models: applyPreferredCodexDefaultModel(
       appendCustomCodexModels(models, input.customModels ?? []),
     ),
@@ -600,6 +610,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     enabled: codexSettings.enabled,
     checkedAt,
     models: snapshot.models,
+    ...(snapshot.usage ? { usage: snapshot.usage } : {}),
     skills: snapshot.skills,
     probe: {
       installed: true,

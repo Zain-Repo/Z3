@@ -119,9 +119,11 @@ describe("ElectronMenu", () => {
       buildFromTemplateMock.mockImplementation(() => ({ popup: popupMock }));
 
       const electronMenu = yield* ElectronMenu.ElectronMenu;
+      const frame = { routingId: 7 } as Electron.WebFrameMain;
       const popup = electronMenu.popupTemplate({
         window: {} as Electron.BrowserWindow,
         template: [{ label: "Copy" }],
+        frame,
       });
 
       assert.equal(buildFromTemplateMock.mock.calls.length, 0);
@@ -131,6 +133,7 @@ describe("ElectronMenu", () => {
 
       assert.equal(buildFromTemplateMock.mock.calls.length, 1);
       assert.equal(popupMock.mock.calls.length, 1);
+      assert.strictEqual(popupMock.mock.calls[0]?.[0].frame, frame);
     }).pipe(Effect.provide(TestLayer)),
   );
 

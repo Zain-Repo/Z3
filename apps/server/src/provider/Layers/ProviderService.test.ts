@@ -996,6 +996,114 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect(
+    "keeps handoff state through failed sends and resumed sessions, then clears it on acceptance",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const threadId = asThreadId("handoff-retry");
+        yield* provider.startSession(threadId, {
+          threadId,
+          providerInstanceId: codexInstanceId,
+          runtimeMode: "full-access",
+        });
+        yield* provider.startSession(threadId, {
+          threadId,
+          providerInstanceId: codexInstanceId,
+          runtimeMode: "full-access",
+          resumeCursor: null,
+          needsConversationHandoff: true,
+        });
+        assert.isUndefined(routing.codex.startSession.mock.calls.at(-1)?.[0].resumeCursor);
+        assert.equal(
+          (yield* provider.listSessions()).find((entry) => entry.threadId === threadId)
+            ?.needsConversationHandoff,
+          true,
+        );
+        routing.codex.sendTurn.mockImplementationOnce(() =>
+          Effect.fail(
+            new ProviderAdapterSessionNotFoundError({ provider: CODEX_DRIVER, threadId }),
+          ),
+        );
+        const failed = yield* Effect.exit(provider.sendTurn({ threadId, input: "handoff" }));
+        assert.equal(Exit.isFailure(failed), true);
+        yield* provider.stopSession({ threadId });
+        yield* provider.startSession(threadId, {
+          threadId,
+          providerInstanceId: codexInstanceId,
+          runtimeMode: "full-access",
+        });
+        assert.equal(
+          (yield* provider.listSessions()).find((entry) => entry.threadId === threadId)
+            ?.needsConversationHandoff,
+          true,
+        );
+        yield* provider.sendTurn({ threadId, input: "history and retry" });
+        assert.equal(
+          (yield* provider.listSessions()).find((entry) => entry.threadId === threadId)
+            ?.needsConversationHandoff,
+          false,
+        );
+      }),
+  );
+
+  it.effect("routes to the replacement even if stopping the retired adapter fails", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("handoff-stop-failure");
+      yield* provider.startSession(threadId, {
+        threadId,
+        providerInstanceId: codexInstanceId,
+        runtimeMode: "full-access",
+      });
+      routing.codex.stopSession.mockImplementationOnce(() =>
+        Effect.fail(new ProviderAdapterSessionNotFoundError({ provider: CODEX_DRIVER, threadId })),
+      );
+      yield* provider.startSession(threadId, {
+        threadId,
+        providerInstanceId: claudeAgentInstanceId,
+        runtimeMode: "full-access",
+        resumeCursor: null,
+        needsConversationHandoff: true,
+      });
+      const sessions = (yield* provider.listSessions()).filter(
+        (entry) => entry.threadId === threadId,
+      );
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0]?.providerInstanceId, claudeAgentInstanceId);
+      yield* routing.codex.stopSession(threadId);
+      yield* provider.stopSession({ threadId });
+      routing.claude.startSession.mockClear();
+    }),
+  );
+
+  it.effect("preserves the old session if starting a replacement provider fails", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("handoff-start-failure");
+      yield* provider.startSession(threadId, {
+        threadId,
+        providerInstanceId: codexInstanceId,
+        runtimeMode: "full-access",
+      });
+      routing.claude.startSession.mockImplementationOnce(() => Effect.die("replacement failed"));
+      const failed = yield* Effect.exit(
+        provider.startSession(threadId, {
+          threadId,
+          providerInstanceId: claudeAgentInstanceId,
+          runtimeMode: "full-access",
+          resumeCursor: null,
+          needsConversationHandoff: true,
+        }),
+      );
+      assert.equal(Exit.isFailure(failed), true);
+      const sessions = yield* provider.listSessions();
+      assert.equal(sessions.find((entry) => entry.threadId === threadId)?.provider, "codex");
+      yield* provider.sendTurn({ threadId, input: "continue on original provider" });
+      routing.claude.startSession.mockClear();
+    }),
+  );
+
   it.effect("preserves the persisted binding when stopping a session", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
@@ -1311,7 +1419,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-  it.effect("reuses persisted resume cursor when startSession is called after a restart", () =>
+  it.effect("reuses persisted resume cursor and pending handoff after a server restart", () =>
     Effect.gen(function* () {
       const tempDir = NodeFS.mkdtempSync(
         NodePath.join(NodeOS.tmpdir(), "t3-provider-service-start-"),
@@ -1352,6 +1460,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           threadId: asThreadId("thread-claude-start"),
           cwd: "/tmp/project-claude-start",
           runtimeMode: "full-access",
+          needsConversationHandoff: true,
         });
       }).pipe(Effect.provide(firstProviderLayer));
 
@@ -1386,13 +1495,14 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* Effect.gen(function* () {
         const provider = yield* ProviderService.ProviderService;
-        yield* provider.startSession(initial.threadId, {
+        const resumed = yield* provider.startSession(initial.threadId, {
           provider: ProviderDriverKind.make("claudeAgent"),
           providerInstanceId: claudeAgentInstanceId,
           threadId: initial.threadId,
           cwd: "/tmp/project-claude-start",
           runtimeMode: "full-access",
         });
+        assert.equal(resumed.needsConversationHandoff, true);
       }).pipe(Effect.provide(secondProviderLayer));
 
       assert.equal(secondClaude.startSession.mock.calls.length, 1);

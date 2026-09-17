@@ -7,7 +7,12 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { type CodexSettings, type ModelSelection } from "@t3tools/contracts";
+import {
+  ImagePromptRewriteResult,
+  type CodexSettings,
+  type ModelSelection,
+} from "@t3tools/contracts";
+import { imagePromptRewriteMessages } from "./ImagePromptRewritePrompt.ts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
@@ -95,6 +100,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
 
   const encodeJsonForOperation = (
     operation:
+      | "rewriteImagePrompt"
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
@@ -114,6 +120,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
 
   const materializeImageAttachments = Effect.fn("materializeImageAttachments")(function* (
     _operation:
+      | "rewriteImagePrompt"
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
@@ -156,6 +163,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     modelSelection,
   }: {
     operation:
+      | "rewriteImagePrompt"
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
@@ -403,6 +411,26 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     });
 
   return {
+    rewriteImagePrompt: Effect.fn("CodexTextGeneration.rewriteImagePrompt")(function* (input) {
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-prompt-rewrite-" }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation: "rewriteImagePrompt",
+              detail: "Could not prepare prompt rewrite workspace.",
+              cause,
+            }),
+        ),
+      );
+      const messages = imagePromptRewriteMessages(input);
+      return yield* runCodexJson({
+        operation: "rewriteImagePrompt",
+        cwd,
+        prompt: `${messages[0].content}\nDo not inspect files or use tools. Only rewrite the supplied visual prompt.\n\n${messages[1].content}`,
+        outputSchemaJson: ImagePromptRewriteResult,
+        modelSelection: input.modelSelection,
+      });
+    }, Effect.scoped),
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

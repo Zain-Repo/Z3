@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import { resolveCivitaiOptions, searchCivitaiResources } from "./CivitaiResources.ts";
+import { resolveCivitaiOptions, resolveFalCivitaiLoras, searchCivitaiResources } from "./CivitaiResources.ts";
 import { CIVITAI_MODELS } from "./CivitaiModels.ts";
 import { generateCivitaiImage } from "./CivitaiApi.ts";
 
@@ -70,6 +70,47 @@ describe("Civitai resources", () => {
       }),
     );
   }
+
+  it.effect("resolves Flux LoRAs to Civitai's redirected storage URL for fal", () =>
+    Effect.gen(function* () {
+      const air = "urn:air:flux1:lora:civitai:3@4";
+      const storage = "https://storage.googleapis.com/civitai/lora.safetensors?X-Amz-Signature=1";
+      const client = HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            request.url.includes("/api/download/models/")
+              ? new Response(null, { status: 302, headers: { location: storage } })
+              : Response.json({
+                  id: 4,
+                  name: "v1",
+                  air,
+                  baseModel: "Flux.1 D",
+                  model: { type: "LORA" },
+                }),
+          ),
+        ),
+      );
+      expect(
+        yield* resolveFalCivitaiLoras(
+          client,
+          "secret-token",
+          "fal/flux-lora",
+          { loras: [{ air, strength: 0.8 }] },
+          "path",
+        ),
+      ).toEqual([{ path: storage, scale: 0.8 }]);
+      expect(
+        yield* resolveFalCivitaiLoras(
+          client,
+          "secret-token",
+          "fal/z-image-turbo-lora",
+          { loras: [{ air: "urn:air:zimageturbo:lora:civitai:3@4", strength: 1 }] },
+          "model_name",
+        ).pipe(Effect.flip),
+      ).toMatchObject({ message: expect.stringContaining("compatible") });
+    }),
+  );
 
   it.effect("rejects cross-architecture Klein LoRAs and accepts the matching dictionary", () =>
     Effect.gen(function* () {

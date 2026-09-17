@@ -71,11 +71,16 @@ export function imagePromptFamily(model: string): "descriptive" | "instruction" 
   return /flux|z[-_]?image|stable[-_]?diffusion|sdxl/i.test(model) ? "descriptive" : "instruction";
 }
 
+/** Compact image-model guidance from .agents/skills/zimage-realism/SKILL.md. */
+export const ZIMAGE_REALISM_RULES =
+  "Honor the brief's explicit medium, style, subjects, identity, skin tone, age, text, and reference intent. For photographic imagery, use believable scene lighting with consistent shadows and reflections; when lighting is unspecified, favor natural available light appropriate to the setting. Where skin is visible, render a clear complexion with subtle pores, fine texture, gentle tonal variation, and restrained highlights at the scale of the shot. Preserve distinguishing features and natural asymmetry, with restrained retouching. Keep anatomy, object geometry, contact shadows, material surfaces, perspective, and focus falloff coherent. Let texture remain subtle and specific to each material. Apply these photographic cues only where compatible with the requested medium; preserve intentional stylization.";
+
 /** Version 1 direction is shared by preview and server; the original brief stays reusable. */
 export function prepareImagePrompt(input: ImageGenerationInput): string {
   const direction = input.creativeDirection;
-  if (!direction) return input.prompt;
+  if (!direction) return `${input.prompt}\n\n${ZIMAGE_REALISM_RULES}`;
   const cues = [
+    ZIMAGE_REALISM_RULES,
     STYLE[direction.style],
     direction.realism === "natural"
       ? "Natural camera rendering: plausible lens perspective, coherent anatomy and object geometry, subtle surface variation, realistic skin texture where visible, and balanced highlight rolloff. Keep the subject and styling from the brief."

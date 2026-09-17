@@ -19,6 +19,7 @@ import {
   buildThreadTurnInterruptInput,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
+  deriveLockedProvider,
   dismissBranchMismatchForSession,
   getStartedThreadModelChangeBlockReason,
   hasServerAcknowledgedLocalDispatch,
@@ -321,6 +322,28 @@ describe("buildExpiredTerminalContextToastCopy", () => {
   });
 });
 
+describe("provider selection in existing conversations", () => {
+  it.each(["chat", "project"] as const)(
+    "unlocks idle %s threads and keeps running turns on their provider",
+    (scope) => {
+      const thread = makeThread({ scope, session: readySession, latestTurn: completedTurn });
+      expect(
+        deriveLockedProvider({ thread, selectedProvider: "claudeAgent", threadProvider: "codex" }),
+      ).toBeNull();
+      expect(
+        deriveLockedProvider({
+          thread: {
+            ...thread,
+            session: { ...readySession, activeTurnId: TurnId.make("running"), status: "running" },
+          },
+          selectedProvider: "claudeAgent",
+          threadProvider: "codex",
+        }),
+      ).toBe("codex");
+    },
+  );
+});
+
 describe("getStartedThreadModelChangeBlockReason", () => {
   const providers = [
     {
@@ -366,7 +389,7 @@ describe("getStartedThreadModelChangeBlockReason", () => {
     ).toBeNull();
   });
 
-  it("blocks started-session model changes when either provider requires a new thread", () => {
+  it("allows cross-provider handoffs even when native model changes are restricted", () => {
     expect(
       getStartedThreadModelChangeBlockReason({
         providers,
@@ -380,11 +403,7 @@ describe("getStartedThreadModelChangeBlockReason", () => {
           model: "grok-build",
         },
       }),
-    ).toEqual({
-      title: "Start a new chat to change models",
-      description:
-        "This provider does not allow switching models after a conversation has started.",
-    });
+    ).toBeNull();
   });
 });
 

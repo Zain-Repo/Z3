@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -10,6 +11,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 
+import { FAL_VIDEO_MODELS } from "../mediaGeneration/FalModels.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -76,11 +78,74 @@ const layer = it.layer(
   Layer.mergeAll(
     NodeSqliteClient.layerMemory(),
     NodeServices.layer,
-    ServerSettingsService.layerTest({ providers: { openrouter: { apiKey: "test-key" } } }),
+    ServerSettingsService.layerTest({
+      providers: { openrouter: { apiKey: "test-key" } },
+      providerInstances: {
+        [ProviderInstanceId.make("fal")]: {
+          driver: ProviderDriverKind.make("fal"),
+          enabled: true,
+          environment: [{ name: "FAL_KEY", value: "fal-test-key", sensitive: true }],
+        },
+      },
+    }),
   ),
 );
 
 layer("VideoGenerationService", (it) => {
+  it.effect(
+    "recovers a fal video using its persisted status URL and stores the output locally",
+    () =>
+      Effect.gen(function* () {
+        yield* runMigrations({ toMigrationInclusive: 40 });
+        const sql = yield* SqlClient.SqlClient;
+        const downloaded = yield* Deferred.make<void>();
+        const queue = "https://queue.fal.run/wan/v2.6/requests/recovered-fal";
+        yield* sql`INSERT INTO projection_video_generations
+      (generation_id, provider_job_id, provider_instance_id, model, status, polling_url, created_at, updated_at)
+      VALUES ('fal-recovery', 'recovered-fal', 'fal', 'fal/wan-2.6-image-to-video', 'pending', ${`${queue}/status`}, '2026-01-01', '2026-01-01')`;
+        const urls: string[] = [];
+        const client = HttpClient.make((request) => {
+          urls.push(request.url);
+          if (request.url === `${queue}/status`)
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({ status: "COMPLETED", response_url: `${queue}/result` }),
+              ),
+            );
+          if (request.url === `${queue}/result`)
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({ video: { url: "https://v3.fal.media/movie.mp4" } }),
+              ),
+            );
+          assert.equal(request.headers.authorization, undefined);
+          return Deferred.succeed(downloaded, undefined).pipe(
+            Effect.as(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(new Uint8Array([0, 0, 0, 20, 102, 116, 121, 112, 105, 115, 111, 109])),
+              ),
+            ),
+          );
+        });
+        yield* Effect.scoped(Layer.build(VideoGenerationService.layer)).pipe(
+          Effect.provide(Layer.succeed(HttpClient.HttpClient, client)),
+        );
+        yield* Deferred.await(downloaded);
+        yield* Effect.yieldNow;
+        const assets = yield* sql<{
+          readonly size: number;
+        }>`SELECT length(bytes) AS size FROM projection_video_assets WHERE generation_id = 'fal-recovery'`;
+        assert.equal(assets[0]?.size, 12);
+        assert.deepEqual(urls, [
+          `${queue}/status`,
+          `${queue}/result`,
+          "https://v3.fal.media/movie.mp4",
+        ]);
+      }),
+  );
   const withService = <A, E>(client: HttpClient.HttpClient, effect: Effect.Effect<A, E>) =>
     effect.pipe(
       Effect.provide(
@@ -89,6 +154,101 @@ layer("VideoGenerationService", (it) => {
         ),
       ),
     );
+
+  it.effect("lists fal models and submits Wan jobs without OpenRouter", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 40 });
+      const downloaded = yield* Deferred.make<void>();
+      const queue = "https://queue.fal.run/wan/v2.6/requests/fal-video";
+      const urls: string[] = [];
+      const client = HttpClient.make((request) => {
+        urls.push(`${request.method} ${request.url}`);
+        if (request.method === "POST") {
+          assert.equal(request.url, "https://queue.fal.run/wan/v2.6/text-to-video");
+          assert.equal(request.headers.authorization, "Key fal-test-key");
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json({
+                request_id: "fal-video",
+                status_url: `${queue}/status`,
+                response_url: `${queue}/result`,
+                cancel_url: `${queue}/cancel`,
+              }),
+            ),
+          );
+        }
+        if (request.url === `${queue}/status`)
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json({ status: "COMPLETED", response_url: `${queue}/result` }),
+            ),
+          );
+        if (request.url === `${queue}/result`)
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json({ video: { url: "https://v3.fal.media/clip.mp4" } }),
+            ),
+          );
+        assert.equal(request.headers.authorization, undefined);
+        return Deferred.succeed(downloaded, undefined).pipe(
+          Effect.as(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(new Uint8Array([0, 0, 0, 20, 102, 116, 121, 112, 105, 115, 111, 109])),
+            ),
+          ),
+        );
+      });
+      const record = yield* withService(
+        client,
+        Effect.gen(function* () {
+          const service = yield* VideoGenerationService.VideoGenerationService;
+          const models = yield* service.listModels(ProviderInstanceId.make("fal"));
+          assert.equal(models.length, FAL_VIDEO_MODELS.length);
+          return yield* service.generate({
+            model: "fal/wan-2.6-text-to-video",
+            providerInstanceId: ProviderInstanceId.make("fal"),
+            prompt: "A scene",
+            duration: 5,
+          });
+        }),
+      );
+      assert.equal(record.status, "pending");
+      yield* Deferred.await(downloaded);
+      yield* Effect.yieldNow;
+      const sql = yield* SqlClient.SqlClient;
+      const assets = yield* sql<{
+        readonly size: number;
+      }>`SELECT length(bytes) AS size FROM projection_video_assets WHERE generation_id = ${record.id}`;
+      assert.equal(assets[0]?.size, 12);
+      assert.ok(urls.every((url) => !url.includes("openrouter")));
+    }),
+  );
+
+  it.effect("surfaces fal generation errors instead of a generic failure", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 40 });
+      const client = HttpClient.make((request) =>
+        Effect.succeed(HttpClientResponse.fromWeb(request, new Response(null, { status: 401 }))),
+      );
+      const result = yield* withService(
+        client,
+        Effect.gen(function* () {
+          const service = yield* VideoGenerationService.VideoGenerationService;
+          return yield* service
+            .generate({
+              model: "fal/wan-2.6-text-to-video",
+              prompt: "A scene",
+            })
+            .pipe(Effect.flip);
+        }),
+      );
+      assert.include(result.message, "API key");
+    }),
+  );
 
   it.effect("rejects incompatible model options before submitting a paid request", () =>
     Effect.gen(function* () {

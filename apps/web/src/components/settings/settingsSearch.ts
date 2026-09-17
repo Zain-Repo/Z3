@@ -46,6 +46,11 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
  */
 export const SETTINGS_SEARCH_ITEMS = [
   {
+    id: "fal-generation",
+    title: "fal.ai image and video generation API key",
+    to: "/settings/providers",
+  },
+  {
     id: "theme",
     title: "Theme",
     to: "/settings/appearance",
@@ -152,6 +157,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "providers",
     title: "Providers",
+    to: "/settings/providers",
+  },
+  {
+    id: "provider-usage",
+    title: "Usage summary",
     to: "/settings/providers",
   },
   {

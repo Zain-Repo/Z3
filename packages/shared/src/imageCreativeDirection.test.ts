@@ -1,11 +1,32 @@
 import { describe, expect, it } from "vite-plus/test";
-import { DEFAULT_IMAGE_DIRECTION, prepareImagePrompt } from "./imageCreativeDirection.ts";
+import {
+  DEFAULT_IMAGE_DIRECTION,
+  prepareImagePrompt,
+  ZIMAGE_REALISM_RULES,
+} from "./imageCreativeDirection.ts";
 
 describe("image creative direction", () => {
-  it("preserves legacy prompts verbatim with direction disabled", () => {
+  it("preserves the original brief and adds baseline guidance with direction disabled", () => {
     expect(prepareImagePrompt({ model: "model", prompt: "  Original\ntext  " })).toBe(
-      "  Original\ntext  ",
+      `  Original\ntext  \n\n${ZIMAGE_REALISM_RULES}`,
     );
+  });
+
+  it("applies baseline guidance once across provider families and optional direction", () => {
+    for (const model of [
+      "civitai/z-image-turbo",
+      "black-forest-labs/flux.2-pro",
+      "google/gemini-image",
+      "future/model",
+    ]) {
+      for (const creativeDirection of [undefined, DEFAULT_IMAGE_DIRECTION]) {
+        const input = { model, prompt: "A flat ink drawing of two blue birds", creativeDirection };
+        const result = prepareImagePrompt(input);
+        expect(result.startsWith(input.prompt)).toBe(true);
+        expect(result.split(ZIMAGE_REALISM_RULES)).toHaveLength(2);
+        expect(input.prompt).toBe("A flat ink drawing of two blue birds");
+      }
+    }
   });
 
   it("keeps the subject first and uses positive visual descriptions for FLUX and Z-Image", () => {

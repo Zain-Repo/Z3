@@ -12,7 +12,16 @@ import { referenceImageBounds } from "../../lib/imageModelCapabilities";
 const Point = Schema.Struct({ x: Schema.Finite, y: Schema.Finite });
 export const FlowNode = Schema.Struct({
   id: Schema.String,
-  kind: Schema.Literals(["text", "image", "video", "combine", "reference", "note"]),
+  kind: Schema.Literals([
+    "text",
+    "image",
+    "video",
+    "combine",
+    "reference",
+    "note",
+    "updater",
+    "library",
+  ]),
   title: Schema.String,
   position: Point,
   text: Schema.String,
@@ -22,6 +31,19 @@ export const FlowNode = Schema.Struct({
   generationIds: Schema.Array(Schema.String),
   assetIndex: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   libraryAsset: Schema.Boolean,
+  libraryImages: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        name: Schema.String,
+        url: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(12_000_000))),
+        assetId: Schema.optionalKey(Schema.String),
+      }),
+    ).check(Schema.isMaxLength(16)),
+  ),
+  rewrite: Schema.optionalKey(
+    Schema.Struct({ source: Schema.String, instructions: Schema.String, result: Schema.String }),
+  ),
+  instructions: Schema.optionalKey(Schema.String),
   reference: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -102,13 +124,15 @@ export function connectionError(
     return "This card does not accept inputs.";
   if (
     edge.port === "prompt"
-      ? !["text", "combine"].includes(source.kind)
-      : !["image", "reference"].includes(source.kind)
+      ? !["text", "combine", "updater"].includes(source.kind)
+      : !["image", "reference", "library"].includes(source.kind)
   )
     return "Connect text to a prompt port, or an image to a media port.";
-  if (target.kind === "combine" && edge.port !== "prompt")
+  if (["combine", "updater"].includes(target.kind) && edge.port !== "prompt")
     return "Prompt combiners accept text inputs only.";
-  if (edge.port === "reference" && target.kind !== "image")
+  if (target.kind === "library" && edge.port !== "reference")
+    return "Image libraries accept image inputs only.";
+  if (edge.port === "reference" && !["image", "library"].includes(target.kind))
     return "Use a video frame port for image-to-video.";
   if ((edge.port === "first_frame" || edge.port === "last_frame") && target.kind !== "video")
     return "Frame ports belong to video cards.";
@@ -159,6 +183,13 @@ export function parseFlowBoard(value: unknown): FlowBoard {
   )
     throw new Error("Card position is out of range.");
   for (const node of board.nodes) {
+    for (const image of node.libraryImages ?? []) {
+      if (
+        !!image.url === !!image.assetId ||
+        (image.url && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(image.url))
+      )
+        throw new Error("Library images must contain one embedded image or saved asset ID.");
+    }
     if (
       node.reference &&
       !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(node.reference.url)
@@ -170,7 +201,7 @@ export function parseFlowBoard(value: unknown): FlowBoard {
 
 export const MAX_FLOW_PROMPT_LENGTH = 100_000;
 
-export function connectedPrompt(board: FlowBoard, node: FlowNode): string {
+export function connectedPrompt(board: FlowBoard, node: FlowNode, inputOnly = false): string {
   const nodes = new Map(board.nodes.map((item) => [item.id, item]));
   nodes.set(node.id, node);
   const memo = new Map<string, string>();
@@ -201,6 +232,12 @@ export function connectedPrompt(board: FlowBoard, node: FlowNode): string {
       if (result.length > MAX_FLOW_PROMPT_LENGTH) break;
     }
     append(item.text.trim().slice(0, MAX_FLOW_PROMPT_LENGTH + 1));
+    if (item.kind === "updater" && !(inputOnly && item.id === node.id)) {
+      result =
+        item.rewrite?.source === result && item.rewrite.instructions === (item.instructions ?? "")
+          ? item.rewrite.result
+          : "";
+    }
     visiting.delete(item.id);
     memo.set(item.id, result);
     return result;
@@ -210,6 +247,13 @@ export function connectedPrompt(board: FlowBoard, node: FlowNode): string {
 
 export const FLOW_COMPONENTS = [
   { kind: "text", label: "Prompt", symbol: "T", description: "Write a reusable brief" },
+  { kind: "updater", label: "Prompt updater", symbol: "✦", description: "Enrich a prompt with AI" },
+  {
+    kind: "library",
+    label: "Image library",
+    symbol: "▦",
+    description: "Collect images for other cards",
+  },
   { kind: "image", label: "Image", symbol: "▧", description: "Generate with an image model" },
   { kind: "video", label: "Video", symbol: "▸", description: "Generate video clips" },
   { kind: "reference", label: "Reference", symbol: "↑", description: "Upload a reference image" },
@@ -219,6 +263,80 @@ export const FLOW_COMPONENTS = [
 
 export const isGenerationNode = (node: FlowNode) =>
   (node.kind === "image" || node.kind === "video") && !node.libraryAsset;
+
+/** Expands library collections in connection order; frame ports use the selected image. */
+export function flowMediaSources(
+  board: FlowBoard,
+  node: FlowNode,
+): readonly {
+  source: string;
+  port: FlowEdge["port"];
+  url?: string;
+  assetId?: string;
+}[] {
+  type Media = { source: string; url?: string; assetId?: string };
+  const collect = (id: string, path: ReadonlySet<string>): Media[] => {
+    if (path.has(id)) throw new Error("Image library connections contain a loop.");
+    const item = board.nodes.find((entry) => entry.id === id);
+    if (!item) throw new Error("An image source is missing.");
+    if (item.kind === "reference") {
+      return [{ source: id, ...(item.reference ? { url: item.reference.url } : {}) }];
+    }
+    if (item.kind !== "library") return [{ source: id }];
+    const result: Media[] = (item.libraryImages ?? []).map((image) => ({ source: id, ...image }));
+    for (const edge of board.edges.filter(
+      (edge) => edge.target === id && edge.port === "reference",
+    )) {
+      result.push(...collect(edge.source, new Set(path).add(id)));
+      if (result.length > 16) throw new Error(`${item.title}: use at most 16 images.`);
+    }
+    if (!result.length) throw new Error(`${item.title}: add or connect images first.`);
+    return result;
+  };
+  return board.edges
+    .filter((edge) => edge.target === node.id && edge.port !== "prompt")
+    .flatMap((edge) => {
+      const media = collect(edge.source, new Set());
+      if (edge.port === "first_frame" || edge.port === "last_frame") {
+        const source = board.nodes.find((item) => item.id === edge.source);
+        const selected = media[source?.kind === "library" ? source.assetIndex : 0];
+        if (!selected) throw new Error(`${source?.title}: select an available frame image.`);
+        return [{ ...selected, port: edge.port }];
+      }
+      return media.map((item) => ({ ...item, port: edge.port }));
+    });
+}
+
+export function flowExecutionEdges(
+  board: FlowBoard,
+  nodes: readonly FlowNode[],
+): readonly FlowEdge[] {
+  return nodes.flatMap((node) =>
+    flowMediaSources(board, node).map((item, index) => ({
+      id: `${node.id}:${index}`,
+      source: item.source,
+      target: node.id,
+      port: item.port,
+    })),
+  );
+}
+
+function validatePromptUpdaters(
+  board: FlowBoard,
+  node: FlowNode,
+  visited = new Set<string>(),
+): void {
+  if (visited.has(node.id)) return;
+  visited.add(node.id);
+  if (node.kind === "updater" && !connectedPrompt(board, node).trim())
+    throw new Error(`${node.title}: rewrite the prompt after changing its inputs.`);
+  for (const edge of board.edges.filter(
+    (edge) => edge.target === node.id && edge.port === "prompt",
+  )) {
+    const source = board.nodes.find((item) => item.id === edge.source);
+    if (source) validatePromptUpdaters(board, source, visited);
+  }
+}
 
 export function reorderPromptInput(board: FlowBoard, edgeId: string, direction: -1 | 1): FlowBoard {
   const edge = board.edges.find((item) => item.id === edgeId);
@@ -316,16 +434,17 @@ export function planFlow(
   requested: readonly string[],
   hasOutput: (id: string) => boolean,
 ): readonly (readonly FlowNode[])[] {
+  const dependencies = new Map<string, readonly string[]>();
   const required = new Set<string>();
   const visit = (id: string) => {
     if (required.has(id)) return;
     const node = board.nodes.find((entry) => entry.id === id);
     if (!node || !isGenerationNode(node)) return;
     required.add(id);
-    for (const edge of board.edges.filter(
-      (entry) => entry.target === id && entry.port !== "prompt",
-    )) {
-      if (requested.includes(edge.source) || !hasOutput(edge.source)) visit(edge.source);
+    const sources = flowMediaSources(board, node).map((item) => item.source);
+    dependencies.set(id, sources);
+    for (const source of sources) {
+      if (requested.includes(source) || !hasOutput(source)) visit(source);
     }
   };
   requested.forEach(visit);
@@ -336,9 +455,9 @@ export function planFlow(
       (node) =>
         required.has(node.id) &&
         !done.has(node.id) &&
-        board.edges
-          .filter((edge) => edge.target === node.id)
-          .every((edge) => !required.has(edge.source) || done.has(edge.source)),
+        (dependencies.get(node.id) ?? []).every(
+          (source) => !required.has(source) || done.has(source),
+        ),
     );
     if (!wave.length) throw new Error("Disconnect the circular dependency before running.");
     waves.push(wave);
@@ -354,6 +473,7 @@ export function imageFlowInput(
   model: ImageGenerationModel,
   refs: readonly Reference[],
 ): ImageGenerationInput {
+  validatePromptUpdaters(board, node);
   if (!node.image || model.id !== node.image.model)
     throw new Error(`${node.title}: choose an available image model.`);
   const prompt = connectedPrompt(board, node);
@@ -410,6 +530,7 @@ export function videoFlowInput(
   model: VideoGenerationModel,
   refs: readonly Reference[],
 ): VideoGenerationInput {
+  validatePromptUpdaters(board, node);
   if (!node.video) throw new Error(`${node.title}: choose a video model.`);
   const {
     frameImages: _previousFrames,

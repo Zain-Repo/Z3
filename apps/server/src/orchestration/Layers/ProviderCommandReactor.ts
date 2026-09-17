@@ -54,6 +54,7 @@ import {
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { buildProviderHandoff } from "../providerHandoff.ts";
 import {
   appendTextAttachmentContext,
   decodeTextAttachmentBytes,
@@ -560,7 +561,7 @@ const make = Effect.gen(function* () {
       activeSession !== undefined &&
       activeSession.providerInstanceId !== undefined
         ? activeSession.providerInstanceId
-        : thread.modelSelection.instanceId;
+        : (thread.session?.providerInstanceId ?? thread.modelSelection.instanceId);
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const desiredInstanceId = desiredModelSelection.instanceId;
     const currentInfo = yield* providerService.getInstanceInfo(currentInstanceId).pipe(
@@ -604,8 +605,12 @@ const make = Effect.gen(function* () {
         session: {
           threadId,
           status: "starting",
-          providerName: activeSession?.provider ?? preferredProvider,
-          providerInstanceId: activeSession?.providerInstanceId ?? desiredInstanceId,
+          providerName:
+            activeSession?.provider ?? thread.session?.providerName ?? preferredProvider,
+          providerInstanceId:
+            activeSession?.providerInstanceId ??
+            thread.session?.providerInstanceId ??
+            desiredInstanceId,
           runtimeMode: desiredRuntimeMode,
           activeTurnId: null,
           lastError: null,
@@ -614,7 +619,12 @@ const make = Effect.gen(function* () {
         createdAt,
       });
     }
-    if (thread.session !== null) {
+    const incompatibleProvider =
+      thread.session !== null &&
+      (currentInfo.driverKind !== desiredInfo.driverKind ||
+        currentInfo.continuationIdentity.continuationKey !==
+          desiredInfo.continuationIdentity.continuationKey);
+    if (thread.session !== null && !incompatibleProvider) {
       yield* rejectStartedThreadModelChangeIfRequired({
         threadId,
         currentModelSelection:
@@ -633,21 +643,14 @@ const make = Effect.gen(function* () {
       requestedModelSelection !== undefined &&
       requestedModelSelection.instanceId !== currentInstanceId
     ) {
-      if (currentInfo.driverKind !== desiredInfo.driverKind) {
-        return yield* new ProviderAdapterRequestError({
-          provider: preferredProvider,
-          method: "thread.turn.start",
-          detail: `Thread '${threadId}' is bound to driver '${currentInfo.driverKind}' and cannot switch to '${desiredInfo.driverKind}'.`,
-        });
-      }
       if (
-        currentInfo.continuationIdentity.continuationKey !==
-        desiredInfo.continuationIdentity.continuationKey
+        incompatibleProvider &&
+        (thread.session.activeTurnId !== null || activeSession?.activeTurnId != null)
       ) {
         return yield* new ProviderAdapterRequestError({
           provider: preferredProvider,
           method: "thread.turn.start",
-          detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
+          detail: "Wait for the current turn to finish or stop it before switching providers.",
         });
       }
     }
@@ -674,6 +677,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderDriverKind;
+      readonly needsConversationHandoff?: boolean;
     }) =>
       providerService.startSession(threadId, {
         threadId,
@@ -682,6 +686,7 @@ const make = Effect.gen(function* () {
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.needsConversationHandoff ? { needsConversationHandoff: true } : {}),
         runtimeMode: desiredRuntimeMode,
       });
 
@@ -712,6 +717,28 @@ const make = Effect.gen(function* () {
           },
           createdAt,
         });
+        if (incompatibleProvider) {
+          const changedAt = yield* nowIso;
+          yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId: yield* serverCommandId("provider-switch"),
+            threadId,
+            activity: {
+              id: yield* serverEventId(),
+              tone: "info",
+              kind: "provider.session.switched",
+              summary: `Switched to ${desiredModelSelection.model}`,
+              payload: {
+                fromInstanceId: currentInstanceId,
+                toInstanceId: desiredInstanceId,
+                model: desiredModelSelection.model,
+              },
+              turnId: null,
+              createdAt: changedAt,
+            },
+            createdAt: changedAt,
+          });
+        }
       });
 
     const existingSessionThreadId =
@@ -744,9 +771,8 @@ const make = Effect.gen(function* () {
         return existingSessionThreadId;
       }
 
-      const resumeCursor = shouldRestartForModelChange
-        ? undefined
-        : (activeSession?.resumeCursor ?? undefined);
+      const needsHandoff = incompatibleProvider || shouldRestartForModelChange;
+      const resumeCursor = needsHandoff ? null : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,
@@ -766,9 +792,10 @@ const make = Effect.gen(function* () {
         shouldRestartForModelSelectionChange,
         hasResumeCursor: resumeCursor !== undefined,
       });
-      const restartedSession = yield* startProviderSession(
-        resumeCursor !== undefined ? { resumeCursor } : undefined,
-      );
+      const restartedSession = yield* startProviderSession({
+        ...(resumeCursor !== undefined ? { resumeCursor } : {}),
+        needsConversationHandoff: needsHandoff,
+      });
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -781,13 +808,16 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession(undefined);
+    const startedSession = yield* startProviderSession(
+      incompatibleProvider ? { resumeCursor: null, needsConversationHandoff: true } : undefined,
+    );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
 
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
+    readonly messageId: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
@@ -889,7 +919,22 @@ const make = Effect.gen(function* () {
         detail: "The message leaves no model input space for its attached files.",
       });
     }
-    const providerInput = providerInputResult.input;
+    const handoff = activeSession?.needsConversationHandoff
+      ? buildProviderHandoff({
+          messages: thread.messages,
+          messageId: input.messageId,
+          request: providerInputResult.input ?? "",
+        })
+      : undefined;
+    if (handoff === null) {
+      return yield* new ProviderAdapterRequestError({
+        provider: providerErrorLabel(activeSession?.provider),
+        method: "thread.turn.start",
+        detail:
+          "Unable to include conversation history. Shorten this prompt or its text attachments and retry.",
+      });
+    }
+    const providerInput = handoff?.input ?? providerInputResult.input;
     const providerAttachments = normalizedAttachments.filter(
       (attachment) => attachment.type === "image" || providerAcceptsNativeFiles,
     );
@@ -1327,6 +1372,7 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
+      messageId: event.payload.messageId,
       // Provider-only project and recalled context stay out of the rendered chat history.
       messageText: recalledProviderText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),

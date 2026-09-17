@@ -1,6 +1,8 @@
 import { useFlowSheets } from "./useFlowSheets";
+import { FlowNodeLibrary } from "./FlowNodeLibrary";
 import type { FlowSheet } from "./flowSheets";
 import { UtilityFlowCard } from "./UtilityFlowCard";
+import { flowLibraryPreview } from "./flowLibraryPreview";
 import { readFlowReference } from "./flowReference";
 import {
   FLOW_COMPONENTS,
@@ -8,6 +10,8 @@ import {
   isGenerationNode,
   workflowStarter,
   reorderPromptInput,
+  flowMediaSources,
+  flowExecutionEdges,
 } from "./flowModel";
 import { executeFlowPlan } from "./flowExecution";
 import { randomUUID } from "../../lib/utils";
@@ -122,6 +126,7 @@ function EnvironmentFlowWorkspace({
   const library = sheetsState.libraryOpen;
   const setLibrary = session.setLibrary;
   const [help, setHelp] = useState(false);
+  const [nodeLibrary, setNodeLibrary] = useState(false);
   const [boardSettings, setBoardSettings] = useState(false);
   const [libraryLimit, setLibraryLimit] = useState(18);
   const [selection, setSelection] = useState<string | null>(null);
@@ -171,17 +176,31 @@ function EnvironmentFlowWorkspace({
       flowApi.videoModels(controller.signal),
       flowApi.images(controller.signal),
       flowApi.videos(controller.signal),
-    ]).then(([openrouter, civitai, video, imageHistory, videoHistory]) => {
+      flowApi.imageModels("fal", controller.signal),
+      flowApi.videoModels(controller.signal, "fal"),
+    ]).then(([openrouter, civitai, video, imageHistory, videoHistory, fal, falVideo]) => {
       if (controller.signal.aborted) return;
       setCatalogs([
         ...(openrouter.status === "fulfilled"
-          ? openrouter.value.models.map((model) => ({ model, provider: "openrouter" }))
+          ? openrouter.value.models.map((model) => ({
+              model,
+              provider: "openrouter",
+            }))
           : []),
         ...(civitai.status === "fulfilled"
-          ? civitai.value.models.map((model) => ({ model, provider: "civitai" }))
+          ? civitai.value.models.map((model) => ({
+              model,
+              provider: "civitai",
+            }))
+          : []),
+        ...(fal.status === "fulfilled"
+          ? fal.value.models.map((model) => ({ model, provider: "fal" }))
           : []),
       ]);
-      setVideoModels(video.status === "fulfilled" ? video.value.models : []);
+      setVideoModels([
+        ...(video.status === "fulfilled" ? video.value.models : []),
+        ...(falVideo.status === "fulfilled" ? falVideo.value.models : []),
+      ]);
       if (imageHistory.status === "fulfilled") {
         imageRecords.current = imageHistory.value.generations;
         setImages(imageHistory.value.generations);
@@ -191,11 +210,15 @@ function EnvironmentFlowWorkspace({
         setNotice(
           "Some library assets could not load. Retry before running cards that use saved outputs.",
         );
-      else if (openrouter.status === "rejected" && civitai.status === "rejected")
+      else if (
+        openrouter.status === "rejected" &&
+        civitai.status === "rejected" &&
+        fal.status === "rejected"
+      )
         setNotice(
           "Image models could not load. Check your provider credentials in Settings, then retry.",
         );
-      else if (video.status === "rejected")
+      else if (video.status === "rejected" && falVideo.status === "rejected")
         setNotice(
           "Video models are unavailable. Check your provider credentials in Settings, then retry.",
         );
@@ -274,7 +297,10 @@ function EnvironmentFlowWorkspace({
         ...node,
         id: randomUUID(),
         title: `${node.title} copy`,
-        position: { x: node.position.x + CARD_WIDTH + 64, y: node.position.y + 40 },
+        position: {
+          x: node.position.x + CARD_WIDTH + 64,
+          y: node.position.y + 40,
+        },
         generationIds: node.libraryAsset ? node.generationIds : [],
         assetIndex: 0,
       };
@@ -322,7 +348,11 @@ function EnvironmentFlowWorkspace({
     (id: string, port: FlowEdge["port"] | "output", dragSource?: string) => {
       if (port === "output") {
         const node = current.current.nodes.find((item) => item.id === id);
-        if (node) setPointer({ x: node.position.x + CARD_WIDTH + 60, y: node.position.y + 67 });
+        if (node)
+          setPointer({
+            x: node.position.x + CARD_WIDTH + 60,
+            y: node.position.y + 67,
+          });
         setConnection((value) => (value === id ? null : id));
         return;
       }
@@ -385,7 +415,10 @@ function EnvironmentFlowWorkspace({
       result.status === "fulfilled"
         ? [
             {
-              ...newFlowNode("reference", { x: position.x + index * 350, y: position.y }),
+              ...newFlowNode("reference", {
+                x: position.x + index * 350,
+                y: position.y,
+              }),
               reference: result.value,
               title: result.value.name,
             },
@@ -520,16 +553,24 @@ function EnvironmentFlowWorkspace({
         if (!waves.length) throw new Error("Add an image or video generation card first.");
         for (const wave of waves)
           for (const node of wave) {
-            const refs = snapshot.edges
-              .filter((edge) => edge.target === node.id && edge.port !== "prompt")
-              .map((edge) => {
-                const source = snapshot.nodes.find((item) => item.id === edge.source);
-                if (source?.kind === "reference" && !source.reference)
-                  throw new Error(`${source.title}: upload a reference image first.`);
-                if (source?.libraryAsset && !output(source.id))
-                  throw new Error(`${source.title}: library image is unavailable.`);
-                return { port: edge.port, url: "https://example.invalid/preflight.png" };
-              });
+            const refs = flowMediaSources(snapshot, node).map((edge) => {
+              const source = snapshot.nodes.find((item) => item.id === edge.source);
+              if (source?.kind === "reference" && !source.reference)
+                throw new Error(`${source.title}: upload a reference image first.`);
+              if (source?.libraryAsset && !output(source.id))
+                throw new Error(`${source.title}: library image is unavailable.`);
+              if (
+                edge.assetId &&
+                !imageRecords.current.some((record) =>
+                  record.assets.some((asset) => asset.id === edge.assetId),
+                )
+              )
+                throw new Error(`${source?.title}: a saved library image is unavailable.`);
+              return {
+                port: edge.port,
+                url: "https://example.invalid/preflight.png",
+              };
+            });
             if (node.kind === "image") {
               const model = modelFor(node);
               if (!model) throw new Error(`${node.title}: choose an available image model.`);
@@ -560,20 +601,22 @@ function EnvironmentFlowWorkspace({
       };
       const execute = async (node: FlowNode) => {
         if (stop.current || lifetime.current.signal.aborted) return;
-        const dependencies = snapshot.edges.filter(
-          (edge) => edge.target === node.id && edge.port !== "prompt",
-        );
+        const dependencies = flowMediaSources(snapshot, node);
         setStatus(node.id, { state: "running", message: "Generating…" });
         {
           const refs = await Promise.all(
             dependencies.map(async (edge) => {
+              if (edge.url) return { port: edge.port, url: edge.url };
               const source = snapshot.nodes.find((item) => item.id === edge.source);
               if (source?.kind === "reference" && source.reference)
                 return { port: edge.port, url: source.reference.url };
-              const asset = output(edge.source);
+              const asset = edge.assetId ? { id: edge.assetId } : output(edge.source);
               if (!asset) throw new Error("An upstream image has no available output.");
               const content = await loader.load(asset.id);
-              return { port: edge.port, url: `data:${content.mediaType};base64,${content.data}` };
+              return {
+                port: edge.port,
+                url: `data:${content.mediaType};base64,${content.data}`,
+              };
             }),
           );
           if (stop.current || lifetime.current.signal.aborted) {
@@ -639,7 +682,7 @@ function EnvironmentFlowWorkspace({
         }
       };
       try {
-        await executeFlowPlan(waves, snapshot.edges, {
+        await executeFlowPlan(waves, flowExecutionEdges(snapshot, waves.flat()), {
           shouldStop: () => stop.current || lifetime.current.signal.aborted,
           execute,
           onError: (node, cause) =>
@@ -754,6 +797,13 @@ function EnvironmentFlowWorkspace({
           />
         </div>
         <div className="zf-top-actions">
+          <button
+            type="button"
+            onClick={() => setNodeLibrary(!nodeLibrary)}
+            aria-expanded={nodeLibrary}
+          >
+            Add node
+          </button>
           <span
             className="zf-save-state"
             title="The canvas is saved in this browser, separately for each environment."
@@ -1047,6 +1097,7 @@ function EnvironmentFlowWorkspace({
                 return (
                   <path
                     key={edge.id}
+                    data-port={edge.port}
                     className={
                       edge.source === selection || edge.target === selection
                         ? "zf-line-selected"
@@ -1073,7 +1124,9 @@ function EnvironmentFlowWorkspace({
               )}
             </svg>
             {board.nodes.map((node) => {
-              const Card = ["reference", "combine", "note"].includes(node.kind)
+              const Card = ["reference", "combine", "note", "updater", "library"].includes(
+                node.kind,
+              )
                 ? UtilityFlowCard
                 : FlowCard;
               return (
@@ -1085,9 +1138,14 @@ function EnvironmentFlowWorkspace({
                   catalogs={catalogs}
                   videoModels={videoModels}
                   images={images}
+                  {...(node.kind === "library"
+                    ? {
+                        libraryPreview: flowLibraryPreview(board, node, images),
+                      }
+                    : {})}
                   videos={videos}
                   status={statuses[node.id]}
-                  connected={connectedPrompt(board, { ...node, text: "" })}
+                  connected={connectedPrompt(board, { ...node, text: "" }, node.kind === "updater")}
                   pendingConnection={connection !== null}
                   loadImage={loader.load}
                   onChange={updateNode}
@@ -1129,8 +1187,11 @@ function EnvironmentFlowWorkspace({
             ? "Select an input port to connect · Esc to cancel"
             : loading
               ? "Loading models and library…"
-              : `${board.nodes.length} cards · ${board.edges.length} connections`}
+              : `${board.nodes.length} nodes · ${board.edges.length} connections${busy ? ` · ${Object.values(statuses).filter((status) => status.state === "queued").length} queued` : ""}`}
         </div>
+        {nodeLibrary && (
+          <FlowNodeLibrary disabled={busy} onAdd={add} onClose={() => setNodeLibrary(false)} />
+        )}
         {selectedNode && selectedEdges.length > 0 && (
           <aside className="zf-connections" aria-label="Selected card connections">
             <strong>Connections</strong>
@@ -1336,7 +1397,9 @@ function EnvironmentFlowWorkspace({
               </button>
             </header>
             <div className="zf-library-scroll">
-              {images.length === 0 && videos.length === 0 && <p>No generated assets yet.</p>}
+              {!loading && images.length === 0 && videos.length === 0 && (
+                <p>No generated assets yet.</p>
+              )}
               <GalleryPanel
                 generations={images}
                 visibleCount={libraryLimit}

@@ -1289,19 +1289,18 @@ export function resolveOpenRouterImageCapabilities(
 ): OpenRouterImageCapabilities {
   const only = provider?.only;
   if (Array.isArray(only) && only.length > 0) {
-    const pinned =
-      result.endpoints.find(
-        (endpoint) => endpoint.providerSlug !== undefined && only.includes(endpoint.providerSlug),
-      ) ??
-      result.endpoints.find(
-        (endpoint) => endpoint.providerTag !== undefined && only.includes(endpoint.providerTag),
-      );
-    if (pinned) {
-      return {
-        supportedParameters: pinned.supportedParameters,
-        supportsStreaming: pinned.supportsStreaming,
-      };
-    }
+    // A base provider slug includes its regional/tier endpoints. Every allowed
+    // endpoint must accept the references, not just the first matching record.
+    const pinned = result.endpoints.filter((endpoint) =>
+      only.some(
+        (slug) =>
+          typeof slug === "string" &&
+          [endpoint.providerSlug, endpoint.providerTag].some(
+            (value) => value === slug || value?.startsWith(`${slug}/`),
+          ),
+      ),
+    );
+    if (pinned.length > 0) return mergeOpenRouterImageCapabilities(pinned);
   }
   return mergeOpenRouterImageCapabilities(result.endpoints);
 }
@@ -1348,14 +1347,20 @@ function sanitizeImageReferences(
   references: ReadonlyArray<OpenRouterImageReference> | undefined,
   descriptor: OpenRouterImageParameterDescriptor | undefined,
 ): ReadonlyArray<OpenRouterImageReference> | undefined {
-  if (references === undefined || descriptor === undefined) return undefined;
+  if (descriptor === undefined) {
+    if (references?.length) {
+      throw new OpenRouterApiError("The selected model endpoints do not support reference images.");
+    }
+    return undefined;
+  }
   const bounds = imageParameterBounds(descriptor, 0, Number.MAX_SAFE_INTEGER);
-  if (references.length < bounds.min) {
+  const count = references?.length ?? 0;
+  if (count < bounds.min) {
     throw new OpenRouterApiError(
       `This model requires at least ${bounds.min} reference image${bounds.min === 1 ? "" : "s"}.`,
     );
   }
-  if (references.length > bounds.max) {
+  if (count > bounds.max) {
     throw new OpenRouterApiError(
       `This model accepts at most ${bounds.max} reference image${bounds.max === 1 ? "" : "s"}.`,
     );

@@ -787,6 +787,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const requestedInstance =
+        command.modelSelection?.instanceId ?? targetThread.modelSelection.instanceId;
+      const boundInstance =
+        targetThread.session?.providerInstanceId ?? targetThread.modelSelection.instanceId;
+      if (
+        requestedInstance !== boundInstance &&
+        (targetThread.session?.activeTurnId != null ||
+          hasOpenBlockingRequest(targetThread) ||
+          threadHasQueuedTurnStart(targetThread, yield* nowIso))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Wait for the current turn to finish or stop it before switching providers.",
+        });
+      }
       const sourceProposedPlan = command.sourceProposedPlan;
       const sourceThread = sourceProposedPlan
         ? yield* requireThread({

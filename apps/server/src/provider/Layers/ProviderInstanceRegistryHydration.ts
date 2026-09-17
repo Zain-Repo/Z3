@@ -61,7 +61,7 @@ import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistry
  * Synthesize a `ProviderInstanceConfigMap` from a `ServerSettings` snapshot.
  *
  * Strategy:
- *   1. Copy explicit coding-provider entries; image-only Civitai credentials
+ *   1. Copy explicit coding-provider entries; Civitai and fal media credentials
  *      remain in settings without a coding-provider runtime.
  *   2. For each built-in driver whose `defaultInstanceIdForDriver(id)` key
  *      is *not* already in the explicit map, synthesize an entry from the
@@ -74,10 +74,10 @@ import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistry
 export const deriveProviderInstanceConfigMap = (
   settings: ServerSettings,
 ): ProviderInstanceConfigMap => {
-  // Image-only credentials share secret storage but do not create coding agents.
+  // Media credentials share secret storage but do not create coding agents.
   const merged: Record<string, ProviderInstanceConfig> = Object.fromEntries(
     Object.entries(settings.providerInstances).filter(
-      ([, instance]) => instance.driver !== "civitai",
+      ([, instance]) => instance.driver !== "civitai" && instance.driver !== "fal",
     ),
   );
 

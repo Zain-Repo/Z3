@@ -9,6 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as HttpClient from "effect/unstable/http/HttpClient";
+import { fetchProviderUsage } from "./ProviderUsageApi.ts";
 
 import {
   DeepSeekApiError,
@@ -171,11 +172,17 @@ export function checkDeepSeekProvider(
     );
   }
 
-  return fetchDeepSeekModels(httpClient, settings.apiEndpoint, apiKey).pipe(
-    Effect.flatMap((models) =>
+  return Effect.all(
+    [
+      fetchDeepSeekModels(httpClient, settings.apiEndpoint, apiKey),
+      fetchProviderUsage(httpClient, settings.apiEndpoint, apiKey, "deepseek"),
+    ],
+    { concurrency: 2 },
+  ).pipe(
+    Effect.flatMap(([models, usage]) =>
       DateTime.now.pipe(
-        Effect.map((now) =>
-          snapshot({
+        Effect.map((now) => ({
+          ...snapshot({
             settings,
             enabled,
             models: modelsFromApi(models, settings),
@@ -183,7 +190,8 @@ export function checkDeepSeekProvider(
             auth: "authenticated",
             checkedAt: DateTime.formatIso(now),
           }),
-        ),
+          ...(usage ? { usage } : {}),
+        })),
       ),
     ),
     Effect.catch((cause: unknown) =>

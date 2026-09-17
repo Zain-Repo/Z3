@@ -292,7 +292,9 @@ describe("parseOpenRouterModels", () => {
           background: "transparent",
           output_compression: 80,
           seed: 42,
-          input_references: [{ type: "image_url" }],
+          input_references: [
+            { type: "image_url", image_url: { url: "data:image/png;base64,AQID" } },
+          ],
           provider: { order: ["openai"] },
         });
         expect(result.data[0]?.b64Json).toBe("AQID");
@@ -682,6 +684,12 @@ describe("OpenRouter image generation capability handling", () => {
 
   it("requires reference images when the endpoint minimum is greater than zero", () => {
     expect(() =>
+      sanitizeOpenRouterImageInput(baseInput, {
+        supportedParameters: { input_references: { type: "range", min: 1, max: 10 } },
+        supportsStreaming: false,
+      }),
+    ).toThrow("requires at least 1 reference image");
+    expect(() =>
       sanitizeOpenRouterImageInput(
         { ...baseInput, inputReferences: [] },
         {
@@ -726,6 +734,47 @@ describe("OpenRouter image generation capability handling", () => {
         },
       ),
     ).toThrow("accepts at most 1 reference image");
+  });
+
+  it("rejects unsupported references instead of silently removing them", () => {
+    expect(() =>
+      sanitizeOpenRouterImageInput(
+        {
+          ...baseInput,
+          inputReferences: [
+            { type: "image_url", image_url: { url: "data:image/png;base64,AQID" } },
+          ],
+        },
+        { supportedParameters: {}, supportsStreaming: false },
+      ),
+    ).toThrow("do not support reference images");
+  });
+
+  it("intersects all allowed provider variants without unrelated endpoints", () => {
+    const endpoint = (providerSlug: string, max: number) => ({
+      providerSlug,
+      supportedParameters: { input_references: { type: "range" as const, min: 0, max } },
+      allowedPassthroughParameters: [],
+      supportsStreaming: false,
+      pricing: [],
+    });
+    const result = {
+      id: baseInput.model,
+      endpoints: [
+        endpoint("first/us", 8),
+        endpoint("first/eu", 4),
+        endpoint("second", 3),
+        endpoint("other", 1),
+      ],
+    };
+    expect(
+      resolveOpenRouterImageCapabilities(result, { only: ["first"] }).supportedParameters
+        .input_references,
+    ).toEqual({ type: "range", min: 0, max: 4 });
+    expect(
+      resolveOpenRouterImageCapabilities(result, { only: ["first", "second"] }).supportedParameters
+        .input_references,
+    ).toEqual({ type: "range", min: 0, max: 3 });
   });
 
   it("intersects capabilities across endpoints for automatic routing", () => {

@@ -17,6 +17,55 @@ result. Select the card and use the arrows in Connections to reorder its incomin
 **Note** holds art direction, decisions, and reminders. Notes have no ports and are never sent to
 models or included in paid generation runs.
 
+**Prompt updater** rewrites a brief with AI. Connect a prompt or enter an original prompt in the
+card, optionally add rewrite direction, then choose **Rewrite with AI**. Review and edit the
+updated prompt before connecting its output to an image, video, or another prompt utility.
+Rewriting runs a background model through your connected Codex account first. If Codex is
+unavailable or fails, it tries a configured OpenRouter account. Requests run sequentially and
+stop after the first successful rewrite. OpenRouter may incur provider charges.
+The original prompt stays available. Changing it, its connections, or the rewrite direction
+requires a new rewrite before downstream generation can run. **Run canvas** uses the reviewed
+result; it does not automatically submit rewrites.
+
+**Image library** collects up to 16 images in one card. Upload or paste PNG, JPEG, or WebP files,
+choose saved images, or connect image outputs to its left input. Uploaded files are limited to
+8 MB each and about 18 MB combined per library. Use the image controls to remove or reorder
+items. Saved and uploaded images come first, followed by connected images in connection order.
+Connected outputs appear automatically in the collection and update when their source changes.
+You do not need to select them again from saved images. Disconnecting a source removes its preview.
+
+Connect the library output to an image card's reference input to use the collection together.
+Choose a model that supports enough reference images, and describe how to combine them in its
+prompt. For video, a first-frame or last-frame connection uses only the selected library image.
+Click a thumbnail or set **Video frame image number**, including connected images in the count.
+To animate a combined image, connect the library to an image card, then connect that image's
+output to a video frame input. Missing upstream images are generated before their consumers.
+
+## Generate with fal.ai
+
+Open **Settings > Providers > fal.ai**, save your [fal API key](https://fal.ai/dashboard/keys),
+and enable the provider. Generation uses your fal account credits. Return to ZImage and refresh
+the model catalog if it was already open.
+
+Choose a fal.ai image model from the list. **FLUX.2**, **FLUX.2 Pro**, **Nano Banana 2**,
+**Nano Banana Pro**, and **Seedream 4.0** accept up to four reference images for editing.
+**Qwen Image** is text-only. For photoreal custom styles, use **FLUX.1 [dev] · LoRA**,
+**FLUX.1 Krea · LoRA**, **FLUX.2 [dev] · LoRA**, **Z-Image Turbo · LoRA**, or **HiDream-I1 Full**.
+Those models accept Civitai LoRAs that match their base family. Configure a Civitai API key as
+well, then search and attach LoRAs on the image card. ZImage asks Civitai for a direct file URL
+and sends that to fal; include the LoRA trigger words in the prompt. Checkpoints are not used on
+fal.
+
+Choose a **Text to video** fal model for a prompt-only clip, or an **Image to video** model and
+connect a first-frame image. Wan 2.6 is 5, 10, or 15 seconds at 720p or 1080p and has no last
+frame. Kling 3 Pro and Seedance 2.0 can add an optional last frame and can generate native audio.
+Generated media is saved in the connected environment's library. Submitted video jobs resume
+status checks after the server restarts.
+
+ZImage requests disabled safety checking for FLUX.2, Seedream, Qwen, Wan, and the LoRA endpoints,
+the most permissive FLUX.2 Pro tolerance, and the least restrictive Nano Banana tolerance. fal
+only honors disabled checking for authorized accounts; provider-side moderation can still apply.
+
 ## Saved canvas sheets
 
 **New generation** in the sidebar saves your current canvas and opens a new, completely blank
@@ -64,7 +113,11 @@ check the library before resubmitting work that was already sent.
 
 Under **Advanced settings**, creative direction offers photographic, cinematic, product, and
 illustration treatments, lighting, composition, focal detail, and reference intent. New model
-selections use crisp focal detail. Disable direction to send your brief without added instructions.
+selections use crisp focal detail. Disabling direction removes these optional treatments.
+All image models receive baseline guidance for coherent lighting, anatomy, materials, and focus.
+For photographic images, this includes clear skin with subtle natural texture and restrained
+retouching. Your explicit style takes precedence, including illustration and intentionally stylized
+work. The baseline remains active when optional creative direction is disabled.
 **Preview model prompt** shows the prepared instructions. These guide the model; they do not
 increase resolution or guarantee fidelity. Choose a supported resolution and quality for the output.
 
@@ -130,3 +183,9 @@ Use the delete control beside a canvas in the sidebar, then confirm. This perman
 In an image card’s creative direction, choose Natural camera or Editorial camera under Realism treatment. These optional instructions guide perspective, texture, shadows, and restrained retouching. Preview model prompt shows the actual added direction. Existing canvases retain their previous treatment until you change it.
 
 Compatible Civitai models offer a separate negative prompt with an editable realism quality preset. It excludes common rendering artifacts, without adding blanket content exclusions. Use short, scene-specific exclusions; provider content policies still apply. Models without native negative prompting should receive positive descriptions of the intended result instead.
+
+## Canvas controls and image previews
+
+Use **Add node** to search the node library by name or purpose. Click a result to add it, or drag it to a position on the canvas. The existing component toolbar remains available. Node headers and connections use colors to distinguish prompt and image paths; port labels remain available on hover and keyboard focus.
+
+Generation nodes show a queued or generating preview while a run is active. The canvas status shows the number of queued nodes. Image previews display skeletons while loading and decoding, then reveal the image. Reference uploads and the asset library use the same loading treatment. Loading animations settle automatically and respect reduced-motion preferences.

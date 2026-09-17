@@ -158,7 +158,20 @@ export const ServerProviderUpdateState = Schema.Struct({
 });
 export type ServerProviderUpdateState = typeof ServerProviderUpdateState.Type;
 
+export const ServerProviderUsage = Schema.Struct({
+  metrics: Schema.Array(
+    Schema.Struct({
+      label: Schema.String,
+      value: Schema.Number,
+      unit: Schema.Literals(["percent", "USD", "CNY"]),
+      resetsAt: Schema.optionalKey(IsoDateTime),
+    }),
+  ),
+});
+export type ServerProviderUsage = typeof ServerProviderUsage.Type;
+
 export const ServerProvider = Schema.Struct({
+  usage: Schema.optionalKey(ServerProviderUsage),
   // Routing key for the configured instance this snapshot represents. This
   // is the only stable identity consumers may use for provider routing.
   instanceId: ProviderInstanceId,

@@ -478,6 +478,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 // --------------------------------------------------------------------------
 
 export interface ChatComposerHandle {
+  /** Attach through the composer validation path without sending a message. */
+  addDroppedFiles: (files: File[]) => void;
   focusAtEnd: () => void;
   focusAt: (cursor: number) => void;
   insertTextAtEnd: (text: string, options?: { ensureLeadingBoundary?: boolean }) => boolean;
@@ -2533,18 +2535,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
   };
 
+  const addDroppedFiles = (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    const textFiles = files.filter((file) => !file.type.startsWith("image/"));
+    if (isSimpleChat) addComposerFiles(textFiles);
+    else if (textFiles.length > 0) {
+      toastManager.add({
+        type: "error",
+        title: "Coding threads currently support image attachments only.",
+      });
+    }
+    void addComposerImages(imageFiles);
+    focusComposer();
+  };
+
   const onComposerDrop = (event: React.DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     setIsFileDragOverComposer(false);
-    const files = Array.from(event.dataTransfer.files);
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    const textFiles = isSimpleChat ? files.filter((file) => !file.type.startsWith("image/")) : [];
-    addComposerFiles(textFiles);
-    void addComposerImages(imageFiles);
-    focusComposer();
+    addDroppedFiles(Array.from(event.dataTransfer.files));
   };
 
   const insertComposerTextAtEnd = (
@@ -2664,6 +2675,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useImperativeHandle(
     composerRef,
     () => ({
+      addDroppedFiles,
       focusAtEnd: () => {
         composerEditorRef.current?.focusAtEnd();
       },
@@ -2753,6 +2765,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }),
     }),
     [
+      addDroppedFiles,
       activeThread,
       composerDraftTarget,
       composerCursor,
